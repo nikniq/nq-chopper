@@ -6,7 +6,7 @@
 #   ./cx.sh --fix    report and apply corrections
 #
 # Checks: PHP binary and version, Composer, vendor/ and its platform check,
-# .env and APP_KEY, SQLite database, storage permissions.
+# .env and APP_KEY (generated if missing), SQLite database, storage permissions.
 
 set -u
 
@@ -100,10 +100,16 @@ else
 fi
 
 if [ -f .env ]; then
-    if grep -qE '^APP_KEY=\s*$' .env; then
-        fail "APP_KEY is empty"
-        if [ "$FIX" -eq 1 ] && [ -f vendor/autoload.php ]; then
-            "$PHP_BIN" artisan key:generate --force --no-interaction && fixed "APP_KEY generated"
+    # APP_KEY is always generated when missing; the app cannot boot without it.
+    if ! grep -qE '^APP_KEY=.+' .env; then
+        if [ -f vendor/autoload.php ]; then
+            if "$PHP_BIN" artisan key:generate --force --no-interaction >/dev/null; then
+                fixed "APP_KEY generated"
+            else
+                fail "APP_KEY missing and key:generate failed"
+            fi
+        else
+            fail "APP_KEY missing (install vendor/ first, then re-run)"
         fi
     else
         ok "APP_KEY set"

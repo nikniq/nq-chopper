@@ -5,19 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{{ config('app.name', 'NQ Chopper') }}</title>
     <link rel="stylesheet" href="{{ asset('css/game.css') }}?v={{ filemtime(public_path('css/game.css')) }}">
-    @if (config('services.google_analytics.id'))
-        <!-- Google tag (gtag.js) -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id={{ config('services.google_analytics.id') }}"></script>
-        <script>
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', @json(config('services.google_analytics.id')));
-        </script>
-        <!-- End Google Analytics -->
-    @endif
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    @include('partials.analytics')
 </head>
 <body>
+    <div id="topbar">
+        <a href="{{ route('home') }}">&larr; Home</a>
+        @auth
+            <span>Pilot <strong>{{ auth()->user()->name }}</strong> &middot; scores are saved</span>
+            <form method="POST" action="{{ route('logout') }}" style="display:inline">@csrf<button type="submit" class="linkbtn">Log out</button></form>
+        @else
+            <span><a href="{{ route('login') }}">Log in</a> or <a href="{{ route('register') }}">register</a> to save your scores</span>
+        @endauth
+    </div>
     <div id="score">Score: 0 | Rescued: 0</div>
     <div id="controls">
         <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>/<kbd>2</kbd> Buy troops &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
@@ -47,6 +47,7 @@
             <button class="touch-btn" id="btnBomb">Bomb</button>
         </div>
     </div>
+    <script>window.NQ_CONFIG = { scoreUrl: @json(auth()->check() ? route('scores.store') : null), csrf: @json(csrf_token()) };</script>
     <script src="{{ asset('js/game.js') }}?v={{ filemtime(public_path('js/game.js')) }}"></script>
 </body>
 </html>

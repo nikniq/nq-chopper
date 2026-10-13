@@ -268,7 +268,7 @@
         return { x, y: GROUND_Y - 22, width: 26, height: 22, vx, shootTimer: rand(60, 160), angle: -Math.PI / 2, health: hp, maxHealth: hp };
     }
     function startGame() {
-        score = 0; rescued = 0; lost = 0; newBest = false;
+        score = 0; rescued = 0; lost = 0; newBest = false; submitStatus = '';
         credits = START_CREDITS;
         particles = []; allies = [];
         setupWave(1);
@@ -781,6 +781,7 @@
                 explosion(chopper.x + chopper.width / 2, chopper.y + chopper.height / 2, true);
                 state = 'gameover'; stateTimer = 0;
                 if (score > highScore) { highScore = score; newBest = true; saveHighScore(highScore); }
+                submitScore();
             }
         } else if (state === 'waveclear') {
             stateTimer++;
@@ -803,6 +804,23 @@
         const playing = state === 'playing';
         if (buySoldierBtn) buySoldierBtn.disabled = !playing || credits < UNITS.soldier.cost || allies.length >= MAX_ALLIES;
         if (buyTankBtn) buyTankBtn.disabled = !playing || credits < UNITS.tank.cost || allies.length >= MAX_ALLIES;
+    }
+
+    // ---------------------------------------------------------------------
+    // Online leaderboard (only when the page was served to a logged-in pilot)
+    // ---------------------------------------------------------------------
+    let submitStatus = '';
+    function submitScore() {
+        const cfg = window.NQ_CONFIG;
+        if (!cfg || !cfg.scoreUrl || typeof fetch !== 'function') return;
+        submitStatus = 'SAVING SCORE...';
+        fetch(cfg.scoreUrl, {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': cfg.csrf },
+            body: JSON.stringify({ score, wave, rescued })
+        }).then(r => r.ok ? r.json() : Promise.reject(r.status))
+          .then(d => { submitStatus = 'SCORE SAVED  ·  RANK #' + d.rank + '  ·  ONLINE BEST ' + d.best; })
+          .catch(() => { submitStatus = 'COULD NOT SAVE SCORE'; });
     }
 
     // =====================================================================
@@ -1177,6 +1195,7 @@
             bigText(`RESCUED ${rescued}   LOST ${lost}   WAVE ${wave}`, 220, 16, '#ccc');
             if (newBest) bigText('NEW BEST SCORE!', 255, 20, '#ff0');
             else bigText('BEST ' + highScore, 255, 16, '#ccc');
+            if (submitStatus) bigText(submitStatus, 285, 13, '#8f8');
             if (stateTimer > 30 && Math.floor(frame / 30) % 2 === 0) bigText(isTouch ? 'TAP TO RETRY' : 'PRESS R OR SPACE TO RETRY', 310, 18, '#0f0');
         }
     }

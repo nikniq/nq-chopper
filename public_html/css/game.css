@@ -2,6 +2,9 @@ body { margin: 0; background: linear-gradient(to bottom, #15181f 0%, #2b3140 100
 #gameWrapper { display: flex; justify-content: center; align-items: center; padding: 8px 12px 12px; }
 #canvasWrapper { width: 640px; height: 400px; display: inline-block; position: relative; }
 canvas { display: block; width: 640px; height: 400px; background: #1b4f9c; box-shadow: 0 0 24px #000a; border-radius: 12px; transform-origin: top left; touch-action: none; -webkit-user-drag: none; image-rendering: auto; }
+#topbar { text-align: center; font-size: 0.85rem; padding: 6px 12px; background: #0005; border-bottom: 1px solid #fff2; display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
+#topbar a { color: #9cf; } #topbar strong { color: #8f8; }
+#topbar .linkbtn { background: none; border: none; color: #9cf; cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
 #score { text-align: center; font-size: 1.1rem; margin-top: 8px; letter-spacing: 1px; text-shadow: 1px 1px 4px #000; }
 #controls { text-align: center; font-size: 0.9rem; margin: 6px 0 4px; opacity: 0.85; line-height: 1.8; }
 #controls button { background: #2f6fd6; color: #fff; border: none; border-radius: 6px; padding: 4px 10px; font-size: 0.85rem; cursor: pointer; margin-left: 4px; }

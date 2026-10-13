@@ -798,7 +798,7 @@
     function updateDomScore() {
         scoreDiv.textContent = state === 'title'
             ? `Best: ${highScore}`
-            : `Wave ${wave} | Score: ${score} | Rescued: ${rescued} | Lost: ${lost} | Best: ${highScore}`;
+            : `Wave ${wave} | Score: ${score} | Credits: $${credits} | Rescued: ${rescued} | Lost: ${lost} | Best: ${highScore}`;
         if (creditsSpan) creditsSpan.textContent = '$' + credits;
         const playing = state === 'playing';
         if (buySoldierBtn) buySoldierBtn.disabled = !playing || credits < UNITS.soldier.cost || allies.length >= MAX_ALLIES;
@@ -1097,16 +1097,21 @@
         }
         // Score block
         ctx.textAlign = 'right';
-        ctx.fillStyle = '#0006'; ctx.fillRect(GAME_WIDTH - 158, 8, 150, 80);
+        ctx.fillStyle = '#0006'; ctx.fillRect(GAME_WIDTH - 158, 8, 150, 92);
         ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
         ctx.fillText(String(score).padStart(6, '0'), GAME_WIDTH - 14, 26);
         ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#ccc';
         ctx.fillText('BEST ' + highScore, GAME_WIDTH - 14, 44);
         ctx.fillStyle = '#ff0';
         ctx.fillText('WAVE ' + wave, GAME_WIDTH - 14, 62);
-        ctx.fillStyle = '#8f8';
-        ctx.fillText('$' + credits + '   TROOPS ' + allies.length + '/' + MAX_ALLIES, GAME_WIDTH - 14, 80);
+        ctx.fillStyle = '#8f8'; ctx.font = 'bold 18px Arial';
+        ctx.fillText('$' + credits, GAME_WIDTH - 14, 84);
         ctx.textAlign = 'left';
+        ctx.font = 'bold 11px Arial';
+        ctx.fillText('CREDITS', GAME_WIDTH - 152, 84);
+        ctx.fillStyle = '#ccc';
+        ctx.fillText('TROOPS ' + allies.length + '/' + MAX_ALLIES, GAME_WIDTH - 152, 97);
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 13px Arial';
         // Radar strip
         const rx = 170, ry = 10, rw = GAME_WIDTH - 340, rh = 12;
         ctx.fillStyle = '#0007'; ctx.fillRect(rx, ry, rw, rh);

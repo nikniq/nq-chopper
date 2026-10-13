@@ -9,7 +9,7 @@ canvas { display: block; width: 640px; height: 400px; background: #1b4f9c; box-s
 #controls kbd { background: #333a; border: 1px solid #666; border-radius: 4px; padding: 1px 5px; font-family: inherit; }
 /* Troop shop */
 #shop { text-align: center; font-size: 0.9rem; margin: 0 0 6px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
-#shopLabel strong { color: #8f8; font-size: 1rem; }
+#shopLabel strong { color: #8f8; font-size: 1.25rem; background: #0006; border: 1px solid #8f84; border-radius: 6px; padding: 2px 8px; }
 .shop-btn { background: #3a7a3a; color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 0.9rem; cursor: pointer; }
 .shop-btn .price { opacity: 0.8; font-size: 0.8rem; }
 .shop-btn:hover:not(:disabled) { background: #4c9a4c; }

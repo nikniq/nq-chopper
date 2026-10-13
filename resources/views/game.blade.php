@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{{ config('app.name', 'NQ Chopper') }}</title>
-    <link rel="stylesheet" href="{{ asset('css/game.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/game.css') }}?v={{ filemtime(public_path('css/game.css')) }}">
     @if (config('services.google_analytics.id'))
         <!-- Google tag (gtag.js) -->
         <script async src="https://www.googletagmanager.com/gtag/js?id={{ config('services.google_analytics.id') }}"></script>
@@ -25,7 +25,7 @@
         <button id="muteBtn">Sound: On</button><button id="fullscreenBtn">Fullscreen</button>
     </div>
     <div id="shop">
-        <span id="shopLabel">Ground troops &nbsp;<strong id="credits">$0</strong></span>
+        <span id="shopLabel">Credits <strong id="credits">$0</strong></span>
         <button id="buySoldier" class="shop-btn" disabled>Soldier <span class="price">$50</span></button>
         <button id="buyTank" class="shop-btn" disabled>Tank <span class="price">$200</span></button>
         <span id="shopHint">Troops deploy from BASE and march on the enemy base</span>
@@ -47,6 +47,6 @@
             <button class="touch-btn" id="btnBomb">Bomb</button>
         </div>
     </div>
-    <script src="{{ asset('js/game.js') }}"></script>
+    <script src="{{ asset('js/game.js') }}?v={{ filemtime(public_path('js/game.js')) }}"></script>
 </body>
 </html>

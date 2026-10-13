@@ -14,6 +14,8 @@
     const creditsSpan = document.getElementById('credits');
     const buySoldierBtn = document.getElementById('buySoldier');
     const buyTankBtn = document.getElementById('buyTank');
+    const buyGunBtn = document.getElementById('buyGun');
+    const buyArmorBtn = document.getElementById('buyArmor');
 
     const GAME_WIDTH = 640, GAME_HEIGHT = 400;
     const WORLD_WIDTH = 2400;
@@ -23,6 +25,10 @@
     const GRAVITY = 0.25;
     const MAX_ALLIES = 12;
     const START_CREDITS = 100;
+    const UPGRADES = {
+        gun:   { name: 'GUNS',  key: '3', costs: [150, 250, 400], cooldown: [9, 7, 5, 4], dmg: [35, 42, 50, 60] },
+        armor: { name: 'ARMOR', key: '4', costs: [150, 250, 400], bonus: 40 }
+    };
     const UNITS = {
         soldier: { name: 'SOLDIER', cost: 50, width: 8, height: 20, speed: 0.9, health: 24, range: 130, fireRate: 45, dmg: 8 },
         tank:    { name: 'TANK',    cost: 200, width: 26, height: 22, speed: 0.6, health: 120, range: 210, fireRate: 95, dmg: 35 }
@@ -155,6 +161,8 @@
     let allies = [], allyBullets = [];
     let tankSpawnTimer = 0;
     let credits = 0;
+    let upgrades = { gun: 0, armor: 0 };
+    let combo = 0, comboTimer = 0;
 
     const chopper = { x: 60, y: 200, width: 60, height: 24, vx: 0, vy: 0, dir: 1, speed: 3.4, carrying: 0,
         maxHealth: 100, health: 100, bombs: MAX_BOMBS, invuln: 0, landed: false, fireCooldown: 0, tilt: 0, spin: 0 };
@@ -270,6 +278,8 @@
     function startGame() {
         score = 0; rescued = 0; lost = 0; newBest = false; submitStatus = '';
         credits = START_CREDITS;
+        upgrades = { gun: 0, armor: 0 }; combo = 0; comboTimer = 0;
+        chopper.maxHealth = 100;
         particles = []; allies = [];
         setupWave(1);
         state = 'playing'; stateTimer = 0;
@@ -318,6 +328,32 @@
         Sound.deploy();
         return true;
     }
+    function upgradeCost(type) {
+        const def = UPGRADES[type];
+        return upgrades[type] >= def.costs.length ? null : def.costs[upgrades[type]];
+    }
+    function buyUpgrade(type) {
+        const def = UPGRADES[type];
+        if (!def || state !== 'playing') return false;
+        const cost = upgradeCost(type);
+        const cx = chopper.x + chopper.width / 2, cy = chopper.y - 30;
+        if (cost === null) { addText(cx, cy, def.name + ' MAXED', '#f66'); Sound.denied(); return false; }
+        if (credits < cost) { addText(cx, cy, 'NEED $' + cost, '#f66'); Sound.denied(); return false; }
+        credits -= cost;
+        upgrades[type]++;
+        if (type === 'armor') { chopper.maxHealth += def.bonus; chopper.health += def.bonus; }
+        spawnParticles(cx, chopper.y + chopper.height / 2, 14, { speed: 2.5, colors: ['#8f8', '#fff', '#ff0'], size: 3, life: 30 });
+        addText(cx, cy, def.name + ' LEVEL ' + upgrades[type] + '  -$' + cost, '#8f8', true);
+        Sound.dropoff();
+        return true;
+    }
+    function comboPoints(pts) {
+        comboTimer = 150;
+        combo++;
+        const mult = Math.min(3, 1 + (combo - 1) * 0.25);
+        return Math.round(pts * mult);
+    }
+    function comboLabel() { return combo > 1 ? '  x' + Math.min(3, 1 + (combo - 1) * 0.25).toFixed(2).replace(/\.?0+$/, '') : ''; }
     function allyRect(a) { return { x: a.x, y: a.y, width: a.width, height: a.height }; }
     function enemyBaseCenter() { return { x: enemyBase.x + enemyBase.width / 2, y: enemyBase.y + enemyBase.height / 2 }; }
     function findAllyTarget(a) {
@@ -420,7 +456,7 @@
         if (state !== 'playing' || chopper.fireCooldown > 0) return;
         const bx = chopper.dir === 1 ? chopper.x + chopper.width : chopper.x - 8;
         bullets.push({ x: bx, y: chopper.y + chopper.height / 2 - 1, vx: chopper.dir * 9 + chopper.vx * 0.5, width: 8, height: 3, life: 60 });
-        chopper.fireCooldown = 9;
+        chopper.fireCooldown = UPGRADES.gun.cooldown[upgrades.gun];
         Sound.shoot();
     }
     function dropBomb() {
@@ -467,6 +503,7 @@
         chopper.tilt += ((chopper.vx / chopper.speed) * 0.2 - chopper.tilt) * 0.1;
         if (chopper.invuln > 0) chopper.invuln--;
         if (chopper.fireCooldown > 0) chopper.fireCooldown--;
+        if (comboTimer > 0 && --comboTimer === 0) combo = 0;
         if (input.fire) shoot();
         if (chopper.health < 40 && frame % 5 === 0) {
             particles.push({ x: chopper.x + chopper.width / 2 + rand(-6, 6), y: chopper.y + 6, vx: rand(-0.3, 0.3), vy: -0.8, life: 40, maxLife: 40, color: '#444', size: 5, gravity: -0.01 });
@@ -574,7 +611,8 @@
         const t = tanks[i];
         explosion(t.x + t.width / 2, t.y + t.height / 2, false);
         const cash = byAlly ? 20 : 30;
-        addText(t.x + t.width / 2, t.y - 10, '+' + pts + ' +$' + cash, '#fff');
+        if (!byAlly) pts = comboPoints(pts);
+        addText(t.x + t.width / 2, t.y - 10, '+' + pts + ' +$' + cash + (byAlly ? '' : comboLabel()), combo > 1 && !byAlly ? '#ff0' : '#fff');
         score += pts;
         credits += cash;
         tanks.splice(i, 1);
@@ -635,10 +673,10 @@
         if (ec.health <= 0) {
             ec.alive = false;
             ec.respawn = Math.max(420, 1000 - wave * 80);
-            const pts = 500;
+            const pts = comboPoints(500);
             score += pts;
             explosion(ec.x + ec.width / 2, ec.y + ec.height / 2, true);
-            addText(ec.x + ec.width / 2, ec.y - 20, '+' + pts, '#ff0', true);
+            addText(ec.x + ec.width / 2, ec.y - 20, '+' + pts + comboLabel(), '#ff0', true);
             earn(120, ec.x + ec.width / 2, ec.y - 40);
         }
     }
@@ -676,7 +714,7 @@
                     if (rectsOverlap(tanks[j], b)) { damageEnemyTank(j, 999, 100, false); hit = true; break; }
                 }
             }
-            if (!hit && enemyChopper.alive && rectsOverlap(enemyChopper, b)) { damageEnemyChopper(35); hit = true; }
+            if (!hit && enemyChopper.alive && rectsOverlap(enemyChopper, b)) { damageEnemyChopper(UPGRADES.gun.dmg[upgrades.gun]); hit = true; }
             if (hit) bullets.splice(i, 1);
         }
         // Enemy bullets
@@ -804,6 +842,13 @@
         const playing = state === 'playing';
         if (buySoldierBtn) buySoldierBtn.disabled = !playing || credits < UNITS.soldier.cost || allies.length >= MAX_ALLIES;
         if (buyTankBtn) buyTankBtn.disabled = !playing || credits < UNITS.tank.cost || allies.length >= MAX_ALLIES;
+        [[buyGunBtn, 'gun'], [buyArmorBtn, 'armor']].forEach(([btn, type]) => {
+            if (!btn) return;
+            const cost = upgradeCost(type), lvl = upgrades[type];
+            btn.disabled = !playing || cost === null || credits < cost;
+            btn.querySelector('.price').textContent = cost === null ? 'MAX' : '$' + cost;
+            btn.querySelector('.lvl').textContent = lvl ? ' L' + lvl : '';
+        });
     }
 
     // ---------------------------------------------------------------------
@@ -1100,6 +1145,17 @@
         const pct = clamp(chopper.health / chopper.maxHealth, 0, 1);
         ctx.fillStyle = '#222'; ctx.fillRect(56, 12, 96, 10);
         ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; ctx.fillRect(56, 12, Math.round(96 * pct), 10);
+        if (upgrades.armor) { ctx.fillStyle = '#8f8'; ctx.font = 'bold 9px Arial'; ctx.fillText('+' + upgrades.armor, 154, 21); ctx.font = 'bold 13px Arial'; }
+        if (state === 'playing' && pct < 0.3 && Math.floor(frame / 15) % 2 === 0) {
+            ctx.fillStyle = '#f44'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center';
+            ctx.fillText('HULL CRITICAL - RETURN TO BASE', GAME_WIDTH / 2, GAME_HEIGHT - 14);
+            ctx.textAlign = 'left'; ctx.font = 'bold 13px Arial';
+        }
+        if (combo > 1 && comboTimer > 0) {
+            ctx.fillStyle = '#ff0'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center';
+            ctx.fillText('COMBO ' + comboLabel().trim(), GAME_WIDTH / 2, 100);
+            ctx.textAlign = 'left'; ctx.font = 'bold 13px Arial';
+        }
         // Bombs
         ctx.fillStyle = '#fff'; ctx.fillText('BOMBS', 14, 42);
         for (let i = 0; i < MAX_BOMBS; i++) {
@@ -1151,7 +1207,8 @@
         const remaining = hostages.filter(h => h.state === 'waiting' || h.state === 'running' || h.state === 'aboard').length;
         ctx.fillText(`RESCUED ${rescued}   LOST ${lost}   REMAINING ${remaining}`, GAME_WIDTH / 2, 36);
         ctx.fillStyle = '#8f8';
-        ctx.fillText(isTouch ? `BUY TROOPS BELOW: SOLDIER $${UNITS.soldier.cost} · TANK $${UNITS.tank.cost}` : `[1] SOLDIER $${UNITS.soldier.cost}   [2] TANK $${UNITS.tank.cost}`, GAME_WIDTH / 2, 50);
+        const gc = upgradeCost('gun'), ac = upgradeCost('armor');
+        ctx.fillText(isTouch ? `BUY TROOPS AND UPGRADES BELOW` : `[1] SOLDIER $${UNITS.soldier.cost}  [2] TANK $${UNITS.tank.cost}  [3] GUNS ${gc === null ? 'MAX' : '$' + gc}  [4] ARMOR ${ac === null ? 'MAX' : '$' + ac}`, GAME_WIDTH / 2, 50);
         if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 64); }
         ctx.restore();
     }
@@ -1176,6 +1233,7 @@
             bigText('Bombs hit ground targets · Bullets for the enemy chopper · Base repairs and rearms', 220, 12, '#ddd');
             bigText('Watch out: tanks crush hostages running in the open, and so do your bombs', 240, 12, '#f99');
             bigText((isTouch ? 'Buy ' : 'Press 1 / 2 to buy ') + 'Soldiers ($' + UNITS.soldier.cost + ') and Tanks ($' + UNITS.tank.cost + ') · They march on the enemy base', 262, 12, '#8f8');
+            bigText((isTouch ? 'Upgrade ' : 'Press 3 / 4 to upgrade ') + 'Guns and Armor · Chain kills for combo points', 278, 12, '#8f8');
             if (Math.floor(frame / 30) % 2 === 0) bigText(prompt + 'START', 300, 20, '#0f0');
             if (highScore > 0) bigText('BEST ' + highScore, 340, 14, '#ccc');
         } else if (state === 'paused') {
@@ -1246,6 +1304,8 @@
         if (e.code === 'KeyB') dropBomb();
         if (e.code === 'Digit1' || e.code === 'Numpad1') buyUnit('soldier');
         if (e.code === 'Digit2' || e.code === 'Numpad2') buyUnit('tank');
+        if (e.code === 'Digit3' || e.code === 'Numpad3') buyUpgrade('gun');
+        if (e.code === 'Digit4' || e.code === 'Numpad4') buyUpgrade('armor');
         if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
         if (e.code === 'KeyM') toggleMute();
         if (e.code === 'KeyR' && (state === 'gameover' || state === 'paused')) startGame();
@@ -1274,9 +1334,9 @@
     bindControl(document.getElementById('btnDown'), () => input.down = true, () => input.down = false);
     bindControl(document.getElementById('btnShoot'), () => { if (state !== 'playing') primaryAction(); input.fire = true; }, () => input.fire = false);
     bindControl(document.getElementById('btnBomb'), () => dropBomb(), () => {});
-    [[buySoldierBtn, 'soldier'], [buyTankBtn, 'tank']].forEach(([btn, type]) => {
+    [[buySoldierBtn, 'soldier', buyUnit], [buyTankBtn, 'tank', buyUnit], [buyGunBtn, 'gun', buyUpgrade], [buyArmorBtn, 'armor', buyUpgrade]].forEach(([btn, type, fn]) => {
         if (!btn) return;
-        btn.addEventListener('click', () => { Sound.unlock(); buyUnit(type); btn.blur(); updateDomScore(); });
+        btn.addEventListener('click', () => { Sound.unlock(); fn(type); btn.blur(); updateDomScore(); });
     });
 
     // Canvas gestures: drag to steer, tap to shoot/start, long-press to bomb
@@ -1333,7 +1393,7 @@
     // Read-only debug hook (used by automated play tests)
     window.__nq = { get state() { return state; }, get score() { return score; }, get wave() { return wave; }, get rescued() { return rescued; },
         get lost() { return lost; }, chopper, enemyChopper, enemyBase, get hostages() { return hostages; }, get tanks() { return tanks; },
-        get allies() { return allies; }, get credits() { return credits; }, set credits(v) { credits = v; }, buyUnit, input, get frame() { return frame; } };
+        get allies() { return allies; }, get credits() { return credits; }, set credits(v) { credits = v; }, buyUnit, buyUpgrade, get upgrades() { return upgrades; }, get combo() { return combo; }, input, get frame() { return frame; } };
 
     fitCanvas();
     setupWave(1);          // populate the world behind the title screen

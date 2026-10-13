@@ -53,7 +53,8 @@
     <h2>Controls</h2>
     <ul>
         <li><kbd>Arrows</kbd> / <kbd>WASD</kbd> fly &middot; <kbd>Space</kbd> shoot &middot; <kbd>B</kbd> bomb</li>
-        <li><kbd>1</kbd> buy a soldier ($50) &middot; <kbd>2</kbd> buy a tank ($200)</li>
+        <li><kbd>1</kbd> buy a soldier ($50) &middot; <kbd>2</kbd> buy a tank ($200) &middot; <kbd>3</kbd> upgrade guns &middot; <kbd>4</kbd> upgrade armour</li>
+        <li>Chain kills quickly for a combo multiplier of up to 3&times; points.</li>
         <li><kbd>P</kbd> pause &middot; <kbd>M</kbd> mute &middot; <kbd>R</kbd> restart</li>
         <li>On touch screens: drag to fly, tap to shoot, hold to bomb, and use the on-screen buttons.</li>
     </ul>

@@ -28,7 +28,9 @@
         <span id="shopLabel">Credits <strong id="credits">$0</strong></span>
         <button id="buySoldier" class="shop-btn" disabled>Soldier <span class="price">$50</span></button>
         <button id="buyTank" class="shop-btn" disabled>Tank <span class="price">$200</span></button>
-        <span id="shopHint">Troops deploy from BASE and march on the enemy base</span>
+        <button id="buyGun" class="shop-btn upgrade" disabled>Guns<span class="lvl"></span> <span class="price">$150</span></button>
+        <button id="buyArmor" class="shop-btn upgrade" disabled>Armor<span class="lvl"></span> <span class="price">$150</span></button>
+        <span id="shopHint">Troops deploy from BASE and march on the enemy base &middot; Upgrades last the whole game</span>
     </div>
     <div id="gameWrapper">
         <div id="canvasWrapper">

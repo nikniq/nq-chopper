@@ -11,6 +11,9 @@
     const muteBtn = document.getElementById('muteBtn');
     const scoreDiv = document.getElementById('score');
     const touchControls = document.getElementById('touchControls');
+    const creditsSpan = document.getElementById('credits');
+    const buySoldierBtn = document.getElementById('buySoldier');
+    const buyTankBtn = document.getElementById('buyTank');
 
     const GAME_WIDTH = 640, GAME_HEIGHT = 400;
     const WORLD_WIDTH = 2400;
@@ -18,6 +21,12 @@
     const MAX_CARRY = 4;
     const MAX_BOMBS = 5;
     const GRAVITY = 0.25;
+    const MAX_ALLIES = 12;
+    const START_CREDITS = 100;
+    const UNITS = {
+        soldier: { name: 'SOLDIER', cost: 50, width: 8, height: 20, speed: 0.9, health: 24, range: 130, fireRate: 45, dmg: 8 },
+        tank:    { name: 'TANK',    cost: 200, width: 26, height: 22, speed: 0.6, health: 120, range: 210, fireRate: 95, dmg: 35 }
+    };
     const HIGH_SCORE_KEY = 'nqChopperHighScore';
 
     const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -105,6 +114,10 @@
             pickup() { tone('triangle', 500, 900, 0.12, 0.12); },
             dropoff() { [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, 0.16, 0.12, i * 0.09)); },
             heal() { tone('sine', 700, 900, 0.05, 0.04); },
+            deploy() { [440, 660].forEach((f, i) => tone('square', f, f, 0.08, 0.08, i * 0.08)); },
+            rifle() { tone('square', 1400, 500, 0.04, 0.03); },
+            shell() { noise(0.1, 0.15, 1800); tone('square', 300, 120, 0.1, 0.05); },
+            denied() { tone('sawtooth', 200, 150, 0.12, 0.06); },
             wave() { [392, 523, 659, 784].forEach((f, i) => tone('square', f, f, 0.2, 0.08, i * 0.12)); },
             die() { noise(0.9, 0.5, 600); tone('sawtooth', 220, 20, 1.0, 0.25); },
             toggleMute() { muted = !muted; return muted; },
@@ -139,7 +152,9 @@
     let rescued = 0, lost = 0, waveRescued = 0, waveLost = 0, waveBonus = 0;
     let cameraX = 0, shake = 0;
     let hostages = [], tanks = [], bullets = [], enemyBullets = [], bombs = [], particles = [], huts = [], floatTexts = [];
+    let allies = [], allyBullets = [];
     let tankSpawnTimer = 0;
+    let credits = 0;
 
     const chopper = { x: 60, y: 200, width: 60, height: 24, vx: 0, vy: 0, dir: 1, speed: 3.4, carrying: 0,
         maxHealth: 100, health: 100, bombs: MAX_BOMBS, invuln: 0, landed: false, fireCooldown: 0, tilt: 0, spin: 0 };
@@ -147,7 +162,7 @@
         maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0 };
 
     const base = { x: 20, y: GROUND_Y - 40, width: 110, height: 40 };
-    const enemyBase = { x: WORLD_WIDTH - 140, y: GROUND_Y - 50, width: 120, height: 50 };
+    const enemyBase = { x: WORLD_WIDTH - 140, y: GROUND_Y - 50, width: 120, height: 50, maxHealth: 400, health: 400, destroyed: false };
 
     const input = { left: false, right: false, up: false, down: false, fire: false };
 
@@ -222,8 +237,11 @@
     function setupWave(n) {
         wave = n;
         waveRescued = 0; waveLost = 0; waveBonus = 0;
-        hostages = []; tanks = []; bullets = []; enemyBullets = []; bombs = []; huts = []; floatTexts = [];
+        hostages = []; tanks = []; bullets = []; enemyBullets = []; bombs = []; huts = []; floatTexts = []; allyBullets = [];
         tankSpawnTimer = 0;
+        enemyBase.maxHealth = 400 + (n - 1) * 150;
+        enemyBase.health = enemyBase.maxHealth;
+        enemyBase.destroyed = false;
         resetChopper();
         // Hostage groups
         const groups = Math.min(2 + n, 5);
@@ -246,11 +264,13 @@
         spawnEnemyChopper();
     }
     function makeTank(x, vx) {
-        return { x, y: GROUND_Y - 22, width: 26, height: 22, vx, shootTimer: rand(60, 160), angle: -Math.PI / 2 };
+        const hp = 30 + wave * 6;
+        return { x, y: GROUND_Y - 22, width: 26, height: 22, vx, shootTimer: rand(60, 160), angle: -Math.PI / 2, health: hp, maxHealth: hp };
     }
     function startGame() {
         score = 0; rescued = 0; lost = 0; newBest = false;
-        particles = [];
+        credits = START_CREDITS;
+        particles = []; allies = [];
         setupWave(1);
         state = 'playing'; stateTimer = 0;
         addText(chopper.x + 30, chopper.y - 30, 'WAVE 1', '#ff0', true);
@@ -271,6 +291,126 @@
         else if (state === 'gameover') { if (stateTimer > 30) startGame(); }
         else if (state === 'paused') togglePause();
         else if (state === 'playing') shoot();
+    }
+
+    // =====================================================================
+    // Credits & ground troops
+    // =====================================================================
+    function earn(amount, x, y) {
+        credits += amount;
+        if (x !== undefined) addText(x, y, '+$' + amount, '#8f8');
+    }
+    function buyUnit(type) {
+        const def = UNITS[type];
+        if (!def || state !== 'playing') return false;
+        if (credits < def.cost || allies.length >= MAX_ALLIES) {
+            addText(chopper.x + chopper.width / 2, chopper.y - 30, credits < def.cost ? 'NEED $' + def.cost : 'TROOP LIMIT', '#f66');
+            Sound.denied();
+            return false;
+        }
+        credits -= def.cost;
+        const spawnX = base.x + base.width + 42 + rand(-8, 8);
+        allies.push({ type, x: spawnX, y: GROUND_Y - def.height, width: def.width, height: def.height,
+            speed: def.speed * rand(0.9, 1.1), health: def.health, maxHealth: def.health, range: def.range,
+            fireTimer: rand(10, def.fireRate), angle: 0, anim: Math.random() * 100, moving: true, dir: 1 });
+        spawnParticles(spawnX, GROUND_Y - 4, 6, { speed: 1, colors: ['#9c9', '#cfc'], size: 3, life: 25, up: 0.6 });
+        addText(chopper.x + chopper.width / 2, chopper.y - 30, def.name + ' DEPLOYED  -$' + def.cost, '#8f8');
+        Sound.deploy();
+        return true;
+    }
+    function allyRect(a) { return { x: a.x, y: a.y, width: a.width, height: a.height }; }
+    function enemyBaseCenter() { return { x: enemyBase.x + enemyBase.width / 2, y: enemyBase.y + enemyBase.height / 2 }; }
+    function findAllyTarget(a) {
+        // Nearest enemy tank within range, else the enemy base, else (tanks only) the enemy chopper
+        const ax = a.x + a.width / 2;
+        let best = null, bestD = Infinity;
+        tanks.forEach(t => {
+            const d = Math.abs(t.x + t.width / 2 - ax);
+            if (d < a.range && d < bestD) { bestD = d; best = { kind: 'tank', x: t.x + t.width / 2, y: t.y + t.height / 2, obj: t }; }
+        });
+        if (best) return best;
+        if (!enemyBase.destroyed && enemyBase.x - ax < a.range) {
+            const c = enemyBaseCenter();
+            return { kind: 'base', x: c.x, y: c.y };
+        }
+        if (a.type === 'tank' && enemyChopper.alive) {
+            const ec = enemyChopper, ex = ec.x + ec.width / 2, ey = ec.y + ec.height / 2;
+            if (Math.hypot(ex - ax, ey - a.y) < a.range) return { kind: 'heli', x: ex, y: ey };
+        }
+        return null;
+    }
+    function updateAllies() {
+        const stopX = enemyBase.x - 36;
+        for (let i = allies.length - 1; i >= 0; i--) {
+            const a = allies[i];
+            a.anim++;
+            const target = findAllyTarget(a);
+            const ax = a.x + a.width / 2;
+            if (target) {
+                a.moving = false;
+                a.dir = target.x < ax ? -1 : 1;
+                const desired = Math.atan2(target.y - (a.y + 4), target.x - ax);
+                a.angle += (desired - a.angle) * 0.15;
+                a.fireTimer--;
+                if (a.fireTimer <= 0) {
+                    const def = UNITS[a.type];
+                    a.fireTimer = def.fireRate + rand(0, 15);
+                    if (a.type === 'soldier') {
+                        allyBullets.push({ x: ax + a.dir * 6, y: a.y + 7, vx: a.dir * 6, vy: 0, width: 5, height: 2, dmg: def.dmg, life: 40, shell: false });
+                        Sound.rifle();
+                    } else {
+                        const mag = Math.hypot(target.x - ax, target.y - (a.y + 4)) || 1, sp = 5;
+                        allyBullets.push({ x: ax + Math.cos(a.angle) * 14, y: a.y + 4 + Math.sin(a.angle) * 14,
+                            vx: (target.x - ax) / mag * sp, vy: (target.y - (a.y + 4)) / mag * sp, width: 6, height: 6, dmg: def.dmg, life: 70, shell: true });
+                        Sound.shell();
+                    }
+                }
+            } else {
+                a.moving = a.x < stopX;
+                a.dir = 1;
+                a.angle += (0 - a.angle) * 0.15;
+                if (a.moving) a.x = Math.min(stopX, a.x + a.speed);
+            }
+            // Enemy tanks crush soldiers they drive over
+            if (a.type === 'soldier') {
+                for (const t of tanks) {
+                    if (rectsOverlap(t, allyRect(a))) { killAlly(i, 'CRUSHED'); break; }
+                }
+            }
+        }
+    }
+    function damageAlly(i, amount, why) {
+        const a = allies[i];
+        if (!a) return;
+        a.health -= amount;
+        spawnParticles(a.x + a.width / 2, a.y + a.height / 2, 3, { speed: 1.5, colors: ['#ff0', '#fff'], size: 2, life: 15 });
+        if (a.health <= 0) killAlly(i, why);
+    }
+    function killAlly(i, why) {
+        const a = allies[i];
+        if (!a) return;
+        if (a.type === 'tank') explosion(a.x + a.width / 2, a.y + a.height / 2, false);
+        else spawnParticles(a.x + 4, GROUND_Y - 10, 8, { speed: 2, colors: ['#8c8', '#fff'], size: 3, life: 30, gravity: 0.1 });
+        addText(a.x + a.width / 2, a.y - 14, (why ? why + ' - ' : '') + UNITS[a.type].name + ' LOST', '#f88');
+        allies.splice(i, 1);
+    }
+    function damageEnemyBase(amount, x, y) {
+        if (enemyBase.destroyed) return;
+        enemyBase.health -= amount;
+        spawnParticles(x, y, 4, { speed: 2, colors: ['#ff0', '#999'], size: 3, life: 18 });
+        if (enemyBase.health <= 0) {
+            enemyBase.health = 0;
+            enemyBase.destroyed = true;
+            const c = enemyBaseCenter();
+            explosion(c.x, c.y, true);
+            explosion(c.x - 40, c.y + 10, false);
+            explosion(c.x + 40, c.y + 10, false);
+            const pts = 1000;
+            score += pts;
+            earn(300);
+            addText(c.x, enemyBase.y - 40, 'ENEMY BASE DESTROYED +' + pts + ' +$300', '#ff0', true);
+            addText(chopper.x + chopper.width / 2, chopper.y - 30, 'ENEMY BASE DESTROYED!', '#ff0', true);
+        }
     }
 
     // =====================================================================
@@ -342,6 +482,7 @@
                 score += pts;
                 chopper.carrying = 0;
                 addText(chopper.x + chopper.width / 2, chopper.y - 24, '+' + pts + (n === MAX_CARRY ? ' FULL LOAD' : ''), '#ff0', true);
+                earn(n * 40, chopper.x + chopper.width / 2, chopper.y - 44);
                 Sound.dropoff();
             }
             if (chopper.health < chopper.maxHealth && frame % 6 === 0) { chopper.health++; if (frame % 30 === 0) Sound.heal(); }
@@ -392,10 +533,18 @@
             const tx = t.x + t.width / 2, ty = t.y;
             const dx = cx - tx, dy = cy - ty;
             const inRange = Math.abs(dx) < 320 && dy < -10;
-            const targetAngle = inRange ? Math.atan2(dy, dx) : -Math.PI / 2;
+            // Nearest allied ground unit within reach becomes a priority target
+            let ally = null, allyD = 240;
+            allies.forEach(a => { const d = Math.abs(a.x + a.width / 2 - tx); if (d < allyD) { allyD = d; ally = a; } });
+            const targetAngle = ally ? (ally.x + ally.width / 2 < tx ? Math.PI : 0) : inRange ? Math.atan2(dy, dx) : -Math.PI / 2;
             t.angle += (targetAngle - t.angle) * 0.1;
             t.shootTimer--;
-            if (t.shootTimer <= 0 && inRange && state === 'playing') {
+            if (t.shootTimer <= 0 && ally && state === 'playing') {
+                const dir = ally.x + ally.width / 2 < tx ? -1 : 1;
+                enemyBullets.push({ x: tx + dir * 16, y: t.y + 6, vx: dir * 4.5, vy: 0, dmg: 14, ground: true, life: 90 });
+                t.shootTimer = Math.max(45, 120 - wave * 8) + rand(0, 30);
+                Sound.enemyShoot();
+            } else if (t.shootTimer <= 0 && inRange && state === 'playing') {
                 let vx = 0, vy = -5;
                 if (wave >= 2) {
                     const mag = Math.hypot(dx, dy), s = 3.5 + wave * 0.3;
@@ -410,10 +559,10 @@
                 if (h.state === 'running' && Math.abs(h.x - tx) < 14) killHostage(h, 'CRUSHED');
             });
         });
-        // Enemy base spawns reinforcements
+        // Enemy base spawns reinforcements (until it is destroyed)
         tankSpawnTimer++;
         const interval = Math.max(220, 480 - wave * 30);
-        if (tankSpawnTimer >= interval) {
+        if (tankSpawnTimer >= interval && !enemyBase.destroyed) {
             tankSpawnTimer = 0;
             if (tanks.length < 3 + wave * 2) {
                 tanks.push(makeTank(enemyBase.x - 30, -(0.8 + wave * 0.15)));
@@ -421,17 +570,25 @@
             }
         }
     }
-    function killTank(i, pts) {
+    function killTank(i, pts, byAlly) {
         const t = tanks[i];
         explosion(t.x + t.width / 2, t.y + t.height / 2, false);
-        addText(t.x + t.width / 2, t.y - 10, '+' + pts, '#fff');
+        const cash = byAlly ? 20 : 30;
+        addText(t.x + t.width / 2, t.y - 10, '+' + pts + ' +$' + cash, '#fff');
         score += pts;
+        credits += cash;
         tanks.splice(i, 1);
+    }
+    function damageEnemyTank(i, amount, pts, byAlly) {
+        const t = tanks[i];
+        t.health -= amount;
+        spawnParticles(t.x + t.width / 2, t.y + 8, 3, { speed: 1.5, colors: ['#ff0', '#fff'], size: 2, life: 15 });
+        if (t.health <= 0) killTank(i, pts, byAlly);
     }
     function updateEnemyChopper() {
         const ec = enemyChopper;
         if (!ec.alive) {
-            if (ec.respawn > 0) { ec.respawn--; if (ec.respawn === 0) spawnEnemyChopper(); }
+            if (ec.respawn > 0 && !enemyBase.destroyed) { ec.respawn--; if (ec.respawn === 0) spawnEnemyChopper(); }
             return;
         }
         const dx = chopper.x - ec.x, dy = chopper.y - ec.y;
@@ -482,6 +639,7 @@
             score += pts;
             explosion(ec.x + ec.width / 2, ec.y + ec.height / 2, true);
             addText(ec.x + ec.width / 2, ec.y - 20, '+' + pts, '#ff0', true);
+            earn(120, ec.x + ec.width / 2, ec.y - 40);
         }
     }
 
@@ -499,6 +657,12 @@
         hostages.forEach(h => {
             if ((h.state === 'waiting' || h.state === 'running') && Math.abs(h.x - x) < 30) killHostage(h, 'FRIENDLY FIRE');
         });
+        for (let i = allies.length - 1; i >= 0; i--) {
+            const a = allies[i];
+            if (Math.hypot(a.x + a.width / 2 - x, a.y + a.height / 2 - y) < 44) damageAlly(i, 60, 'FRIENDLY FIRE');
+        }
+        const bc = enemyBaseCenter();
+        if (!enemyBase.destroyed && Math.hypot(bc.x - x, bc.y - y) < 80) damageEnemyBase(60, x, y);
         if (Math.hypot(chopper.x + chopper.width / 2 - x, chopper.y + chopper.height / 2 - y) < 45) damageChopper(20, 'TOO LOW');
     }
     function updateProjectiles() {
@@ -509,7 +673,7 @@
             let hit = b.life <= 0 || b.x < 0 || b.x > WORLD_WIDTH;
             if (!hit) {
                 for (let j = tanks.length - 1; j >= 0; j--) {
-                    if (rectsOverlap(tanks[j], b)) { killTank(j, 100); hit = true; break; }
+                    if (rectsOverlap(tanks[j], b)) { damageEnemyTank(j, 999, 100, false); hit = true; break; }
                 }
             }
             if (!hit && enemyChopper.alive && rectsOverlap(enemyChopper, b)) { damageEnemyChopper(35); hit = true; }
@@ -519,16 +683,41 @@
         for (let i = enemyBullets.length - 1; i >= 0; i--) {
             const b = enemyBullets[i];
             b.x += b.vx; b.y += b.vy;
+            if (b.life !== undefined && --b.life <= 0) { enemyBullets.splice(i, 1); continue; }
             let gone = b.x < 0 || b.x > WORLD_WIDTH || b.y < -10;
             if (b.y >= GROUND_Y) {
                 gone = true;
                 spawnParticles(b.x, GROUND_Y, 3, { speed: 1, colors: ['#a86'], size: 2, life: 15, up: 1 });
             }
-            if (!gone && rectsOverlap(chopper, { x: b.x - 4, y: b.y - 4, width: 8, height: 8 })) {
+            const hitBox = { x: b.x - 4, y: b.y - 4, width: 8, height: 8 };
+            if (!gone && rectsOverlap(chopper, hitBox)) {
                 gone = true;
                 damageChopper(b.dmg);
             }
+            if (!gone) {
+                for (let j = allies.length - 1; j >= 0; j--) {
+                    if (rectsOverlap(allyRect(allies[j]), hitBox)) { damageAlly(j, b.dmg); gone = true; break; }
+                }
+            }
             if (gone) enemyBullets.splice(i, 1);
+        }
+        // Allied bullets and shells
+        for (let i = allyBullets.length - 1; i >= 0; i--) {
+            const b = allyBullets[i];
+            b.x += b.vx; b.y += b.vy; b.life--;
+            let hit = b.life <= 0 || b.x < 0 || b.x > WORLD_WIDTH || b.y >= GROUND_Y;
+            const box = { x: b.x - b.width / 2, y: b.y - b.height / 2, width: b.width, height: b.height };
+            if (!hit) {
+                for (let j = tanks.length - 1; j >= 0; j--) {
+                    if (rectsOverlap(tanks[j], box)) { damageEnemyTank(j, b.dmg, 50, true); hit = true; break; }
+                }
+            }
+            if (!hit && b.shell && enemyChopper.alive && rectsOverlap(enemyChopper, box)) { damageEnemyChopper(Math.round(b.dmg * 0.6)); hit = true; }
+            if (!hit && !enemyBase.destroyed && rectsOverlap(enemyBase, box)) { damageEnemyBase(b.dmg, b.x, b.y); hit = true; }
+            if (hit) {
+                if (b.shell && b.y < GROUND_Y + 1) spawnParticles(b.x, Math.min(b.y, GROUND_Y), 5, { speed: 1.5, colors: ['#ff0', '#f80'], size: 3, life: 15 });
+                allyBullets.splice(i, 1);
+            }
         }
         // Bombs
         for (let i = bombs.length - 1; i >= 0; i--) {
@@ -561,6 +750,7 @@
         if (done && chopper.carrying === 0) {
             waveBonus = waveRescued * 50 * wave + (waveLost === 0 ? 500 : 0);
             score += waveBonus;
+            earn(100 + (waveLost === 0 ? 100 : 0));
             state = 'waveclear'; stateTimer = 0;
             Sound.dropoff();
         }
@@ -574,6 +764,7 @@
         if (state === 'playing') {
             updateChopper();
             updateHostages();
+            updateAllies();
             updateTanks();
             updateEnemyChopper();
             updateProjectiles();
@@ -608,6 +799,10 @@
         scoreDiv.textContent = state === 'title'
             ? `Best: ${highScore}`
             : `Wave ${wave} | Score: ${score} | Rescued: ${rescued} | Lost: ${lost} | Best: ${highScore}`;
+        if (creditsSpan) creditsSpan.textContent = '$' + credits;
+        const playing = state === 'playing';
+        if (buySoldierBtn) buySoldierBtn.disabled = !playing || credits < UNITS.soldier.cost || allies.length >= MAX_ALLIES;
+        if (buyTankBtn) buyTankBtn.disabled = !playing || credits < UNITS.tank.cost || allies.length >= MAX_ALLIES;
     }
 
     // =====================================================================
@@ -678,6 +873,14 @@
     }
     function drawEnemyBase() {
         const b = enemyBase;
+        if (b.destroyed) {
+            ctx.fillStyle = '#3a3a40';
+            ctx.beginPath(); ctx.moveTo(b.x - 4, GROUND_Y); ctx.lineTo(b.x + 18, b.y + 22); ctx.lineTo(b.x + 40, b.y + 34); ctx.lineTo(b.x + 62, b.y + 16);
+            ctx.lineTo(b.x + 84, b.y + 30); ctx.lineTo(b.x + 104, b.y + 20); ctx.lineTo(b.x + b.width + 4, GROUND_Y); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#222'; ctx.fillRect(b.x + 30, b.y + 36, 14, 14); ctx.fillRect(b.x + 70, b.y + 40, 10, 10);
+            if (frame % 4 === 0) particles.push({ x: b.x + rand(10, b.width - 10), y: b.y + 20, vx: rand(-0.2, 0.2), vy: -0.6, life: 50, maxLife: 50, color: pick(['#333', '#555']), size: 6, gravity: -0.005 });
+            return;
+        }
         ctx.fillStyle = '#4a4a55'; ctx.fillRect(b.x, b.y, b.width, b.height);
         ctx.fillStyle = '#3a3a45';
         for (let i = 0; i < 6; i++) ctx.fillRect(b.x + i * 20, b.y - 8, 12, 8);
@@ -687,6 +890,50 @@
         ctx.fillStyle = '#f55'; ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center';
         ctx.fillText('ENEMY', b.x + b.width / 2, b.y + 14);
         ctx.textAlign = 'left';
+        if (b.health < b.maxHealth) {
+            const pct = clamp(b.health / b.maxHealth, 0, 1);
+            ctx.fillStyle = '#0008'; ctx.fillRect(b.x - 1, b.y - 48, b.width + 2, 7);
+            ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; ctx.fillRect(b.x, b.y - 47, Math.round(b.width * pct), 5);
+        }
+    }
+    function drawAllies() {
+        allies.forEach(a => {
+            ctx.save();
+            if (a.type === 'soldier') {
+                ctx.translate(a.x + a.width / 2, GROUND_Y);
+                if (a.dir < 0) ctx.scale(-1, 1);
+                const swing = a.moving ? Math.sin(a.anim * 0.4) * 4 : 0;
+                ctx.strokeStyle = '#2f4f1f'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(-2 + swing, 0); ctx.moveTo(0, -9); ctx.lineTo(2 - swing, 0); ctx.stroke();
+                ctx.fillStyle = '#4b7a3a'; ctx.fillRect(-3, -19, 6, 11);
+                ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, -22, 3.5, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#2f4f1f'; ctx.beginPath(); ctx.arc(0, -23, 4, Math.PI, 0); ctx.fill();
+                // Rifle
+                ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(-2, -15); ctx.lineTo(8, -17); ctx.stroke();
+                ctx.strokeStyle = '#4b7a3a';
+                ctx.beginPath(); ctx.moveTo(0, -17); ctx.lineTo(5, -16); ctx.stroke();
+                if (!a.moving && a.fireTimer > UNITS.soldier.fireRate - 4) { ctx.fillStyle = '#ff6'; ctx.fillRect(8, -19, 4, 4); }
+            } else {
+                ctx.translate(a.x, a.y);
+                ctx.fillStyle = '#333'; ctx.fillRect(0, 14, a.width, 8);
+                ctx.fillStyle = '#666';
+                const roll = a.moving ? Math.floor(a.anim / 4) % 6 : 0;
+                for (let i = 0; i < 4; i++) ctx.fillRect(2 + ((i * 6 + roll) % 24), 16, 3, 4);
+                ctx.fillStyle = '#5a7a3a'; ctx.fillRect(1, 6, a.width - 2, 9);
+                ctx.fillStyle = '#3d5a28'; ctx.fillRect(7, 0, 12, 8);
+                ctx.fillStyle = '#fff'; ctx.fillRect(3, 8, 3, 3);
+                ctx.strokeStyle = '#999'; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.moveTo(13, 4); ctx.lineTo(13 + Math.cos(a.angle) * 15, 4 + Math.sin(a.angle) * 15); ctx.stroke();
+            }
+            ctx.restore();
+            if (a.health < a.maxHealth) {
+                const pct = clamp(a.health / a.maxHealth, 0, 1), w = a.type === 'tank' ? 26 : 12;
+                const x = a.x + a.width / 2 - w / 2, y = a.y - 8;
+                ctx.fillStyle = '#0008'; ctx.fillRect(x - 1, y - 1, w + 2, 5);
+                ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; ctx.fillRect(x, y, Math.round(w * pct), 3);
+            }
+        });
     }
     function drawHuts() {
         huts.forEach(h => {
@@ -797,6 +1044,10 @@
             ctx.fillStyle = b.heli ? '#0ff' : '#ff0';
             ctx.beginPath(); ctx.arc(b.x, b.y, 3.5, 0, Math.PI * 2); ctx.fill();
         });
+        allyBullets.forEach(b => {
+            if (b.shell) { ctx.fillStyle = '#ddd'; ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI * 2); ctx.fill(); }
+            else { ctx.fillStyle = '#ff8'; ctx.fillRect(b.x - 2.5, b.y - 1, 5, 2); }
+        });
         bombs.forEach(b => {
             ctx.fillStyle = '#333';
             ctx.beginPath(); ctx.ellipse(b.x, b.y, 4, 7, 0, 0, Math.PI * 2); ctx.fill();
@@ -846,13 +1097,15 @@
         }
         // Score block
         ctx.textAlign = 'right';
-        ctx.fillStyle = '#0006'; ctx.fillRect(GAME_WIDTH - 158, 8, 150, 62);
+        ctx.fillStyle = '#0006'; ctx.fillRect(GAME_WIDTH - 158, 8, 150, 80);
         ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
         ctx.fillText(String(score).padStart(6, '0'), GAME_WIDTH - 14, 26);
         ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#ccc';
         ctx.fillText('BEST ' + highScore, GAME_WIDTH - 14, 44);
         ctx.fillStyle = '#ff0';
         ctx.fillText('WAVE ' + wave, GAME_WIDTH - 14, 62);
+        ctx.fillStyle = '#8f8';
+        ctx.fillText('$' + credits + '   TROOPS ' + allies.length + '/' + MAX_ALLIES, GAME_WIDTH - 14, 80);
         ctx.textAlign = 'left';
         // Radar strip
         const rx = 170, ry = 10, rw = GAME_WIDTH - 340, rh = 12;
@@ -864,6 +1117,8 @@
         hostages.forEach(h => { if (h.state === 'waiting' || h.state === 'running') ctx.fillRect(mx(h.x), ry + 3, 2, 6); });
         ctx.fillStyle = '#f33';
         tanks.forEach(t => ctx.fillRect(mx(t.x), ry + 4, 3, 4));
+        ctx.fillStyle = '#8f8';
+        allies.forEach(a => ctx.fillRect(mx(a.x), ry + 5, a.type === 'tank' ? 3 : 2, 4));
         if (enemyChopper.alive) { ctx.fillStyle = '#f0f'; ctx.fillRect(mx(enemyChopper.x), ry + 2, 4, 4); }
         ctx.fillStyle = '#0f0'; ctx.fillRect(mx(chopper.x), ry + 2, 4, 8);
         ctx.strokeStyle = '#fff6'; ctx.lineWidth = 1;
@@ -872,7 +1127,9 @@
         ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
         const remaining = hostages.filter(h => h.state === 'waiting' || h.state === 'running' || h.state === 'aboard').length;
         ctx.fillText(`RESCUED ${rescued}   LOST ${lost}   REMAINING ${remaining}`, GAME_WIDTH / 2, 36);
-        if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 50); }
+        ctx.fillStyle = '#8f8';
+        ctx.fillText(isTouch ? `BUY TROOPS BELOW: SOLDIER $${UNITS.soldier.cost} · TANK $${UNITS.tank.cost}` : `[1] SOLDIER $${UNITS.soldier.cost}   [2] TANK $${UNITS.tank.cost}`, GAME_WIDTH / 2, 50);
+        if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 64); }
         ctx.restore();
     }
     function overlay(alpha) {
@@ -895,6 +1152,7 @@
             bigText('Land near hostages so they can run aboard · 4 seats · Return to BASE to unload', 200, 12, '#ddd');
             bigText('Bombs hit ground targets · Bullets for the enemy chopper · Base repairs and rearms', 220, 12, '#ddd');
             bigText('Watch out: tanks crush hostages running in the open, and so do your bombs', 240, 12, '#f99');
+            bigText((isTouch ? 'Buy ' : 'Press 1 / 2 to buy ') + 'Soldiers ($' + UNITS.soldier.cost + ') and Tanks ($' + UNITS.tank.cost + ') · They march on the enemy base', 262, 12, '#8f8');
             if (Math.floor(frame / 30) % 2 === 0) bigText(prompt + 'START', 300, 20, '#0f0');
             if (highScore > 0) bigText('BEST ' + highScore, 340, 14, '#ccc');
         } else if (state === 'paused') {
@@ -935,6 +1193,7 @@
         drawEnemyBase();
         drawHuts();
         drawHostages();
+        drawAllies();
         drawTanks();
         if (enemyChopper.alive) { drawShadow(enemyChopper); drawHeli(enemyChopper, '#d33', '#fff', false); drawHealthBar(enemyChopper, 40); }
         if (state !== 'gameover') {
@@ -961,6 +1220,8 @@
         if (e.repeat) return;
         if (e.code === 'Space' || e.code === 'Enter') { if (state !== 'playing') primaryAction(); }
         if (e.code === 'KeyB') dropBomb();
+        if (e.code === 'Digit1' || e.code === 'Numpad1') buyUnit('soldier');
+        if (e.code === 'Digit2' || e.code === 'Numpad2') buyUnit('tank');
         if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
         if (e.code === 'KeyM') toggleMute();
         if (e.code === 'KeyR' && (state === 'gameover' || state === 'paused')) startGame();
@@ -989,6 +1250,10 @@
     bindControl(document.getElementById('btnDown'), () => input.down = true, () => input.down = false);
     bindControl(document.getElementById('btnShoot'), () => { if (state !== 'playing') primaryAction(); input.fire = true; }, () => input.fire = false);
     bindControl(document.getElementById('btnBomb'), () => dropBomb(), () => {});
+    [[buySoldierBtn, 'soldier'], [buyTankBtn, 'tank']].forEach(([btn, type]) => {
+        if (!btn) return;
+        btn.addEventListener('click', () => { Sound.unlock(); buyUnit(type); btn.blur(); updateDomScore(); });
+    });
 
     // Canvas gestures: drag to steer, tap to shoot/start, long-press to bomb
     (function () {
@@ -1043,7 +1308,8 @@
 
     // Read-only debug hook (used by automated play tests)
     window.__nq = { get state() { return state; }, get score() { return score; }, get wave() { return wave; }, get rescued() { return rescued; },
-        get lost() { return lost; }, chopper, enemyChopper, get hostages() { return hostages; }, get tanks() { return tanks; }, input, get frame() { return frame; } };
+        get lost() { return lost; }, chopper, enemyChopper, enemyBase, get hostages() { return hostages; }, get tanks() { return tanks; },
+        get allies() { return allies; }, get credits() { return credits; }, set credits(v) { credits = v; }, buyUnit, input, get frame() { return frame; } };
 
     fitCanvas();
     setupWave(1);          // populate the world behind the title screen

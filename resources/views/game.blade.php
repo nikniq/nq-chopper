@@ -18,14 +18,17 @@
     @endif
 </head>
 <body>
-
-</head>
-<body>
     <div id="score">Score: 0 | Rescued: 0</div>
     <div id="controls">
-        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
+        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>/<kbd>2</kbd> Buy troops &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
         <span id="touchHelp" style="display:none">Drag on screen to fly &nbsp;·&nbsp; Tap to shoot &nbsp;·&nbsp; Hold to bomb</span>
         <button id="muteBtn">Sound: On</button><button id="fullscreenBtn">Fullscreen</button>
+    </div>
+    <div id="shop">
+        <span id="shopLabel">Ground troops &nbsp;<strong id="credits">$0</strong></span>
+        <button id="buySoldier" class="shop-btn" disabled>Soldier <span class="price">$50</span></button>
+        <button id="buyTank" class="shop-btn" disabled>Tank <span class="price">$200</span></button>
+        <span id="shopHint">Troops deploy from BASE and march on the enemy base</span>
     </div>
     <div id="gameWrapper">
         <div id="canvasWrapper">

@@ -575,6 +575,21 @@
             ctx.fillStyle = '#8a6a4a'; for (let i = 0; i < 3; i++) ctx.fillRect(h.x + 2 + i * 18, GROUND_Y - h.h + 6, 2, h.h - 6);
             ctx.fillStyle = '#553'; ctx.fillRect(h.x + h.w - 14, GROUND_Y - h.h - 10, 5, 12);
             if (frame % 6 === 0) particles.push({ x: h.x + h.w - 11, y: GROUND_Y - h.h - 12, vx: rand(-0.1, 0.3), vy: -0.4, life: 60, maxLife: 60, color: '#ccc', size: 2, gravity: -0.004, grow: 0.06 });
+            if (h.garrison) {
+                const c = colorsOf(h.garrison.team), door = h.x + h.w / 2;
+                // Flag on the roof
+                ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(door, GROUND_Y - h.h - 18); ctx.lineTo(door, GROUND_Y - h.h - 40); ctx.stroke();
+                ctx.fillStyle = c.body; ctx.beginPath(); ctx.moveTo(door, GROUND_Y - h.h - 40); ctx.lineTo(door + 14, GROUND_Y - h.h - 36 + Math.sin(frame / 12) * 2); ctx.lineTo(door, GROUND_Y - h.h - 31); ctx.closePath(); ctx.fill();
+                // Helmets and rifle barrels in the window and doorway
+                for (let i = 0; i < h.garrison.count; i++) {
+                    const hx = i === 0 ? h.x + 13 : door + (i - 1.5) * 7, hy = i === 0 ? GROUND_Y - h.h + 13 : GROUND_Y - 14;
+                    ctx.fillStyle = c.unitDark; ctx.beginPath(); ctx.arc(hx, hy, 3, Math.PI, 0); ctx.fill();
+                    ctx.fillStyle = '#ffd9b3'; ctx.fillRect(hx - 2, hy, 4, 2);
+                }
+                ctx.strokeStyle = '#333'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(h.x + 16, GROUND_Y - h.h + 15); ctx.lineTo(h.x + 24, GROUND_Y - h.h + 13); ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center';
+                ctx.fillText(h.garrison.count + ' HELD', door, GROUND_Y - h.h - 44); ctx.textAlign = 'left';
+            }
         });
     }
     function drawHostages() {
@@ -793,6 +808,7 @@
         ctx.fillStyle = '#0007'; ctx.fillRect(rx, ry, rw, rh);
         const mx = x => rx + (x / WORLD_WIDTH) * rw;
         sim.bases.forEach(b => { ctx.fillStyle = b.destroyed ? '#555' : colorsOf(b.team).ui; ctx.fillRect(mx(b.x), ry, 3, rh); });
+        sim.huts.forEach(h => { if (h.garrison) { ctx.fillStyle = h.garrison.team === p.team ? '#8f8' : '#f66'; ctx.fillRect(mx(h.x + 20) - 1, ry + 1, 4, 3); } });
         ctx.fillStyle = '#fd4';
         sim.hostages.forEach(h => { if (h.state === 'waiting' || h.state === 'running') ctx.fillRect(mx(h.x), ry + 3, 2, 6); });
         sim.units.forEach(u => { ctx.fillStyle = u.team === p.team ? '#8f8' : '#f33'; ctx.fillRect(mx(u.x), ry + 4, u.type === 'tank' ? 3 : 2, 4); });
@@ -852,7 +868,7 @@
             bigText('Bombs hit ground targets · Bullets for the enemy chopper · Base repairs and rearms', 220, 12, '#ddd');
             bigText('Watch out: tanks crush hostages running in the open, and so do your bombs', 240, 12, '#f99');
             bigText((isTouch ? 'Buy ' : 'Press 1 / 2 to buy ') + 'Soldiers ($' + UNITS.soldier.cost + ') and Tanks ($' + UNITS.tank.cost + ') · They march on the enemy base', 262, 12, '#8f8');
-            bigText((isTouch ? 'Upgrade ' : 'Press 3 / 4 to upgrade ') + 'Guns and Armor · Chain kills for combo points', 278, 12, '#8f8');
+            bigText((isTouch ? 'Upgrade ' : 'Press 3 / 4 to upgrade ') + 'Guns and Armor · Soldiers garrison huts and can only be cleared by enemy infantry', 278, 12, '#8f8');
             if (blink) bigText(prompt + 'START', 310, 20, '#0f0');
             if (highScore > 0) bigText('BEST ' + highScore, 345, 14, '#ccc');
         } else if (screen === 'paused') {

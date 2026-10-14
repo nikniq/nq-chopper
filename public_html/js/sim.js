@@ -18,6 +18,8 @@
 
     const WORLD_WIDTH = 2400, GROUND_Y = 380, MAX_CARRY = 4, MAX_BOMBS = 5, GRAVITY = 0.25;
     const MAX_ALLIES = 12;
+    const GARRISON_CAP = { player: 3, ai: 2 };
+    const GARRISON_RANGE = 170;
     const UNITS = {
         soldier: { name: 'SOLDIER', cost: 50, width: 8, height: 20, speed: 0.9, health: 24, range: 130, fireRate: 45, dmg: 8 },
         tank:    { name: 'TANK',    cost: 200, width: 26, height: 22, speed: 0.6, health: 120, range: 210, fireRate: 95, dmg: 35 }
@@ -91,7 +93,7 @@
             wave: 0, waveRescued: 0, waveLost: 0, waveBonus: 0,
             players: [], bases: [], hostages: [], huts: [], units: [], bullets: [], shells: [], bombs: [],
             ai: { team: AI, x: 0, y: 120, width: 60, height: 24, vx: 0, vy: 0, dir: -1, speed: 2, shootCooldown: 0, maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0, patrolDir: -1 },
-            tankSpawnTimer: 0, hostageTimer: 0, fx: []
+            tankSpawnTimer: 0, soldierSpawnTimer: 0, hostageTimer: 0, fx: []
         };
         const names = opts.names || [];
         s.players.push(makePlayer(0, 1, names[0]));
@@ -119,7 +121,7 @@
         p.invuln = 0; p.landed = true; p.fireCooldown = 0; p.tilt = 0; p.spin = 0; p.alive = true; p.respawn = 0;
     }
     function spawnHostageGroup(s, gx) {
-        s.huts.push({ x: gx, w: 54, h: 36 });
+        s.huts.push({ x: gx, w: 54, h: 36, garrison: null, fireTimer: 0, warnTimer: 0 });
         const count = 3 + Math.floor(rnd(s) * 2);
         for (let i = 0; i < count; i++) s.hostages.push({ x: gx + 60 + i * 14 + rand(s, -3, 3), state: 'waiting', dir: -1, anim: Math.floor(rnd(s) * 100), carrier: -1 });
     }
@@ -169,6 +171,13 @@
     function enemyBase(s, team) { return s.bases.find(b => b.team !== team && !b.destroyed) || null; }
     function ownBase(s, team) { return s.bases.find(b => b.team === team); }
     function marchDir(s, team) { return team === 0 ? 1 : -1; }
+    const hutDoor = h => h.x + h.w / 2;
+    function hutOf(s, x) {
+        let best = null, bestD = 110;
+        s.huts.forEach(h => { const d = Math.abs(x - (h.x + 80)); if (d < bestD) { bestD = d; best = h; } });
+        return best;
+    }
+    const hutBlocks = (h, team) => !!(h && h.garrison && h.garrison.team !== team);
 
     // ---------------------------------------------------------------------
     // Economy
@@ -325,7 +334,16 @@
             h.anim++;
             if (h.state !== 'waiting' && h.state !== 'running') return;
             let best = null, bestD = 280;
-            landed.forEach(p => { const d = Math.abs(cx(p) - h.x); if (d < bestD) { bestD = d; best = p; } });
+            const hut = hutOf(s, h.x);
+            landed.forEach(p => {
+                const d = Math.abs(cx(p) - h.x);
+                if (d >= bestD) return;
+                if (hutBlocks(hut, p.team)) {
+                    if (hut.warnTimer <= 0) { hut.warnTimer = 150; text(s, cx(p), p.y - 36, 'HUT HELD BY ENEMY SOLDIERS - SEND INFANTRY', '#f66'); }
+                    return;
+                }
+                bestD = d; best = p;
+            });
             if (best) {
                 const dx = cx(best) - h.x;
                 h.state = 'running'; h.dir = dx < 0 ? -1 : 1; h.x += h.dir * 1.3;
@@ -336,12 +354,14 @@
                 }
             } else h.state = 'waiting';
         });
+        s.huts.forEach(h => { if (h.warnTimer > 0) h.warnTimer--; });
         if (s.mode === 'versus') {
             // Keep the middle of the map supplied with hostages
             const live = s.hostages.filter(h => h.state === 'waiting' || h.state === 'running').length;
             if (live < 6 && ++s.hostageTimer > 420) {
                 s.hostageTimer = 0;
-                s.huts = s.huts.filter(h => s.hostages.some(o => (o.state === 'waiting' || o.state === 'running') && Math.abs(o.x - (h.x + 80)) < 90)).slice(-5);
+                const keep = s.huts.filter(h => h.garrison || s.hostages.some(o => (o.state === 'waiting' || o.state === 'running') && Math.abs(o.x - (h.x + 80)) < 90));
+                s.huts = keep.length > 6 ? keep.filter(h => h.garrison).concat(keep.filter(h => !h.garrison).slice(-2)) : keep;
                 spawnHostageGroup(s, rand(s, 620, 1660));
                 text(s, s.huts[s.huts.length - 1].x + 30, GROUND_Y - 70, 'HOSTAGES SPOTTED', '#fd4');
             }
@@ -408,9 +428,10 @@
         for (let i = s.units.length - 1; i >= 0; i--) {
             const u = s.units[i];
             u.anim++;
-            const target = findTarget(s, u);
             const ux = cx(u);
-            if (u.ai) {
+            if (u.type === 'soldier' && tryEnterHut(s, i)) continue;
+            const target = findTarget(s, u);
+            if (u.ai && u.type === 'tank') {
                 // Patrol
                 u.x += u.vx;
                 if (u.x < 200 || u.x + u.width > WORLD_WIDTH - 30) u.vx *= -1;
@@ -448,18 +469,70 @@
                 }
             }
         }
+        updateGarrisons(s);
         // Solo: enemy base spawns reinforcements until destroyed
         if (s.mode === 'solo') {
             s.tankSpawnTimer++;
             const interval = Math.max(220, 480 - s.wave * 30), eb = s.bases[1];
             if (s.tankSpawnTimer >= interval && !eb.destroyed) {
                 s.tankSpawnTimer = 0;
-                if (s.units.filter(u => u.ai).length < 3 + s.wave * 2) {
+                if (s.units.filter(u => u.ai && u.type === 'tank').length < 3 + s.wave * 2) {
                     s.units.push(makeTank(s, AI, eb.x - 30, -(0.8 + s.wave * 0.15)));
                     parts(s, eb.x - 20, GROUND_Y - 10, 6, { speed: 1, colors: ['#888', '#aaa'], size: 5, life: 30, up: 0.5 });
                 }
             }
+            // From wave 2 the enemy sends infantry to seize huts and lock their hostages away
+            if (s.wave >= 2 && !eb.destroyed && ++s.soldierSpawnTimer >= Math.max(360, 720 - s.wave * 40)) {
+                s.soldierSpawnTimer = 0;
+                if (s.units.filter(u => u.ai && u.type === 'soldier').length < Math.min(4, s.wave)) {
+                    const sol = makeSoldier(s, AI, eb.x - 20, -1); sol.ai = true;
+                    s.units.push(sol);
+                    text(s, eb.x - 20, GROUND_Y - 50, 'ENEMY INFANTRY', '#f66');
+                }
+            }
         }
+    }
+    // A soldier reaching a hut door moves in. Friendly huts fill up to a cap; enemy-held huts are
+    // stormed one defender per attacker. Garrisoned soldiers cannot be hurt by anything else.
+    function tryEnterHut(s, i) {
+        const u = s.units[i], ux = cx(u);
+        for (const h of s.huts) {
+            if (Math.abs(ux - hutDoor(h)) > 6) continue;
+            const g = h.garrison;
+            if (!g) {
+                h.garrison = { team: u.team, count: 1 };
+                text(s, hutDoor(h), GROUND_Y - h.h - 30, 'HUT SECURED', u.ai ? '#f66' : '#8f8');
+                snd(s, 'pickup');
+            } else if (g.team === u.team) {
+                if (g.count >= (u.ai ? GARRISON_CAP.ai : GARRISON_CAP.player)) return false; // full: march on
+                g.count++;
+            } else {
+                g.count--;
+                parts(s, hutDoor(h), GROUND_Y - 16, 10, { speed: 2, colors: ['#ff0', '#f80', '#fff'], size: 3, life: 20 });
+                snd(s, 'rifle'); snd(s, 'hit');
+                if (g.count <= 0) { h.garrison = null; text(s, hutDoor(h), GROUND_Y - h.h - 30, 'HUT CLEARED', u.ai ? '#f66' : '#8f8'); }
+                else text(s, hutDoor(h), GROUND_Y - h.h - 30, 'STORMED  ' + g.count + ' LEFT', '#fc6');
+            }
+            s.units.splice(i, 1);
+            return true;
+        }
+        return false;
+    }
+    function updateGarrisons(s) {
+        s.huts.forEach(h => {
+            const g = h.garrison;
+            if (!g) return;
+            if (h.fireTimer > 0) { h.fireTimer--; return; }
+            const door = hutDoor(h);
+            let best = null, bestD = GARRISON_RANGE;
+            s.units.forEach(u => { if (u.team === g.team) return; const d = Math.abs(cx(u) - door); if (d < bestD) { bestD = d; best = u; } });
+            if (!best) return;
+            const dir = cx(best) < door ? -1 : 1;
+            s.shells.push({ team: g.team, x: door + dir * 10, y: GROUND_Y - h.h + 14, vx: dir * 6, vy: 0.35, width: 5, height: 2, dmg: UNITS.soldier.dmg, life: 40, kind: 'rifle' });
+            fx(s, { t: 'p', x: door + dir * 12, y: GROUND_Y - h.h + 14, n: 2, o: { speed: 1.5, colors: ['#ffa'], size: 2, life: 6 } });
+            snd(s, 'rifle');
+            h.fireTimer = Math.max(18, Math.round(70 / g.count));
+        });
     }
     function killUnit(s, i, why, killer) {
         const u = s.units[i];
@@ -711,8 +784,9 @@
         s.bases.forEach(b => mix(b.health));
         s.units.forEach(u => { mix(u.x); mix(u.health); });
         mix(s.hostages.length); mix(s.bullets.length); mix(s.shells.length);
+        s.huts.forEach(h => mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5));
         return h >>> 0;
     }
 
-    return { createGame, step, hash, upgradeCost, UNITS, UPGRADES, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, AI, EMPTY };
+    return { createGame, step, hash, upgradeCost, UNITS, UPGRADES, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
 });

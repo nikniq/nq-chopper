@@ -81,4 +81,48 @@ for (let f = 0; f < 400; f++) Sim.step(duel, [inp({}), inp({})]);
 assert.ok(p1.alive && p1.health === p1.maxHealth, 'opponent redeploys at full health');
 assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss');
 
+// Garrisons: soldiers hold huts, are immune, and only enemy infantry can clear them
+{
+    const g = Sim.createGame({ mode: 'versus', seed: 11 });
+    const hut = g.huts[0], door = hut.x + hut.w / 2;
+    g.players[0].credits = 10000; g.players[1].credits = 10000;
+    // Drop three P0 soldiers right at the door (same effect as marching there)
+    for (let k = 0; k < 4; k++) { Sim.step(g, [inp({ buy: 'soldier' }), inp({})]); }
+    g.units.filter(u => u.team === 0).forEach(u => { u.x = door - u.width / 2; });
+    Sim.step(g, [inp({}), inp({})]);
+    assert.ok(hut.garrison && hut.garrison.team === 0 && hut.garrison.count === Sim.GARRISON_CAP.player, 'hut filled to cap: ' + JSON.stringify(hut.garrison));
+    assert.strictEqual(g.units.filter(u => u.team === 0).length, 1, 'fourth soldier marches on when the hut is full');
+    // Bomb the hut: garrison untouched
+    g.bombs.push({ team: 1, x: door, y: Sim.GROUND_Y - 6, vx: 0, vy: 1 });
+    Sim.step(g, [inp({}), inp({})]);
+    assert.strictEqual(hut.garrison.count, 3, 'bombs do not harm a garrison');
+    // Enemy tank parked outside: garrison shoots it, tank cannot hurt them
+    g.units = g.units.filter(u => u.team !== 0);
+    Sim.step(g, [inp({}), inp({ buy: 'tank' })]);
+    const et = g.units.find(u => u.team === 1 && u.type === 'tank'); et.x = door + 60; et.health = 20;
+    for (let f = 0; f < 240 && g.units.includes(et); f++) Sim.step(g, [inp({}), inp({})]);
+    assert.ok(!g.units.includes(et), 'garrison fire destroys a weak tank outside');
+    assert.strictEqual(hut.garrison.count, 3, 'tank could not reduce the garrison');
+    // Hostages at this hut refuse the enemy chopper but board the holder
+    const p1 = g.players[1]; p1.x = door + 80; p1.y = Sim.GROUND_Y - p1.height; p1.landed = true; p1.invuln = 1e9;
+    for (let f = 0; f < 300; f++) Sim.step(g, [inp({}), inp({})]);
+    assert.strictEqual(p1.carrying, 0, 'hostages will not board the opposing chopper at a held hut');
+    // Enemy soldiers storm: one defender per attacker
+    for (let k = 0; k < 2; k++) Sim.step(g, [inp({}), inp({ buy: 'soldier' })]);
+    g.units.filter(u => u.team === 1 && u.type === 'soldier').forEach(u => { u.x = door - u.width / 2; });
+    Sim.step(g, [inp({}), inp({})]);
+    assert.strictEqual(hut.garrison.count, 1, 'two attackers removed two defenders: ' + hut.garrison.count);
+    assert.strictEqual(g.units.filter(u => u.team === 1 && u.type === 'soldier').length, 0, 'attackers were spent');
+    for (let k = 0; k < 2; k++) Sim.step(g, [inp({}), inp({ buy: 'soldier' })]);
+    g.units.filter(u => u.team === 1 && u.type === 'soldier').forEach(u => { u.x = door - u.width / 2; });
+    Sim.step(g, [inp({}), inp({})]);
+    assert.ok(hut.garrison && hut.garrison.team === 1 && hut.garrison.count === 1, 'third attacker clears, fourth captures: ' + JSON.stringify(hut.garrison));
+}
+// Solo: enemy infantry appears from wave 2 and marches toward huts
+{
+    const w2 = Sim.createGame({ mode: 'solo', seed: 21 });
+    w2.wave = 2; w2.players[0].invuln = 1e9;
+    for (let f = 0; f < 1500; f++) Sim.step(w2, [inp({})]);
+    assert.ok(w2.units.some(u => u.ai && u.type === 'soldier') || w2.huts.some(h => h.garrison && h.garrison.team === Sim.AI), 'AI soldiers spawn in wave 2');
+}
 console.log('all sim tests passed');

@@ -58,6 +58,7 @@
         <li><kbd>Arrows</kbd> / <kbd>WASD</kbd> fly &middot; <kbd>Space</kbd> shoot &middot; <kbd>B</kbd> bomb</li>
         <li><kbd>1</kbd> buy a soldier ($50) &middot; <kbd>2</kbd> buy a tank ($200) &middot; <kbd>3</kbd> upgrade guns &middot; <kbd>4</kbd> upgrade armour</li>
         <li>Chain kills quickly for a combo multiplier of up to 3&times; points.</li>
+        <li>Soldiers who reach a hut move in and hold it. Garrisoned soldiers fire from the windows and cannot be bombed or shot; only enemy infantry storming the hut can remove them, one for one. Hostages at a hut the enemy holds will not board your chopper.</li>
         <li><kbd>P</kbd> pause &middot; <kbd>M</kbd> mute &middot; <kbd>R</kbd> restart</li>
         <li>On touch screens: drag to fly, tap to shoot, hold to bomb, and use the on-screen buttons.</li>
     </ul>

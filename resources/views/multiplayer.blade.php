@@ -40,6 +40,7 @@
         <li>Both browsers run the same simulation in lockstep and talk directly to each other over WebRTC. The server only pairs you up.</li>
         <li>Your troops march toward the enemy base, theirs march toward yours. Bases have 1500 hull. First base down loses.</li>
         <li>Hostages keep appearing in the middle of the map. Each one you fly home is worth $40 and 100 points.</li>
+        <li>Soldiers garrison the huts they reach and hold them against tanks and bombs. Only enemy soldiers entering the hut can clear them, one defender per attacker. Hostages at a hut your opponent holds will not board you.</li>
         <li>If you are shot down you redeploy at your base after a few seconds, but anyone aboard is lost.</li>
         <li>Strict corporate networks can block direct connections. If "Connecting" never finishes, try another network.</li>
     </ul>

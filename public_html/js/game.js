@@ -157,9 +157,18 @@
     const clouds = [];
     for (let i = 0; i < 12; i++) clouds.push({ x: rand(0, WORLD_WIDTH), y: rand(20, 150), w: rand(50, 110), speed: rand(0.05, 0.15) });
     const mountainPeriod = 480;
-    const mountains = [], hills = [];
+    const farMountains = [], mountains = [], hills = [];
+    for (let i = 0; i < 4; i++) farMountains.push({ x: i * 120 + rand(-30, 30), h: rand(90, 170), w: rand(160, 260) });
     for (let i = 0; i < 6; i++) mountains.push({ x: i * 80 + rand(-20, 20), h: rand(50, 120), w: rand(90, 160) });
     for (let i = 0; i < 5; i++) hills.push({ x: i * 100 + rand(-20, 20), h: rand(18, 42), w: rand(90, 160) });
+    const trees = [], grass = [], rocks = [];
+    for (let x = 160; x < WORLD_WIDTH - 160; x += rand(60, 140)) if (Math.random() < 0.7) trees.push({ x, h: rand(26, 46), palm: Math.random() < 0.5, lean: rand(-0.15, 0.15) });
+    for (let x = 0; x < WORLD_WIDTH; x += rand(14, 30)) grass.push({ x, h: rand(3, 7), ph: rand(0, 6) });
+    for (let x = 0; x < WORLD_WIDTH; x += rand(90, 220)) rocks.push({ x, w: rand(6, 14), h: rand(3, 6) });
+    const stars = [];
+    for (let i = 0; i < 60; i++) stars.push({ x: rand(0, GAME_WIDTH), y: rand(0, 200), r: rand(0.5, 1.4), tw: rand(0, 6) });
+    // Client-only effect lists
+    let rings = [], screenFlash = 0;
 
     // =====================================================================
     // Effects (client-only, fed by sim.fx)
@@ -169,18 +178,23 @@
             const a = Math.random() * Math.PI * 2, s = o.speed * (0.3 + Math.random());
             const life = o.life * (0.6 + Math.random() * 0.6);
             particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - (o.up || 0), life, maxLife: life,
-                color: pick(o.colors), size: o.size * (0.5 + Math.random()), gravity: o.gravity || 0 });
+                color: pick(o.colors), size: o.size * (0.5 + Math.random()), gravity: o.gravity || 0, grow: o.grow || 0, streak: !!o.streak });
         }
     }
     function explosionFx(x, y, big) {
         spawnParticles(x, y, big ? 45 : 18, { speed: big ? 5 : 3, colors: ['#ff3', '#f80', '#f33', '#fff'], size: big ? 6 : 4, life: 35, gravity: 0.08 });
-        spawnParticles(x, y, big ? 16 : 6, { speed: 1.4, colors: ['#555', '#777', '#333'], size: 9, life: 70, up: 0.8 });
-        if (Math.abs(x - (cameraX + GAME_WIDTH / 2)) < 500) shake = Math.max(shake, big ? 14 : 6);
+        spawnParticles(x, y, big ? 22 : 8, { speed: 1.2, colors: ['#555', '#777', '#333', '#444'], size: big ? 14 : 10, life: big ? 110 : 70, up: 0.9, grow: 0.12 });
+        spawnParticles(x, y, big ? 10 : 4, { speed: 4, colors: ['#ffd', '#fc6'], size: 2, life: 25, gravity: 0.15, streak: true });
+        rings.push({ x, y, r: 4, max: big ? 90 : 45, life: 1, color: big ? '255,200,80' : '255,230,150' });
+        rings.push({ x, y, r: 2, max: big ? 40 : 22, life: 1, color: '255,255,255', fill: true });
+        if (Math.abs(x - (cameraX + GAME_WIDTH / 2)) < 500) { shake = Math.max(shake, big ? 14 : 6); if (big) screenFlash = Math.max(screenFlash, 0.5); }
         Sound.explode(big);
     }
     function addText(x, y, text, color, big) { floatTexts.push({ x, y, text, color: color || '#fff', life: 70, big: !!big }); }
     function consumeFx() {
         const near = x => x === undefined || Math.abs(x - (cameraX + GAME_WIDTH / 2)) < 760;
+        sim.bullets.forEach(b => { if (b.life === 60) spawnMuzzleFlash(b.x + (b.vx > 0 ? 6 : 2), b.y + 1, b.vx > 0 ? 1 : -1); });
+        sim.shells.forEach(b => { if (b.kind === 'rifle' && b.life === 40) spawnMuzzleFlash(b.x, b.y, b.vx > 0 ? 1 : -1); if (b.kind === 'shell' && b.life === 90) spawnMuzzleFlash(b.x, b.y, b.vx > 0 ? 1 : -1); });
         for (const ev of sim.fx) {
             if (ev.t === 'snd') { if (Sound[ev.name]) Sound[ev.name](); }
             else if (ev.t === 'txt') addText(ev.x, ev.y, ev.msg, ev.color, ev.big);
@@ -192,7 +206,7 @@
     function updateEffects() {
         for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
-            p.x += p.vx; p.y += p.vy; p.vy += p.gravity; p.vx *= 0.98; p.life--;
+            p.x += p.vx; p.y += p.vy; p.vy += p.gravity; p.vx *= 0.98; p.life--; p.size += p.grow;
             if (p.y > GROUND_Y + 4) { p.y = GROUND_Y + 4; p.vy *= -0.3; }
             if (p.life <= 0) particles.splice(i, 1);
         }
@@ -200,8 +214,25 @@
             const t = floatTexts[i]; t.y -= 0.5; t.life--;
             if (t.life <= 0) floatTexts.splice(i, 1);
         }
+        for (let i = rings.length - 1; i >= 0; i--) {
+            const r = rings[i]; r.r += (r.max - r.r) * 0.18; r.life -= 0.06;
+            if (r.life <= 0) rings.splice(i, 1);
+        }
+        if (screenFlash > 0) screenFlash = Math.max(0, screenFlash - 0.05);
         if (shake > 0) shake *= 0.85;
         if (shake < 0.5) shake = 0;
+        if (sim) emitTrails();
+    }
+    // Smoke trails behind shells and bombs, exhaust behind fast choppers
+    function emitTrails() {
+        if (frame % 2) return;
+        sim.shells.forEach(b => { if (b.kind === 'shell' || b.kind === 'aa' || b.kind === 'heli') particles.push({ x: b.x, y: b.y, vx: rand(-0.2, 0.2), vy: rand(-0.3, 0), life: 22, maxLife: 22, color: b.kind === 'heli' ? '#8ff' : '#bbb', size: 3, gravity: -0.01, grow: 0.08 }); });
+        sim.bombs.forEach(b => particles.push({ x: b.x, y: b.y - 6, vx: rand(-0.2, 0.2), vy: -0.4, life: 26, maxLife: 26, color: '#ccc', size: 3, gravity: -0.01, grow: 0.08 }));
+        sim.players.forEach(p => { if (p.alive && Math.abs(p.vx) > 2.2) particles.push({ x: cx(p) - p.dir * 26, y: p.y + 8, vx: -p.dir * 0.6, vy: -0.5, life: 20, maxLife: 20, color: '#8899aa', size: 3, gravity: -0.02, grow: 0.1 }); });
+    }
+    function spawnMuzzleFlash(x, y, dir) {
+        rings.push({ x, y, r: 1, max: 9, life: 0.6, color: '255,240,160', fill: true });
+        spawnParticles(x + dir * 4, y, 3, { speed: 2, colors: ['#ffa', '#fc8'], size: 2, life: 8 });
     }
 
     // =====================================================================
@@ -221,7 +252,7 @@
     // =====================================================================
     function startSolo() {
         sim = Sim.createGame({ mode: 'solo', seed: (Date.now() ^ (Math.random() * 0x7fffffff)) | 0 });
-        particles = []; floatTexts = []; newBest = false; submitStatus = '';
+        particles = []; floatTexts = []; rings = []; screenFlash = 0; newBest = false; submitStatus = '';
         screen = 'playing'; screenTimer = 0;
         consumeFx();
     }
@@ -387,13 +418,31 @@
     // =====================================================================
     // Rendering
     // =====================================================================
+    // Time of day drifts with the wave in solo (day -> dusk -> night -> dawn); versus is golden hour
+    function dayPhase() { return sim && sim.mode === 'solo' ? ((sim.wave - 1) % 4) / 4 : 0.2; }
+    const SKIES = [
+        ['#1b4f9c', '#5fb8f0', '#a8e0ff'], ['#2a2a6a', '#e07a4a', '#ffd38a'],
+        ['#05081c', '#141a3c', '#2b3560'], ['#3a2a5a', '#d87a8a', '#ffd6c2']
+    ];
     function drawSky() {
+        const ph = dayPhase(), sky = SKIES[Math.round(ph * 4) % 4];
         const g = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT);
-        g.addColorStop(0, '#1b4f9c'); g.addColorStop(0.7, '#5fb8f0'); g.addColorStop(1, '#a8e0ff');
+        g.addColorStop(0, sky[0]); g.addColorStop(0.65, sky[1]); g.addColorStop(1, sky[2]);
         ctx.fillStyle = g; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-        ctx.fillStyle = '#ffe680';
-        ctx.beginPath(); ctx.arc(560 - cameraX * 0.02, 60, 26, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        const night = ph >= 0.45 && ph < 0.8;
+        if (night) {
+            stars.forEach(st => { ctx.globalAlpha = 0.5 + 0.5 * Math.abs(Math.sin(frame / 40 + st.tw)); ctx.fillStyle = '#fff'; ctx.fillRect(st.x, st.y, st.r, st.r); });
+            ctx.globalAlpha = 1;
+        }
+        // Sun / moon with glow
+        const sx = 560 - cameraX * 0.02, sy = night ? 70 : 60;
+        const glow = ctx.createRadialGradient(sx, sy, 10, sx, sy, night ? 70 : 120);
+        glow.addColorStop(0, night ? 'rgba(220,230,255,0.35)' : 'rgba(255,240,180,0.55)'); glow.addColorStop(1, 'rgba(255,240,180,0)');
+        ctx.fillStyle = glow; ctx.fillRect(sx - 130, sy - 130, 260, 260);
+        ctx.fillStyle = night ? '#e8ecff' : '#ffe680';
+        ctx.beginPath(); ctx.arc(sx, sy, night ? 18 : 26, 0, Math.PI * 2); ctx.fill();
+        if (night) { ctx.fillStyle = sky[0]; ctx.beginPath(); ctx.arc(sx + 8, sy - 4, 15, 0, Math.PI * 2); ctx.fill(); }
+        ctx.fillStyle = night ? 'rgba(200,205,230,0.35)' : 'rgba(255,255,255,0.85)';
         clouds.forEach(c => {
             const x = ((c.x - cameraX * 0.3 + frame * c.speed) % (WORLD_WIDTH + 200) + WORLD_WIDTH + 200) % (WORLD_WIDTH + 200) - 100;
             if (x < -c.w || x > GAME_WIDTH + c.w) return;
@@ -416,14 +465,37 @@
             });
         }
     }
+    function drawTree(t) {
+        ctx.save(); ctx.translate(t.x, GROUND_Y); ctx.rotate(t.lean);
+        if (t.palm) {
+            ctx.strokeStyle = '#7a5a30'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(6, -t.h * 0.6, 2, -t.h); ctx.stroke();
+            ctx.strokeStyle = '#2f8a3f'; ctx.lineWidth = 3;
+            for (let i = 0; i < 6; i++) { const a = -Math.PI / 2 + (i - 2.5) * 0.55 + Math.sin(frame / 50 + i) * 0.05; ctx.beginPath(); ctx.moveTo(2, -t.h); ctx.quadraticCurveTo(2 + Math.cos(a) * 16, -t.h + Math.sin(a) * 16 - 4, 2 + Math.cos(a) * 24, -t.h + Math.sin(a) * 24 + 8); ctx.stroke(); }
+        } else {
+            ctx.fillStyle = '#5a3a1a'; ctx.fillRect(-2, -t.h * 0.5, 4, t.h * 0.5);
+            ctx.fillStyle = '#2d7a35'; ctx.beginPath(); ctx.arc(0, -t.h * 0.62, t.h * 0.34, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#3a9a44'; ctx.beginPath(); ctx.arc(-t.h * 0.18, -t.h * 0.56, t.h * 0.24, 0, Math.PI * 2); ctx.arc(t.h * 0.16, -t.h * 0.7, t.h * 0.22, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+    }
     function drawGround() {
+        const left = cameraX - 40, right = cameraX + GAME_WIDTH + 40;
+        trees.forEach(t => { if (t.x > left && t.x < right) drawTree(t); });
         const startX = Math.floor(cameraX / 40) * 40 - 40;
-        ctx.fillStyle = '#3fa63f'; ctx.fillRect(cameraX - 20, GROUND_Y, GAME_WIDTH + 40, 8);
-        ctx.fillStyle = '#6b4a2b'; ctx.fillRect(cameraX - 20, GROUND_Y + 8, GAME_WIDTH + 40, GAME_HEIGHT - GROUND_Y);
+        const g = ctx.createLinearGradient(0, GROUND_Y + 8, 0, GAME_HEIGHT);
+        g.addColorStop(0, '#6b4a2b'); g.addColorStop(1, '#3e2a16');
+        ctx.fillStyle = g; ctx.fillRect(left, GROUND_Y + 8, GAME_WIDTH + 80, GAME_HEIGHT - GROUND_Y);
+        ctx.fillStyle = '#3fa63f'; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 8);
+        ctx.fillStyle = '#5ac25a'; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 2);
         ctx.fillStyle = '#5a3d22';
-        for (let x = startX; x < cameraX + GAME_WIDTH + 40; x += 40) ctx.fillRect(x + ((x / 40) % 2) * 12, GROUND_Y + 12, 16, 3);
-        ctx.fillStyle = '#2f8a2f';
-        for (let x = startX; x < cameraX + GAME_WIDTH + 40; x += 40) ctx.fillRect(x + 20, GROUND_Y, 6, 3);
+        for (let x = startX; x < right; x += 40) { ctx.fillRect(x + ((x / 40) % 2) * 12, GROUND_Y + 12, 16, 3); ctx.fillRect(x + 6, GROUND_Y + 17, 8, 2); }
+        ctx.fillStyle = '#7a6a5a';
+        rocks.forEach(r => { if (r.x > left && r.x < right) { ctx.beginPath(); ctx.ellipse(r.x, GROUND_Y + 1, r.w / 2, r.h, 0, Math.PI, 0); ctx.fill(); } });
+        ctx.strokeStyle = '#2f8a2f'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        grass.forEach(gb => { if (gb.x > left && gb.x < right) { const sway = Math.sin(frame / 25 + gb.ph) * 1.5; ctx.moveTo(gb.x, GROUND_Y + 1); ctx.lineTo(gb.x + sway, GROUND_Y - gb.h); ctx.moveTo(gb.x + 3, GROUND_Y + 1); ctx.lineTo(gb.x + 3 + sway, GROUND_Y - gb.h * 0.7); } });
+        ctx.stroke();
     }
     function drawRubble(b) {
         ctx.fillStyle = '#3a3a40';
@@ -448,8 +520,24 @@
         ctx.fillText('H', b.x + b.width / 2, GROUND_Y + 3);
         const right = b.x > WORLD_WIDTH / 2;
         const tx = right ? b.x - 30 : b.x + b.width + 12;
+        // Hangar and fuel tanks behind the pad
+        const hx = right ? b.x + b.width + 8 : b.x - 70;
+        if (hx > -80 && hx < WORLD_WIDTH) {
+            ctx.fillStyle = '#6f7580'; ctx.beginPath(); ctx.moveTo(hx, GROUND_Y); ctx.lineTo(hx, GROUND_Y - 26); ctx.quadraticCurveTo(hx + 30, GROUND_Y - 52, hx + 60, GROUND_Y - 26); ctx.lineTo(hx + 60, GROUND_Y); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#2b2f36'; ctx.fillRect(hx + 18, GROUND_Y - 24, 24, 24);
+            ctx.fillStyle = '#9aa'; for (let i = 0; i < 3; i++) ctx.fillRect(hx + 4 + i * 8, GROUND_Y - 30 - i * 0, 4, 3);
+        }
+        ctx.fillStyle = '#c8c8cc'; ctx.beginPath(); ctx.arc(tx + 9, GROUND_Y - 70, 9, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#8a8f99'; ctx.fillRect(tx, GROUND_Y - 60, 18, 60);
+        ctx.fillStyle = '#5a5f69'; ctx.fillRect(tx, GROUND_Y - 60, 4, 60);
         ctx.fillStyle = '#4bb1ff'; ctx.fillRect(tx + 3, GROUND_Y - 56, 12, 8);
+        ctx.fillStyle = '#fff'; ctx.fillRect(tx + 5, GROUND_Y - 55, 3, 2);
+        // Windsock
+        const wx = right ? b.x + b.width + 2 : b.x - 10;
+        ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(wx, GROUND_Y); ctx.lineTo(wx, GROUND_Y - 30); ctx.stroke();
+        ctx.fillStyle = '#f60'; ctx.beginPath(); ctx.moveTo(wx, GROUND_Y - 30); ctx.lineTo(wx + 14, GROUND_Y - 28 + Math.sin(frame / 20) * 2); ctx.lineTo(wx + 14, GROUND_Y - 24 + Math.sin(frame / 20) * 2); ctx.lineTo(wx, GROUND_Y - 25); ctx.closePath(); ctx.fill();
+        // Pad floodlights at night
+        if (dayPhase() >= 0.45 && dayPhase() < 0.8) { const lg = ctx.createRadialGradient(b.x + b.width / 2, GROUND_Y - 2, 4, b.x + b.width / 2, GROUND_Y - 2, 90); lg.addColorStop(0, 'rgba(255,255,200,0.35)'); lg.addColorStop(1, 'rgba(255,255,200,0)'); ctx.fillStyle = lg; ctx.fillRect(b.x - 90, GROUND_Y - 92, b.width + 180, 92); }
         ctx.fillStyle = '#ccc'; ctx.fillRect(tx + 8, GROUND_Y - 80, 2, 20);
         ctx.fillStyle = c.ui; ctx.fillRect(tx + 10, GROUND_Y - 80, 12 + Math.sin(frame / 8) * 2, 7);
         ctx.font = 'bold 12px Arial';
@@ -461,8 +549,14 @@
     function drawFortress(b) {
         if (b.destroyed) { drawRubble(b); return; }
         ctx.fillStyle = '#4a4a55'; ctx.fillRect(b.x, b.y, b.width, b.height);
+        ctx.fillStyle = '#5a5a66'; ctx.fillRect(b.x, b.y, b.width, 4);
         ctx.fillStyle = '#3a3a45';
         for (let i = 0; i < 6; i++) ctx.fillRect(b.x + i * 20, b.y - 8, 12, 8);
+        // Sandbags, barbed wire and gun slits
+        ctx.fillStyle = '#9a8a5a'; for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.ellipse(b.x - 14 + (i % 2) * 6, GROUND_Y - 4 - Math.floor(i / 2) * 7, 8, 4, 0, 0, Math.PI * 2); ctx.fill(); }
+        ctx.strokeStyle = '#999'; ctx.lineWidth = 1; ctx.beginPath(); for (let x = b.x - 30; x < b.x - 4; x += 4) { ctx.moveTo(x, GROUND_Y - 22); ctx.lineTo(x + 2, GROUND_Y - 26); ctx.lineTo(x + 4, GROUND_Y - 22); } ctx.stroke();
+        ctx.fillStyle = '#111'; for (let i = 0; i < 3; i++) ctx.fillRect(b.x + 12 + i * 36, b.y + 26, 14, 4);
+        ctx.fillStyle = '#f33'; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(frame / 10); ctx.fillRect(b.x + 6, b.y + 6, 3, 3); ctx.globalAlpha = 1;
         ctx.fillStyle = '#222'; ctx.fillRect(b.x + b.width / 2 - 12, b.y + 20, 24, 30);
         ctx.fillStyle = '#ccc'; ctx.fillRect(b.x + b.width - 20, b.y - 34, 2, 26);
         ctx.fillStyle = '#e33'; ctx.fillRect(b.x + b.width - 18, b.y - 34, 14 + Math.sin(frame / 8) * 2, 8);
@@ -477,7 +571,10 @@
             ctx.fillStyle = '#7a4a20';
             ctx.beginPath(); ctx.moveTo(h.x - 6, GROUND_Y - h.h); ctx.lineTo(h.x + h.w / 2, GROUND_Y - h.h - 18); ctx.lineTo(h.x + h.w + 6, GROUND_Y - h.h); ctx.closePath(); ctx.fill();
             ctx.fillStyle = '#442'; ctx.fillRect(h.x + h.w / 2 - 6, GROUND_Y - 20, 12, 20);
-            ctx.fillStyle = '#ffd'; ctx.fillRect(h.x + 8, GROUND_Y - h.h + 10, 10, 8);
+            ctx.fillStyle = dayPhase() >= 0.45 && dayPhase() < 0.8 ? '#ffb347' : '#ffd'; ctx.fillRect(h.x + 8, GROUND_Y - h.h + 10, 10, 8);
+            ctx.fillStyle = '#8a6a4a'; for (let i = 0; i < 3; i++) ctx.fillRect(h.x + 2 + i * 18, GROUND_Y - h.h + 6, 2, h.h - 6);
+            ctx.fillStyle = '#553'; ctx.fillRect(h.x + h.w - 14, GROUND_Y - h.h - 10, 5, 12);
+            if (frame % 6 === 0) particles.push({ x: h.x + h.w - 11, y: GROUND_Y - h.h - 12, vx: rand(-0.1, 0.3), vy: -0.4, life: 60, maxLife: 60, color: '#ccc', size: 2, gravity: -0.004, grow: 0.06 });
         });
     }
     function drawHostages() {
@@ -556,9 +653,22 @@
         ctx.beginPath(); ctx.ellipse(d * 14, -2, 9, 7, 0, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(-16, 14); ctx.lineTo(22, 14); ctx.moveTo(-8, 10); ctx.lineTo(-8, 14); ctx.moveTo(12, 10); ctx.lineTo(12, 14); ctx.stroke();
+        // Door, panel line and exhaust
+        ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(d * -4, -8); ctx.lineTo(d * -4, 8); ctx.moveTo(d * -12, -6); ctx.lineTo(d * -12, 6); ctx.stroke();
+        ctx.fillStyle = '#333'; ctx.fillRect(d === 1 ? -10 : 4, -13, 6, 3);
+        // Cockpit glint
+        ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.ellipse(d * 16, -5, 4, 2, d * 0.5, 0, Math.PI * 2); ctx.fill();
+        // Mast + rotor: translucent disc with two blurred blades
         ctx.fillStyle = '#222'; ctx.fillRect(-2, -16, 4, 6);
-        const rw = 6 + 30 * Math.abs(Math.cos(frame * 0.55));
-        ctx.fillStyle = 'rgba(230,230,230,0.9)'; ctx.fillRect(-rw, -18, rw * 2, 3);
+        ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.ellipse(0, -17, 36, 3, 0, 0, Math.PI * 2); ctx.fill();
+        const rw = 6 + 30 * Math.abs(Math.cos(frame * 0.55)), rw2 = 6 + 30 * Math.abs(Math.sin(frame * 0.55));
+        ctx.fillStyle = 'rgba(230,230,230,0.85)'; ctx.fillRect(-rw, -18, rw * 2, 3);
+        ctx.fillStyle = 'rgba(230,230,230,0.35)'; ctx.fillRect(-rw2, -18, rw2 * 2, 3);
+        // Navigation lights
+        const blink = frame % 40 < 6;
+        ctx.fillStyle = blink ? '#f33' : 'rgba(255,60,60,0.3)'; ctx.fillRect(d === 1 ? -31 : 28, -13, 3, 3);
+        ctx.fillStyle = (frame + 20) % 40 < 6 ? '#3f3' : 'rgba(60,255,60,0.3)'; ctx.fillRect(d * 20 - 1, 4, 3, 3);
         ctx.restore();
     }
     function drawShadow(h) {
@@ -592,12 +702,17 @@
         });
     }
     function drawProjectiles() {
-        ctx.fillStyle = '#ffe';
-        sim.bullets.forEach(b => { ctx.fillStyle = b.team === AI ? '#f88' : '#ffe'; ctx.fillRect(b.x, b.y, b.width, b.height); });
+        sim.bullets.forEach(b => {
+            const tg = ctx.createLinearGradient(b.x - b.vx * 2.2, b.y, b.x + b.width, b.y);
+            tg.addColorStop(0, 'rgba(255,200,80,0)'); tg.addColorStop(1, b.team === AI ? '#f88' : '#ffe');
+            ctx.fillStyle = tg; ctx.fillRect(Math.min(b.x - b.vx * 2.2, b.x + b.width), b.y, Math.abs(b.vx * 2.2) + b.width, b.height);
+        });
         sim.shells.forEach(b => {
             if (b.kind === 'rifle') { ctx.fillStyle = b.team === AI ? '#f88' : '#ff8'; ctx.fillRect(b.x - 2.5, b.y - 1, 5, 2); return; }
-            ctx.fillStyle = b.kind === 'heli' ? '#0ff' : b.team === AI ? '#ff0' : '#ddd';
-            ctx.beginPath(); ctx.arc(b.x, b.y, 3.5, 0, Math.PI * 2); ctx.fill();
+            const col = b.kind === 'heli' ? '#0ff' : b.team === AI ? '#ff0' : '#ddd';
+            const gl = ctx.createRadialGradient(b.x, b.y, 1, b.x, b.y, 8); gl.addColorStop(0, col); gl.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = gl; ctx.fillRect(b.x - 8, b.y - 8, 16, 16);
+            ctx.fillStyle = col; ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI * 2); ctx.fill();
         });
         sim.bombs.forEach(b => {
             ctx.fillStyle = '#333'; ctx.beginPath(); ctx.ellipse(b.x, b.y, 4, 7, 0, 0, Math.PI * 2); ctx.fill();
@@ -606,10 +721,30 @@
     }
     function drawParticles() {
         particles.forEach(p => {
-            ctx.globalAlpha = clamp(p.life / p.maxLife, 0, 1);
-            ctx.fillStyle = p.color; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+            ctx.globalAlpha = clamp(p.life / p.maxLife, 0, 1) * (p.grow ? 0.7 : 1);
+            if (p.streak) { ctx.strokeStyle = p.color; ctx.lineWidth = p.size; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 3, p.y - p.vy * 3); ctx.stroke(); }
+            else if (p.grow) { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2); ctx.fill(); }
+            else { ctx.fillStyle = p.color; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); }
         });
         ctx.globalAlpha = 1;
+        rings.forEach(r => {
+            const a = clamp(r.life, 0, 1);
+            if (r.fill) { ctx.fillStyle = `rgba(${r.color},${a * 0.8})`; ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.fill(); }
+            else { ctx.strokeStyle = `rgba(${r.color},${a})`; ctx.lineWidth = 3 * a + 1; ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.stroke(); }
+        });
+    }
+    function drawPost() {
+        const ph = dayPhase();
+        if (ph >= 0.45 && ph < 0.8) { ctx.fillStyle = 'rgba(10,15,50,0.28)'; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); }
+        else if (ph >= 0.2 && ph < 0.45) { ctx.fillStyle = 'rgba(255,120,40,0.08)'; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); }
+        if (screenFlash > 0) { ctx.fillStyle = `rgba(255,240,200,${screenFlash})`; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); }
+        const v = ctx.createRadialGradient(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 0.55, GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 1.05);
+        v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.45)');
+        ctx.fillStyle = v; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        if (sim) {
+            const p = local(); const pct = p.health / p.maxHealth;
+            if (p.alive && pct < 0.3 && screen === 'playing') { const a = (0.3 - pct) * 0.8 * (0.6 + 0.4 * Math.sin(frame / 6)); const dg = ctx.createRadialGradient(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 0.4, GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT); dg.addColorStop(0, 'rgba(255,0,0,0)'); dg.addColorStop(1, `rgba(200,0,0,${a})`); ctx.fillStyle = dg; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); }
+        }
     }
     function drawFloatTexts() {
         ctx.textAlign = 'center';
@@ -627,7 +762,7 @@
         ctx.save();
         ctx.font = 'bold 13px Arial';
         // Left block: hull, bombs, aboard
-        ctx.fillStyle = '#0006'; ctx.fillRect(8, 8, 154, 62);
+        ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(8, 8, 154, 62);
         ctx.fillStyle = '#fff'; ctx.fillText('HULL', 14, 22);
         const pct = clamp(p.health / p.maxHealth, 0, 1);
         ctx.fillStyle = '#222'; ctx.fillRect(56, 12, 96, 10);
@@ -643,7 +778,7 @@
         // Right block: score, credits, troops
         const myUnits = sim.units.filter(u => u.team === p.team).length;
         ctx.textAlign = 'right';
-        ctx.fillStyle = '#0006'; ctx.fillRect(GAME_WIDTH - 158, 8, 150, 92);
+        ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(GAME_WIDTH - 158, 8, 150, 92);
         ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
         ctx.fillText(String(p.score).padStart(6, '0'), GAME_WIDTH - 14, 26);
         ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#ccc';
@@ -774,7 +909,12 @@
         ctx.save();
         ctx.beginPath(); ctx.rect(0, 0, GAME_WIDTH, GAME_HEIGHT); ctx.clip();
         drawSky();
+        drawLayer(farMountains, 0.12, 'rgba(90,120,170,0.55)', GROUND_Y - 10);
         drawLayer(mountains, 0.25, '#3c5a86', GROUND_Y);
+        // Haze band between layers
+        const haze = ctx.createLinearGradient(0, GROUND_Y - 120, 0, GROUND_Y);
+        haze.addColorStop(0, 'rgba(255,255,255,0)'); haze.addColorStop(1, 'rgba(220,235,255,0.35)');
+        ctx.fillStyle = haze; ctx.fillRect(0, GROUND_Y - 120, GAME_WIDTH, 120);
         drawLayer(hills, 0.5, '#2f7a4a', GROUND_Y);
         if (sim) {
             const sx = shake > 0 ? (Math.random() - 0.5) * shake : 0, sy = shake > 0 ? (Math.random() - 0.5) * shake : 0;
@@ -790,9 +930,11 @@
             drawParticles();
             drawFloatTexts();
             ctx.restore();
+            drawPost();
             if (screen !== 'title' && screen !== 'lobby') drawHUD();
         } else {
             ctx.save(); ctx.translate(-Math.round(cameraX), 0); drawGround(); ctx.restore();
+            drawPost();
         }
         drawOverlays();
         ctx.restore();
@@ -901,6 +1043,7 @@
         sim = Sim.createGame({ mode: 'solo', seed: 1 }); // world behind the title screen
         sim.fx = [];
         screen = 'title';
+        if (window.location.hash === '#autostart') { startSolo(); input.up = true; input.right = true; setTimeout(() => { input.up = false; input.fire = true; }, 1500); }
     } else {
         startVersus();
     }

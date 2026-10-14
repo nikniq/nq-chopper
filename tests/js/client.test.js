@@ -7,7 +7,7 @@ const gameSrc = fs.readFileSync('public_html/js/game.js', 'utf8');
 const noop = () => {};
 
 function makeClient(config, fakeNet) {
-    const ctxProxy = new Proxy({}, { get: (t, k) => k === 'createLinearGradient' ? () => ({ addColorStop: noop }) : noop, set: () => true });
+    const ctxProxy = new Proxy({}, { get: (t, k) => (k === 'createLinearGradient' || k === 'createRadialGradient') ? () => ({ addColorStop: noop }) : noop, set: () => true });
     const mkEl = () => ({ style: {}, classList: { add: noop }, addEventListener: noop, getContext: () => ctxProxy, textContent: '', disabled: false, blur: noop, width: 640, height: 400, querySelector: () => ({ textContent: '' }) });
     const els = {}, docHandlers = {}, fetches = [];
     let rafCb = null;

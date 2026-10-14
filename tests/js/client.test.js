@@ -17,7 +17,7 @@ function makeClient(config, fakeNet) {
         fetch: (url, o) => { fetches.push({ url, body: o && JSON.parse(o.body) }); return Promise.resolve({ ok: true, json: () => Promise.resolve({ rank: 1, best: 1 }) }); }
     };
     win.window = win; win.self = win; win.globalThis = win;
-    win.document = { getElementById: id => (els[id] = els[id] || mkEl()), addEventListener: (ev, fn) => { docHandlers[ev] = fn; }, body: mkEl(), hidden: false };
+    win.document = { createElement: () => mkEl(), getElementById: id => (els[id] = els[id] || mkEl()), addEventListener: (ev, fn) => { docHandlers[ev] = fn; }, body: mkEl(), hidden: false };
     win.performance = { now: () => 0 }; win.localStorage = { getItem: () => null, setItem: noop };
     win.Math = Math; win.Date = Date; win.JSON = JSON; win.Object = Object; win.Array = Array; win.String = String; win.Number = Number; win.Promise = Promise; win.Set = Set; win.Error = Error; win.console = console; win.Proxy = Proxy; win.Infinity = Infinity;
     if (fakeNet) win.NQNet = fakeNet;

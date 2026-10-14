@@ -28,7 +28,9 @@
     const GAME_WIDTH = 640, GAME_HEIGHT = 400;
     const { WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, UNITS, UPGRADES, AI } = Sim;
     const HIGH_SCORE_KEY = 'nqChopperHighScore';
-    const P2P_DELAY = 4, RELAY_DELAY = 18; // lockstep input latency in ticks (~67 ms direct, ~300 ms via server)
+    // Lockstep input latency in ticks. Starts at a guess per transport and adapts to the measured
+    // round trip so the game neither stalls (delay too small) nor feels sluggish (delay too big).
+    const P2P_DELAY = 5, RELAY_DELAY = 18, MIN_DELAY = 3, MAX_DELAY = 30;
     let INPUT_DELAY = P2P_DELAY;
 
     const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -170,11 +172,20 @@
     for (let i = 0; i < 60; i++) stars.push({ x: rand(0, GAME_WIDTH), y: rand(0, 200), r: rand(0.5, 1.4), tw: rand(0, 6) });
     // Client-only effect lists
     let rings = [], screenFlash = 0;
+    const MAX_PARTICLES = 350;
+    // Cached gradients and sprites (gradient objects are expensive to create every frame)
+    const cache = {};
+    function cached(key, make) { return cache[key] || (cache[key] = make()); }
+    function makeSprite(size, draw) { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'); if (g) draw(g, size); return c; }
+    const glowSprite = (col) => cached('glow' + col, () => makeSprite(16, (g, n) => { const r = g.createRadialGradient(n / 2, n / 2, 1, n / 2, n / 2, n / 2); r.addColorStop(0, col); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, n, n); }));
+    const isVisible = (x, margin) => x > cameraX - (margin || 60) && x < cameraX + GAME_WIDTH + (margin || 60);
 
     // =====================================================================
     // Effects (client-only, fed by sim.fx)
     // =====================================================================
     function spawnParticles(x, y, n, o) {
+        if (!isVisible(x, 120)) return;
+        if (particles.length > MAX_PARTICLES) n = Math.min(n, 3);
         for (let i = 0; i < n; i++) {
             const a = Math.random() * Math.PI * 2, s = o.speed * (0.3 + Math.random());
             const life = o.life * (0.6 + Math.random() * 0.6);
@@ -205,6 +216,7 @@
         }
     }
     function updateEffects() {
+        if (particles.length > MAX_PARTICLES + 100) particles.splice(0, particles.length - MAX_PARTICLES);
         for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
             p.x += p.vx; p.y += p.vy; p.vy += p.gravity; p.vx *= 0.98; p.life--; p.size += p.grow;
@@ -226,10 +238,10 @@
     }
     // Smoke trails behind shells and bombs, exhaust behind fast choppers
     function emitTrails() {
-        if (frame % 2) return;
-        sim.shells.forEach(b => { if (b.kind === 'shell' || b.kind === 'aa' || b.kind === 'heli') particles.push({ x: b.x, y: b.y, vx: rand(-0.2, 0.2), vy: rand(-0.3, 0), life: 22, maxLife: 22, color: b.kind === 'heli' ? '#8ff' : '#bbb', size: 3, gravity: -0.01, grow: 0.08 }); });
-        sim.bombs.forEach(b => particles.push({ x: b.x, y: b.y - 6, vx: rand(-0.2, 0.2), vy: -0.4, life: 26, maxLife: 26, color: '#ccc', size: 3, gravity: -0.01, grow: 0.08 }));
-        sim.players.forEach(p => { if (p.alive && Math.abs(p.vx) > 2.2) particles.push({ x: cx(p) - p.dir * 26, y: p.y + 8, vx: -p.dir * 0.6, vy: -0.5, life: 20, maxLife: 20, color: '#8899aa', size: 3, gravity: -0.02, grow: 0.1 }); });
+        if (frame % 2 || particles.length > (lowDetail ? 120 : MAX_PARTICLES) || lowDetail && frame % 4) return;
+        sim.shells.forEach(b => { if (isVisible(b.x) && (b.kind === 'shell' || b.kind === 'aa' || b.kind === 'heli')) particles.push({ x: b.x, y: b.y, vx: rand(-0.2, 0.2), vy: rand(-0.3, 0), life: 22, maxLife: 22, color: b.kind === 'heli' ? '#8ff' : '#bbb', size: 3, gravity: -0.01, grow: 0.08 }); });
+        sim.bombs.forEach(b => isVisible(b.x) && particles.push({ x: b.x, y: b.y - 6, vx: rand(-0.2, 0.2), vy: -0.4, life: 26, maxLife: 26, color: '#ccc', size: 3, gravity: -0.01, grow: 0.08 }));
+        sim.players.forEach(p => { if (p.alive && Math.abs(p.vx) > 2.2 && isVisible(p.x)) particles.push({ x: cx(p) - p.dir * 26, y: p.y + 8, vx: -p.dir * 0.6, vy: -0.5, life: 20, maxLife: 20, color: '#8899aa', size: 3, gravity: -0.02, grow: 0.1 }); });
     }
     function spawnMuzzleFlash(x, y, dir) {
         rings.push({ x, y, r: 1, max: 9, life: 0.6, color: '255,240,160', fill: true });
@@ -296,7 +308,7 @@
     // =====================================================================
     // Versus mode: lobby + lockstep
     // =====================================================================
-    const net = { link: null, status: '', level: '', transport: null, localInputs: [], remoteInputs: [], remoteHashes: {}, localHashes: {}, stalled: 0, desync: false, posted: false, opponent: match ? match.opponent : null };
+    const net = { link: null, status: '', level: '', transport: null, rtt: 0, pings: {}, lastPing: 0, localInputs: [], remoteInputs: [], remoteHashes: {}, localHashes: {}, stalled: 0, desync: false, posted: false, opponent: match ? match.opponent : null };
     function startVersus() {
         if (match.status === 'finished') { net.status = 'THIS MATCH HAS ALREADY FINISHED'; net.level = 'error'; screen = 'lobby'; return; }
         screen = 'lobby';
@@ -319,6 +331,8 @@
     }
     function onNetMessage(m) {
         if (m.t === 'i') net.remoteInputs[m.f] = unpackInput(m.i);
+        else if (m.t === 'p') net.link.send({ t: 'q', s: m.s });
+        else if (m.t === 'q') { const sent = net.pings[m.s]; if (sent) { delete net.pings[m.s]; const r = performance.now() - sent; net.rtt = net.rtt ? net.rtt * 0.7 + r * 0.3 : r; } }
         else if (m.t === 'h') {
             net.remoteHashes[m.f] = m.h;
             if (net.localHashes[m.f] !== undefined && net.localHashes[m.f] !== m.h) flagDesync();
@@ -342,6 +356,20 @@
         }
         if (screen !== 'playing') return;
         const f = sim.frame;
+        // Ping once a second and retune the delay: half the RTT plus a safety margin, in ticks
+        if (f - net.lastPing >= 60) {
+            net.lastPing = f; const id = f; net.pings[id] = performance.now(); net.link.send({ t: 'p', s: id });
+            for (const k of Object.keys(net.pings)) if (k < f - 600) delete net.pings[k];
+            if (net.rtt) {
+                const want = clamp(Math.ceil((net.rtt / 2 + (net.transport === 'relay' ? 160 : 25)) / STEP) + 1, MIN_DELAY, MAX_DELAY);
+                if (want > INPUT_DELAY + 1 || want < INPUT_DELAY - 2) {
+                    // Growing the delay must not leave a gap of frames the opponent never receives
+                    const cur = captureInput();
+                    for (let g = f + INPUT_DELAY; g < f + want; g++) if (net.localInputs[g] === undefined) { net.localInputs[g] = cur; net.link.send({ t: 'i', f: g, i: packInput(cur) }); }
+                    INPUT_DELAY = want;
+                }
+            }
+        }
         if (net.localInputs[f + INPUT_DELAY] === undefined) {
             const inp = captureInput();
             net.localInputs[f + INPUT_DELAY] = inp;
@@ -426,10 +454,9 @@
         ['#05081c', '#141a3c', '#2b3560'], ['#3a2a5a', '#d87a8a', '#ffd6c2']
     ];
     function drawSky() {
-        const ph = dayPhase(), sky = SKIES[Math.round(ph * 4) % 4];
-        const g = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT);
-        g.addColorStop(0, sky[0]); g.addColorStop(0.65, sky[1]); g.addColorStop(1, sky[2]);
-        ctx.fillStyle = g; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        const ph = dayPhase(), idx = Math.round(ph * 4) % 4, sky = SKIES[idx];
+        ctx.fillStyle = cached('sky' + idx, () => { const g = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT); g.addColorStop(0, sky[0]); g.addColorStop(0.65, sky[1]); g.addColorStop(1, sky[2]); return g; });
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
         const night = ph >= 0.45 && ph < 0.8;
         if (night) {
             stars.forEach(st => { ctx.globalAlpha = 0.5 + 0.5 * Math.abs(Math.sin(frame / 40 + st.tw)); ctx.fillStyle = '#fff'; ctx.fillRect(st.x, st.y, st.r, st.r); });
@@ -437,9 +464,8 @@
         }
         // Sun / moon with glow
         const sx = 560 - cameraX * 0.02, sy = night ? 70 : 60;
-        const glow = ctx.createRadialGradient(sx, sy, 10, sx, sy, night ? 70 : 120);
-        glow.addColorStop(0, night ? 'rgba(220,230,255,0.35)' : 'rgba(255,240,180,0.55)'); glow.addColorStop(1, 'rgba(255,240,180,0)');
-        ctx.fillStyle = glow; ctx.fillRect(sx - 130, sy - 130, 260, 260);
+        const glowSize = night ? 140 : 240;
+        ctx.drawImage(cached('sunglow' + night, () => makeSprite(glowSize, (g, n) => { const r = g.createRadialGradient(n / 2, n / 2, n * 0.05, n / 2, n / 2, n / 2); r.addColorStop(0, night ? 'rgba(220,230,255,0.35)' : 'rgba(255,240,180,0.55)'); r.addColorStop(1, 'rgba(255,240,180,0)'); g.fillStyle = r; g.fillRect(0, 0, n, n); })), sx - glowSize / 2, sy - glowSize / 2);
         ctx.fillStyle = night ? '#e8ecff' : '#ffe680';
         ctx.beginPath(); ctx.arc(sx, sy, night ? 18 : 26, 0, Math.PI * 2); ctx.fill();
         if (night) { ctx.fillStyle = sky[0]; ctx.beginPath(); ctx.arc(sx + 8, sy - 4, 15, 0, Math.PI * 2); ctx.fill(); }
@@ -484,9 +510,8 @@
         const left = cameraX - 40, right = cameraX + GAME_WIDTH + 40;
         trees.forEach(t => { if (t.x > left && t.x < right) drawTree(t); });
         const startX = Math.floor(cameraX / 40) * 40 - 40;
-        const g = ctx.createLinearGradient(0, GROUND_Y + 8, 0, GAME_HEIGHT);
-        g.addColorStop(0, '#6b4a2b'); g.addColorStop(1, '#3e2a16');
-        ctx.fillStyle = g; ctx.fillRect(left, GROUND_Y + 8, GAME_WIDTH + 80, GAME_HEIGHT - GROUND_Y);
+        ctx.fillStyle = cached('soil', () => { const g = ctx.createLinearGradient(0, GROUND_Y + 8, 0, GAME_HEIGHT); g.addColorStop(0, '#6b4a2b'); g.addColorStop(1, '#3e2a16'); return g; });
+        ctx.fillRect(left, GROUND_Y + 8, GAME_WIDTH + 80, GAME_HEIGHT - GROUND_Y);
         ctx.fillStyle = '#3fa63f'; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 8);
         ctx.fillStyle = '#5ac25a'; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 2);
         ctx.fillStyle = '#5a3d22';
@@ -495,7 +520,7 @@
         rocks.forEach(r => { if (r.x > left && r.x < right) { ctx.beginPath(); ctx.ellipse(r.x, GROUND_Y + 1, r.w / 2, r.h, 0, Math.PI, 0); ctx.fill(); } });
         ctx.strokeStyle = '#2f8a2f'; ctx.lineWidth = 1.5;
         ctx.beginPath();
-        grass.forEach(gb => { if (gb.x > left && gb.x < right) { const sway = Math.sin(frame / 25 + gb.ph) * 1.5; ctx.moveTo(gb.x, GROUND_Y + 1); ctx.lineTo(gb.x + sway, GROUND_Y - gb.h); ctx.moveTo(gb.x + 3, GROUND_Y + 1); ctx.lineTo(gb.x + 3 + sway, GROUND_Y - gb.h * 0.7); } });
+        if (!lowDetail) grass.forEach(gb => { if (gb.x > left && gb.x < right) { const sway = Math.sin(frame / 25 + gb.ph) * 1.5; ctx.moveTo(gb.x, GROUND_Y + 1); ctx.lineTo(gb.x + sway, GROUND_Y - gb.h); ctx.moveTo(gb.x + 3, GROUND_Y + 1); ctx.lineTo(gb.x + 3 + sway, GROUND_Y - gb.h * 0.7); } });
         ctx.stroke();
     }
     function drawRubble(b) {
@@ -538,7 +563,7 @@
         ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(wx, GROUND_Y); ctx.lineTo(wx, GROUND_Y - 30); ctx.stroke();
         ctx.fillStyle = '#f60'; ctx.beginPath(); ctx.moveTo(wx, GROUND_Y - 30); ctx.lineTo(wx + 14, GROUND_Y - 28 + Math.sin(frame / 20) * 2); ctx.lineTo(wx + 14, GROUND_Y - 24 + Math.sin(frame / 20) * 2); ctx.lineTo(wx, GROUND_Y - 25); ctx.closePath(); ctx.fill();
         // Pad floodlights at night
-        if (dayPhase() >= 0.45 && dayPhase() < 0.8) { const lg = ctx.createRadialGradient(b.x + b.width / 2, GROUND_Y - 2, 4, b.x + b.width / 2, GROUND_Y - 2, 90); lg.addColorStop(0, 'rgba(255,255,200,0.35)'); lg.addColorStop(1, 'rgba(255,255,200,0)'); ctx.fillStyle = lg; ctx.fillRect(b.x - 90, GROUND_Y - 92, b.width + 180, 92); }
+        if (dayPhase() >= 0.45 && dayPhase() < 0.8) ctx.drawImage(cached('flood', () => makeSprite(180, (g, n) => { const r = g.createRadialGradient(n / 2, n / 2, 4, n / 2, n / 2, n / 2); r.addColorStop(0, 'rgba(255,255,200,0.35)'); r.addColorStop(1, 'rgba(255,255,200,0)'); g.fillStyle = r; g.fillRect(0, 0, n, n); })), b.x + b.width / 2 - 90, GROUND_Y - 92, 180, 92);
         ctx.fillStyle = '#ccc'; ctx.fillRect(tx + 8, GROUND_Y - 80, 2, 20);
         ctx.fillStyle = c.ui; ctx.fillRect(tx + 10, GROUND_Y - 80, 12 + Math.sin(frame / 8) * 2, 7);
         ctx.font = 'bold 12px Arial';
@@ -568,6 +593,7 @@
     }
     function drawHuts() {
         sim.huts.forEach(h => {
+            if (!isVisible(h.x + 40, 120)) return;
             ctx.fillStyle = '#b08050'; ctx.fillRect(h.x, GROUND_Y - h.h, h.w, h.h);
             ctx.fillStyle = '#7a4a20';
             ctx.beginPath(); ctx.moveTo(h.x - 6, GROUND_Y - h.h); ctx.lineTo(h.x + h.w / 2, GROUND_Y - h.h - 18); ctx.lineTo(h.x + h.w + 6, GROUND_Y - h.h); ctx.closePath(); ctx.fill();
@@ -596,7 +622,7 @@
     function drawHostages() {
         const px = cx(local());
         sim.hostages.forEach(h => {
-            if (h.state !== 'waiting' && h.state !== 'running') return;
+            if (h.state !== 'waiting' && h.state !== 'running' || !isVisible(h.x)) return;
             const running = h.state === 'running', near = Math.abs(px - h.x) < 320;
             ctx.save();
             ctx.translate(h.x, GROUND_Y);
@@ -616,6 +642,7 @@
     }
     function drawUnits() {
         sim.units.forEach(u => {
+            if (!isVisible(u.x)) return;
             const c = colorsOf(u.team);
             ctx.save();
             if (u.type === 'soldier') {
@@ -719,15 +746,15 @@
     }
     function drawProjectiles() {
         sim.bullets.forEach(b => {
-            const tg = ctx.createLinearGradient(b.x - b.vx * 2.2, b.y, b.x + b.width, b.y);
-            tg.addColorStop(0, 'rgba(255,200,80,0)'); tg.addColorStop(1, b.team === AI ? '#f88' : '#ffe');
-            ctx.fillStyle = tg; ctx.fillRect(Math.min(b.x - b.vx * 2.2, b.x + b.width), b.y, Math.abs(b.vx * 2.2) + b.width, b.height);
+            if (!isVisible(b.x)) return;
+            ctx.fillStyle = 'rgba(255,200,80,0.35)'; ctx.fillRect(Math.min(b.x - b.vx * 2.2, b.x + b.width), b.y + 0.5, Math.abs(b.vx * 2.2) + b.width, b.height - 1);
+            ctx.fillStyle = b.team === AI ? '#f88' : '#ffe'; ctx.fillRect(b.x, b.y, b.width, b.height);
         });
         sim.shells.forEach(b => {
-            if (b.kind === 'rifle') { ctx.fillStyle = b.team === AI ? '#f88' : '#ff8'; ctx.fillRect(b.x - 2.5, b.y - 1, 5, 2); return; }
+            if (b.kind === 'rifle') { if (!isVisible(b.x)) return; ctx.fillStyle = b.team === AI ? '#f88' : '#ff8'; ctx.fillRect(b.x - 2.5, b.y - 1, 5, 2); return; }
+            if (!isVisible(b.x)) return;
             const col = b.kind === 'heli' ? '#0ff' : b.team === AI ? '#ff0' : '#ddd';
-            const gl = ctx.createRadialGradient(b.x, b.y, 1, b.x, b.y, 8); gl.addColorStop(0, col); gl.addColorStop(1, 'rgba(255,255,255,0)');
-            ctx.fillStyle = gl; ctx.fillRect(b.x - 8, b.y - 8, 16, 16);
+            ctx.drawImage(glowSprite(col), b.x - 8, b.y - 8);
             ctx.fillStyle = col; ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI * 2); ctx.fill();
         });
         sim.bombs.forEach(b => {
@@ -750,16 +777,20 @@
         });
     }
     function drawPost() {
+        if (lowDetail) { if (screenFlash > 0) { ctx.fillStyle = `rgba(255,240,200,${screenFlash})`; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); } return; }
         const ph = dayPhase();
         if (ph >= 0.45 && ph < 0.8) { ctx.fillStyle = 'rgba(10,15,50,0.28)'; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); }
         else if (ph >= 0.2 && ph < 0.45) { ctx.fillStyle = 'rgba(255,120,40,0.08)'; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); }
         if (screenFlash > 0) { ctx.fillStyle = `rgba(255,240,200,${screenFlash})`; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); }
-        const v = ctx.createRadialGradient(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 0.55, GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 1.05);
-        v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.45)');
-        ctx.fillStyle = v; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        ctx.fillStyle = cached('vignette', () => { const v = ctx.createRadialGradient(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 0.55, GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 1.05); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.45)'); return v; });
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
         if (sim) {
             const p = local(); const pct = p.health / p.maxHealth;
-            if (p.alive && pct < 0.3 && screen === 'playing') { const a = (0.3 - pct) * 0.8 * (0.6 + 0.4 * Math.sin(frame / 6)); const dg = ctx.createRadialGradient(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 0.4, GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT); dg.addColorStop(0, 'rgba(255,0,0,0)'); dg.addColorStop(1, `rgba(200,0,0,${a})`); ctx.fillStyle = dg; ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); }
+            if (p.alive && pct < 0.3 && screen === 'playing') {
+                ctx.globalAlpha = clamp((0.3 - pct) * 2.6 * (0.6 + 0.4 * Math.sin(frame / 6)), 0, 1);
+                ctx.fillStyle = cached('damage', () => { const dg = ctx.createRadialGradient(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 0.4, GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT); dg.addColorStop(0, 'rgba(255,0,0,0)'); dg.addColorStop(1, 'rgba(200,0,0,0.8)'); return dg; });
+                ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT); ctx.globalAlpha = 1;
+            }
         }
     }
     function drawFloatTexts() {
@@ -846,7 +877,7 @@
             ctx.fillStyle = '#f88'; ctx.font = 'bold 16px Arial';
             ctx.fillText('SHOT DOWN - REDEPLOYING IN ' + Math.max(0, Math.ceil((301 - p.respawn) / 60)), GAME_WIDTH / 2, 130);
         }
-        if (sim.mode === 'versus' && net.transport === 'relay') { ctx.fillStyle = '#fc6'; ctx.font = 'bold 10px Arial'; ctx.fillText('SERVER RELAY', GAME_WIDTH / 2, 112); }
+        if (sim.mode === 'versus') { ctx.fillStyle = net.transport === 'relay' ? '#fc6' : '#9cf'; ctx.font = 'bold 10px Arial'; ctx.fillText((net.transport === 'relay' ? 'SERVER RELAY  ' : '') + 'PING ' + Math.round(net.rtt) + 'ms  DELAY ' + INPUT_DELAY, GAME_WIDTH / 2, 112); }
         if (sim.mode === 'versus' && net.stalled > 20 && screen === 'playing') {
             ctx.fillStyle = '#fc6'; ctx.font = 'bold 14px Arial'; ctx.fillText('WAITING FOR OPPONENT...', GAME_WIDTH / 2, GAME_HEIGHT - 30);
         }
@@ -931,16 +962,15 @@
         drawLayer(farMountains, 0.12, 'rgba(90,120,170,0.55)', GROUND_Y - 10);
         drawLayer(mountains, 0.25, '#3c5a86', GROUND_Y);
         // Haze band between layers
-        const haze = ctx.createLinearGradient(0, GROUND_Y - 120, 0, GROUND_Y);
-        haze.addColorStop(0, 'rgba(255,255,255,0)'); haze.addColorStop(1, 'rgba(220,235,255,0.35)');
-        ctx.fillStyle = haze; ctx.fillRect(0, GROUND_Y - 120, GAME_WIDTH, 120);
+        ctx.fillStyle = cached('haze', () => { const h = ctx.createLinearGradient(0, GROUND_Y - 120, 0, GROUND_Y); h.addColorStop(0, 'rgba(255,255,255,0)'); h.addColorStop(1, 'rgba(220,235,255,0.35)'); return h; });
+        ctx.fillRect(0, GROUND_Y - 120, GAME_WIDTH, 120);
         drawLayer(hills, 0.5, '#2f7a4a', GROUND_Y);
         if (sim) {
             const sx = shake > 0 ? (Math.random() - 0.5) * shake : 0, sy = shake > 0 ? (Math.random() - 0.5) * shake : 0;
             ctx.save();
             ctx.translate(-Math.round(cameraX) + sx, sy);
             drawGround();
-            sim.bases.forEach(b => b.team === AI ? drawFortress(b) : drawPad(b, b.team));
+            sim.bases.forEach(b => { if (isVisible(b.x + b.width / 2, 200)) (b.team === AI ? drawFortress(b) : drawPad(b, b.team)); });
             drawHuts();
             drawHostages();
             drawUnits();
@@ -1043,12 +1073,16 @@
     // Main loop: fixed 60 Hz simulation, render every animation frame
     // =====================================================================
     const STEP = 1000 / 60;
-    let last = performance.now(), acc = 0;
+    let last = performance.now(), acc = 0, slowFrames = 0;
+    let lowDetail = false;
     function loop(now) {
-        acc += Math.min(now - last, 100);
+        const dt = Math.min(now - last, 100);
+        acc += dt;
         last = now;
         while (acc >= STEP) { update(); acc -= STEP; }
         render();
+        // Auto low-detail: if the device sustains < ~40 fps, drop the dearest cosmetics
+        if (dt > 25) { if (++slowFrames > 90 && !lowDetail) { lowDetail = true; particles.length = Math.min(particles.length, 80); } } else if (slowFrames > 0) slowFrames--;
         requestAnimationFrame(loop);
     }
 

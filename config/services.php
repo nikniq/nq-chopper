@@ -39,4 +39,12 @@ return [
         'id' => env('GOOGLE_ANALYTICS_ID'),
     ],
 
+    // Optional TURN relay for online matches (comma-separated urls). Without TURN,
+    // players behind symmetric/carrier NAT fall back to relaying inputs via this server.
+    'turn' => [
+        'urls' => env('TURN_URLS'),
+        'username' => env('TURN_USERNAME'),
+        'credential' => env('TURN_CREDENTIAL'),
+    ],
+
 ];

@@ -77,7 +77,7 @@ class MatchController extends Controller
     {
         $this->authorizeParticipant($request, $match);
         $data = $request->validate([
-            'type' => ['required', 'string', 'in:offer,answer,candidate,ready,bye'],
+            'type' => ['required', 'string', 'in:offer,answer,candidate,ready,bye,relay-mode'],
             'payload' => ['present', 'string', 'max:20000'],
         ]);
 
@@ -99,6 +99,44 @@ class MatchController extends Controller
             ->get(['id', 'type', 'payload']);
 
         return response()->json(['signals' => $signals, 'status' => $match->status]);
+    }
+
+    /**
+     * Server relay fallback: when WebRTC cannot connect, each client posts its
+     * batched lockstep messages here and receives the opponent's in the same call.
+     */
+    public function relay(Request $request, GameMatch $match): JsonResponse
+    {
+        $this->authorizeParticipant($request, $match);
+        $data = $request->validate([
+            'after' => ['required', 'integer', 'min:0'],
+            'msgs' => ['present', 'array', 'max:200'],
+        ]);
+
+        if (! empty($data['msgs'])) {
+            $match->signals()->create([
+                'user_id' => $request->user()->id,
+                'type' => 'relay',
+                'payload' => json_encode($data['msgs']),
+            ]);
+        }
+
+        $rows = $match->signals()
+            ->where('user_id', '!=', $request->user()->id)
+            ->where('type', 'relay')
+            ->where('id', '>', $data['after'])
+            ->orderBy('id')
+            ->limit(200)
+            ->get(['id', 'payload']);
+
+        $msgs = [];
+        foreach ($rows as $row) {
+            foreach (json_decode($row->payload, true) ?: [] as $m) {
+                $msgs[] = $m;
+            }
+        }
+
+        return response()->json(['last' => $rows->last()?->id ?? $data['after'], 'msgs' => $msgs, 'status' => $match->status]);
     }
 
     public function result(Request $request, GameMatch $match): JsonResponse

@@ -82,6 +82,34 @@ class MatchTest extends TestCase
         $this->actingAs(User::factory()->create())->getJson(route('matches.signals', $match))->assertForbidden();
     }
 
+    public function test_relay_exchanges_batched_messages_between_participants(): void
+    {
+        $host = User::factory()->create();
+        $guest = User::factory()->create();
+        $match = GameMatch::createFor($host);
+        $match->update(['guest_user_id' => $guest->id, 'status' => 'active']);
+
+        $this->actingAs($host)->get('/play/'.$match->code)->assertOk()->assertSee('openrelay.metered.ca')->assertSee(json_encode(route('matches.relay', $match)), false);
+
+        $r1 = $this->actingAs($host)->postJson(route('matches.relay', $match), ['after' => 0, 'msgs' => [['t' => 'i', 'f' => 4, 'i' => [1, 0]], ['t' => 'i', 'f' => 5, 'i' => [3, 0]]]])
+            ->assertOk()->json();
+        $this->assertSame([], $r1['msgs']);
+        $this->assertSame(0, $r1['last']);
+
+        $r2 = $this->actingAs($guest)->postJson(route('matches.relay', $match), ['after' => 0, 'msgs' => [['t' => 'h', 'f' => 60, 'h' => 123]]])
+            ->assertOk()->json();
+        $this->assertSame([4, 5], array_column($r2['msgs'], 'f'));
+        $this->assertGreaterThan(0, $r2['last']);
+
+        $r3 = $this->actingAs($guest)->postJson(route('matches.relay', $match), ['after' => $r2['last'], 'msgs' => []])->json();
+        $this->assertSame([], $r3['msgs'], 'already-read messages are not repeated');
+
+        $r4 = $this->actingAs($host)->postJson(route('matches.relay', $match), ['after' => 0, 'msgs' => []])->json();
+        $this->assertSame('h', $r4['msgs'][0]['t']);
+
+        $this->actingAs(User::factory()->create())->postJson(route('matches.relay', $match), ['after' => 0, 'msgs' => []])->assertForbidden();
+    }
+
     public function test_result_is_recorded_once_and_listed(): void
     {
         $host = User::factory()->create(['name' => 'Alpha']);

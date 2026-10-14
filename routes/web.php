@@ -28,5 +28,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/matches/{match:code}/status', [MatchController::class, 'status'])->name('matches.status');
     Route::post('/matches/{match:code}/signal', [MatchController::class, 'signal'])->name('matches.signal');
     Route::get('/matches/{match:code}/signals', [MatchController::class, 'signals'])->name('matches.signals');
+    Route::post('/matches/{match:code}/relay', [MatchController::class, 'relay'])->name('matches.relay');
     Route::post('/matches/{match:code}/result', [MatchController::class, 'result'])->name('matches.result');
 });

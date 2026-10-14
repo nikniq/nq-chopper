@@ -28,7 +28,8 @@
     const GAME_WIDTH = 640, GAME_HEIGHT = 400;
     const { WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, UNITS, UPGRADES, AI } = Sim;
     const HIGH_SCORE_KEY = 'nqChopperHighScore';
-    const INPUT_DELAY = 4; // lockstep input latency in ticks (~67 ms)
+    const P2P_DELAY = 4, RELAY_DELAY = 18; // lockstep input latency in ticks (~67 ms direct, ~300 ms via server)
+    let INPUT_DELAY = P2P_DELAY;
 
     const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     if (isTouch) {
@@ -295,15 +296,15 @@
     // =====================================================================
     // Versus mode: lobby + lockstep
     // =====================================================================
-    const net = { link: null, status: '', level: '', localInputs: [], remoteInputs: [], remoteHashes: {}, localHashes: {}, stalled: 0, desync: false, posted: false, opponent: match ? match.opponent : null };
+    const net = { link: null, status: '', level: '', transport: null, localInputs: [], remoteInputs: [], remoteHashes: {}, localHashes: {}, stalled: 0, desync: false, posted: false, opponent: match ? match.opponent : null };
     function startVersus() {
         if (match.status === 'finished') { net.status = 'THIS MATCH HAS ALREADY FINISHED'; net.level = 'error'; screen = 'lobby'; return; }
         screen = 'lobby';
         net.link = window.NQNet.createLink({
-            code: match.code, role: match.role, urls: match.urls, csrf: cfg.csrf, opponent: match.opponent,
+            code: match.code, role: match.role, urls: match.urls, csrf: cfg.csrf, opponent: match.opponent, ice: match.ice,
             onStatus(msg, level) { net.status = msg; net.level = level || ''; },
             onOpponent(op) { net.opponent = op; },
-            onOpen() { beginMatch(); },
+            onOpen(kind) { net.transport = kind; if (kind === 'relay') INPUT_DELAY = RELAY_DELAY; if (!sim) beginMatch(); },
             onMessage(m) { onNetMessage(m); },
             onClose(msg) { onNetClosed(msg); }
         });
@@ -845,6 +846,7 @@
             ctx.fillStyle = '#f88'; ctx.font = 'bold 16px Arial';
             ctx.fillText('SHOT DOWN - REDEPLOYING IN ' + Math.max(0, Math.ceil((301 - p.respawn) / 60)), GAME_WIDTH / 2, 130);
         }
+        if (sim.mode === 'versus' && net.transport === 'relay') { ctx.fillStyle = '#fc6'; ctx.font = 'bold 10px Arial'; ctx.fillText('SERVER RELAY', GAME_WIDTH / 2, 112); }
         if (sim.mode === 'versus' && net.stalled > 20 && screen === 'playing') {
             ctx.fillStyle = '#fc6'; ctx.font = 'bold 14px Arial'; ctx.fillText('WAITING FOR OPPONENT...', GAME_WIDTH / 2, GAME_HEIGHT - 30);
         }
@@ -899,6 +901,7 @@
             else bigText('Opponent: ' + (net.opponent ? net.opponent.name : '...'), 210, 15, '#9cf');
             bigText(net.status + (net.level === 'error' ? '' : (blink ? '' : ' ')), 255, 16, net.level === 'error' ? '#f66' : net.level === 'warn' ? '#fc6' : '#8f8');
             if (net.level === 'error') bigText('Open the Lobby link above to try again', 285, 13, '#ccc');
+            else if (net.level !== 'ok' && net.opponent) bigText('Trying a direct connection first, then the server relay if needed', 285, 12, '#aaa');
             bigText('First pilot to destroy the other base wins · Rescue hostages for credits', 330, 12, '#ddd');
         } else if (screen === 'countdown') {
             overlay(0.35);

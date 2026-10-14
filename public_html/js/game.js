@@ -1180,10 +1180,11 @@
         sim = Sim.createGame({ mode: 'solo', seed: 1 }); // world behind the title screen
         sim.fx = [];
         screen = 'title';
-        if (window.location.hash.indexOf('#autostart') === 0) {
+        const hash = (window.location && window.location.hash) || '';
+        if (hash.indexOf('#autostart') === 0) {
             startSolo(); input.up = true; input.right = true;
             setTimeout(() => { input.up = false; input.fire = true; }, 1500);
-            if (window.location.hash === '#autostart-demo') { // screenshot/demo helper: show troops near base
+            if (hash === '#autostart-demo') { // screenshot/demo helper: show troops near base
                 sim.players[0].credits = 1000; input.right = false;
                 setTimeout(() => { buyQueued = 'tank'; }, 300); setTimeout(() => { buyQueued = 'soldier'; }, 600); setTimeout(() => { buyQueued = 'soldier'; }, 900);
             }

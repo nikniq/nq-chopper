@@ -42,7 +42,7 @@
         <li>Hostages keep appearing in the middle of the map. Each one you fly home is worth $40 and 100 points.</li>
         <li>Soldiers garrison the huts they reach and hold them against tanks and bombs. Only enemy soldiers entering the hut can clear them, one defender per attacker. Hostages at a hut your opponent holds will not board you.</li>
         <li>If you are shot down you redeploy at your base after a few seconds, but anyone aboard is lost.</li>
-        <li>If a direct connection cannot be made, the game automatically switches to relaying moves through this server. That works anywhere but adds a little input lag.</li>
+        <li>A direct peer-to-peer connection is always preferred. If it is not up within a few seconds the match starts over a server relay, and upgrades to the direct link automatically as soon as it connects.</li>
     </ul>
 </section>
 

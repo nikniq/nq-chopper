@@ -317,6 +317,7 @@
             onStatus(msg, level) { net.status = msg; net.level = level || ''; },
             onOpponent(op) { net.opponent = op; },
             onOpen(kind) { net.transport = kind; if (kind === 'relay') INPUT_DELAY = RELAY_DELAY; if (!sim) beginMatch(); },
+            onTransport(kind) { net.transport = kind; net.rtt = 0; if (kind === 'relay' && INPUT_DELAY < RELAY_DELAY) INPUT_DELAY = RELAY_DELAY; },
             onMessage(m) { onNetMessage(m); },
             onClose(msg) { onNetClosed(msg); }
         });
@@ -360,8 +361,8 @@
         if (f - net.lastPing >= 60) {
             net.lastPing = f; const id = f; net.pings[id] = performance.now(); net.link.send({ t: 'p', s: id });
             for (const k of Object.keys(net.pings)) if (k < f - 600) delete net.pings[k];
-            if (net.rtt) {
-                const want = clamp(Math.ceil((net.rtt / 2 + (net.transport === 'relay' ? 160 : 25)) / STEP) + 1, MIN_DELAY, MAX_DELAY);
+            if (net.rtt || net.transport === 'relay') {
+                const want = net.rtt ? clamp(Math.ceil((net.rtt / 2 + (net.transport === 'relay' ? 160 : 25)) / STEP) + 1, MIN_DELAY, MAX_DELAY) : RELAY_DELAY;
                 if (want > INPUT_DELAY + 1 || want < INPUT_DELAY - 2) {
                     // Growing the delay must not leave a gap of frames the opponent never receives
                     const cur = captureInput();

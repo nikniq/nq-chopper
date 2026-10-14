@@ -179,6 +179,14 @@
     function makeSprite(size, draw) { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'); if (g) draw(g, size); return c; }
     const glowSprite = (col) => cached('glow' + col, () => makeSprite(16, (g, n) => { const r = g.createRadialGradient(n / 2, n / 2, 1, n / 2, n / 2, n / 2); r.addColorStop(0, col); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, n, n); }));
     const isVisible = (x, margin) => x > cameraX - (margin || 60) && x < cameraX + GAME_WIDTH + (margin || 60);
+    function rrect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+    function panel(x, y, w, h) { ctx.fillStyle = 'rgba(8,12,20,0.66)'; rrect(x, y, w, h, 6); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.stroke(); ctx.fillStyle = 'rgba(255,255,255,0.06)'; rrect(x, y, w, Math.min(10, h / 3), 6); ctx.fill(); }
+    let craters = [];
+    const MAX_CRATERS = 40;
+    const birds = [];
+    for (let i = 0; i < 4; i++) birds.push({ x: rand(0, WORLD_WIDTH), y: rand(40, 140), n: 3 + Math.floor(rand(0, 4)), speed: rand(0.3, 0.6), ph: rand(0, 6) });
+    const SHIRTS = ['#fd4', '#f88', '#8cf', '#fff', '#fb6', '#cfc'];
+    const shirtOf = h => SHIRTS[Math.floor(Math.abs(h.x * 7.13)) % SHIRTS.length];
 
     // =====================================================================
     // Effects (client-only, fed by sim.fx)
@@ -190,7 +198,7 @@
             const a = Math.random() * Math.PI * 2, s = o.speed * (0.3 + Math.random());
             const life = o.life * (0.6 + Math.random() * 0.6);
             particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - (o.up || 0), life, maxLife: life,
-                color: pick(o.colors), size: o.size * (0.5 + Math.random()), gravity: o.gravity || 0, grow: o.grow || 0, streak: !!o.streak });
+                color: pick(o.colors), size: o.size * (0.5 + Math.random()), gravity: o.gravity || 0, grow: o.grow || 0, streak: !!o.streak, debris: !!o.debris, rot: Math.random() * 6, spin: rand(-0.3, 0.3) });
         }
     }
     function explosionFx(x, y, big) {
@@ -198,6 +206,8 @@
         spawnParticles(x, y, big ? 22 : 8, { speed: 1.2, colors: ['#555', '#777', '#333', '#444'], size: big ? 14 : 10, life: big ? 110 : 70, up: 0.9, grow: 0.12 });
         spawnParticles(x, y, big ? 10 : 4, { speed: 4, colors: ['#ffd', '#fc6'], size: 2, life: 25, gravity: 0.15, streak: true });
         rings.push({ x, y, r: 4, max: big ? 90 : 45, life: 1, color: big ? '255,200,80' : '255,230,150' });
+        if (y > GROUND_Y - 30) { craters.push({ x, w: big ? 44 : 26, age: 0 }); if (craters.length > MAX_CRATERS) craters.shift(); }
+        if (big) spawnParticles(x, y, 8, { speed: 4, colors: ['#333', '#555', '#222'], size: 5, life: 60, gravity: 0.2, up: 2, debris: true });
         rings.push({ x, y, r: 2, max: big ? 40 : 22, life: 1, color: '255,255,255', fill: true });
         if (Math.abs(x - (cameraX + GAME_WIDTH / 2)) < 500) { shake = Math.max(shake, big ? 14 : 6); if (big) screenFlash = Math.max(screenFlash, 0.5); }
         Sound.explode(big);
@@ -241,6 +251,14 @@
         if (frame % 2 || particles.length > (lowDetail ? 120 : MAX_PARTICLES) || lowDetail && frame % 4) return;
         sim.shells.forEach(b => { if (isVisible(b.x) && (b.kind === 'shell' || b.kind === 'aa' || b.kind === 'heli')) particles.push({ x: b.x, y: b.y, vx: rand(-0.2, 0.2), vy: rand(-0.3, 0), life: 22, maxLife: 22, color: b.kind === 'heli' ? '#8ff' : '#bbb', size: 3, gravity: -0.01, grow: 0.08 }); });
         sim.bombs.forEach(b => isVisible(b.x) && particles.push({ x: b.x, y: b.y - 6, vx: rand(-0.2, 0.2), vy: -0.4, life: 26, maxLife: 26, color: '#ccc', size: 3, gravity: -0.01, grow: 0.08 }));
+        sim.players.forEach(p => {
+            // Rotor wash kicks up dust when hovering low
+            const alt = GROUND_Y - (p.y + p.height);
+            if (p.alive && alt < 70 && isVisible(p.x) && particles.length < MAX_PARTICLES) {
+                const k = 1 - alt / 70, side = Math.random() < 0.5 ? -1 : 1;
+                particles.push({ x: cx(p) + side * rand(10, 30), y: GROUND_Y - 1, vx: side * rand(0.8, 2.2) * k, vy: -rand(0.2, 0.9) * k, life: 28, maxLife: 28, color: pick(['#c9a874', '#b89a68', '#d8c090']), size: 3 + k * 3, gravity: 0.01, grow: 0.1 });
+            }
+        });
         sim.players.forEach(p => { if (p.alive && Math.abs(p.vx) > 2.2 && isVisible(p.x)) particles.push({ x: cx(p) - p.dir * 26, y: p.y + 8, vx: -p.dir * 0.6, vy: -0.5, life: 20, maxLife: 20, color: '#8899aa', size: 3, gravity: -0.02, grow: 0.1 }); });
     }
     function spawnMuzzleFlash(x, y, dir) {
@@ -265,7 +283,7 @@
     // =====================================================================
     function startSolo() {
         sim = Sim.createGame({ mode: 'solo', seed: (Date.now() ^ (Math.random() * 0x7fffffff)) | 0 });
-        particles = []; floatTexts = []; rings = []; screenFlash = 0; newBest = false; submitStatus = '';
+        particles = []; floatTexts = []; rings = []; craters = []; screenFlash = 0; newBest = false; submitStatus = '';
         screen = 'playing'; screenTimer = 0;
         consumeFx();
     }
@@ -470,6 +488,14 @@
         ctx.fillStyle = night ? '#e8ecff' : '#ffe680';
         ctx.beginPath(); ctx.arc(sx, sy, night ? 18 : 26, 0, Math.PI * 2); ctx.fill();
         if (night) { ctx.fillStyle = sky[0]; ctx.beginPath(); ctx.arc(sx + 8, sy - 4, 15, 0, Math.PI * 2); ctx.fill(); }
+        if (!night && !lowDetail) {
+            ctx.strokeStyle = 'rgba(30,30,40,0.6)'; ctx.lineWidth = 1.2;
+            birds.forEach(b => {
+                const bx = ((b.x - cameraX * 0.4 + frame * b.speed) % (WORLD_WIDTH + 300) + WORLD_WIDTH + 300) % (WORLD_WIDTH + 300) - 150;
+                if (bx < -40 || bx > GAME_WIDTH + 40) return;
+                for (let i = 0; i < b.n; i++) { const x = bx + i * 9, y = b.y + Math.abs(i - (b.n - 1) / 2) * 4, f = Math.sin(frame / 6 + b.ph + i) * 2.5; ctx.beginPath(); ctx.moveTo(x - 4, y + f); ctx.lineTo(x, y); ctx.lineTo(x + 4, y + f); ctx.stroke(); }
+            });
+        }
         ctx.fillStyle = night ? 'rgba(200,205,230,0.35)' : 'rgba(255,255,255,0.85)';
         clouds.forEach(c => {
             const x = ((c.x - cameraX * 0.3 + frame * c.speed) % (WORLD_WIDTH + 200) + WORLD_WIDTH + 200) % (WORLD_WIDTH + 200) - 100;
@@ -517,6 +543,12 @@
         ctx.fillStyle = '#5ac25a'; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 2);
         ctx.fillStyle = '#5a3d22';
         for (let x = startX; x < right; x += 40) { ctx.fillRect(x + ((x / 40) % 2) * 12, GROUND_Y + 12, 16, 3); ctx.fillRect(x + 6, GROUND_Y + 17, 8, 2); }
+        craters.forEach(c => {
+            if (!isVisible(c.x)) return;
+            ctx.fillStyle = 'rgba(20,12,6,0.55)'; ctx.beginPath(); ctx.ellipse(c.x, GROUND_Y + 2, c.w / 2, 4, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#3a2a16'; ctx.beginPath(); ctx.ellipse(c.x, GROUND_Y + 3, c.w / 2 - 4, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(c.x, GROUND_Y + 1, c.w / 2 + 6, 2, 0, 0, Math.PI * 2); ctx.fill();
+        });
         ctx.fillStyle = '#7a6a5a';
         rocks.forEach(r => { if (r.x > left && r.x < right) { ctx.beginPath(); ctx.ellipse(r.x, GROUND_Y + 1, r.w / 2, r.h, 0, Math.PI, 0); ctx.fill(); } });
         ctx.strokeStyle = '#2f8a2f'; ctx.lineWidth = 1.5;
@@ -620,19 +652,24 @@
             }
         });
     }
+    function groundShadow(x, w) { ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.ellipse(x, GROUND_Y + 2, w / 2, 2.5, 0, 0, Math.PI * 2); ctx.fill(); }
     function drawHostages() {
         const px = cx(local());
         sim.hostages.forEach(h => {
             if (h.state !== 'waiting' && h.state !== 'running' || !isVisible(h.x)) return;
             const running = h.state === 'running', near = Math.abs(px - h.x) < 320;
+            groundShadow(h.x, 10);
             ctx.save();
-            ctx.translate(h.x, GROUND_Y);
+            ctx.translate(h.x, GROUND_Y + (running ? Math.abs(Math.sin(h.anim * 0.5)) * -1.5 : 0));
             if (h.dir < 0) ctx.scale(-1, 1);
-            ctx.strokeStyle = '#ffe'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+            ctx.strokeStyle = '#3a3a5a'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
             const swing = running ? Math.sin(h.anim * 0.5) * 4 : 0;
             ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(-2 + swing, 0); ctx.moveTo(0, -9); ctx.lineTo(2 - swing, 0); ctx.stroke();
-            ctx.fillStyle = '#fd4'; ctx.fillRect(-3, -19, 6, 11);
+            ctx.fillStyle = shirtOf(h); ctx.fillRect(-3.5, -19, 7, 11);
+            ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(1, -19, 2.5, 11);
             ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, -22, 3.5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#4a3020'; ctx.beginPath(); ctx.arc(0, -23, 3.6, Math.PI, 0); ctx.fill();
+            ctx.strokeStyle = '#ffd9b3';
             ctx.beginPath();
             if (!running && near) { const w = Math.sin(h.anim * 0.3) * 3; ctx.moveTo(0, -17); ctx.lineTo(-5, -26 + w); ctx.moveTo(0, -17); ctx.lineTo(5, -26 - w); }
             else if (running) { ctx.moveTo(0, -17); ctx.lineTo(4 + swing, -13); ctx.moveTo(0, -17); ctx.lineTo(-4 - swing, -13); }
@@ -645,30 +682,54 @@
         sim.units.forEach(u => {
             if (!isVisible(u.x)) return;
             const c = colorsOf(u.team);
+            groundShadow(cx(u), u.type === 'tank' ? 30 : 10);
             ctx.save();
             if (u.type === 'soldier') {
-                ctx.translate(cx(u), GROUND_Y);
+                const bob = u.moving ? Math.abs(Math.sin(u.anim * 0.4)) * -1.2 : 0;
+                ctx.translate(cx(u), GROUND_Y + bob);
                 if (u.dir < 0) ctx.scale(-1, 1);
                 const swing = u.moving ? Math.sin(u.anim * 0.4) * 4 : 0;
-                ctx.strokeStyle = c.unitDark; ctx.lineWidth = 2; ctx.lineCap = 'round';
-                ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(-2 + swing, 0); ctx.moveTo(0, -9); ctx.lineTo(2 - swing, 0); ctx.stroke();
-                ctx.fillStyle = c.cloth; ctx.fillRect(-3, -19, 6, 11);
+                // Legs with boots
+                ctx.strokeStyle = c.unitDark; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(-2 + swing, -1); ctx.moveTo(0, -9); ctx.lineTo(2 - swing, -1); ctx.stroke();
+                ctx.fillStyle = '#222'; ctx.fillRect(-4 + swing, -2, 4, 2); ctx.fillRect(0 - swing, -2, 4, 2);
+                // Torso, belt, backpack
+                ctx.fillStyle = c.cloth; ctx.fillRect(-3.5, -19, 7, 11);
+                ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(1, -19, 2.5, 11);
+                ctx.fillStyle = '#5a4a2a'; ctx.fillRect(-3.5, -11, 7, 1.5);
+                ctx.fillStyle = c.unitDark; ctx.fillRect(-6.5, -17, 3, 7);
+                // Head and helmet
                 ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, -22, 3.5, 0, Math.PI * 2); ctx.fill();
-                ctx.fillStyle = c.unitDark; ctx.beginPath(); ctx.arc(0, -23, 4, Math.PI, 0); ctx.fill();
-                ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.moveTo(-2, -15); ctx.lineTo(8, -17); ctx.stroke();
-                if (!u.moving && u.fireTimer > UNITS.soldier.fireRate - 4) { ctx.fillStyle = '#ff6'; ctx.fillRect(8, -19, 4, 4); }
+                ctx.fillStyle = c.unitDark; ctx.beginPath(); ctx.arc(0, -23, 4.2, Math.PI, 0); ctx.fill(); ctx.fillRect(-4.2, -23.5, 8.4, 1.5);
+                // Rifle held in both hands
+                ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-3, -14); ctx.lineTo(9, -16.5); ctx.stroke();
+                ctx.strokeStyle = '#ffd9b3'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(1, -17); ctx.lineTo(3, -15.5); ctx.moveTo(-1, -16); ctx.lineTo(6, -16); ctx.stroke();
+                if (!u.moving && u.fireTimer > UNITS.soldier.fireRate - 4) { ctx.fillStyle = '#ff6'; ctx.fillRect(9, -18.5, 5, 4); }
             } else {
                 ctx.translate(u.x, u.y);
-                ctx.fillStyle = '#333'; ctx.fillRect(0, 14, u.width, 8);
-                ctx.fillStyle = '#666';
-                const roll = u.moving ? Math.floor(u.anim / 4) % 6 : 0;
-                for (let i = 0; i < 4; i++) ctx.fillRect(2 + ((i * 6 + roll) % 24), 16, 3, 4);
-                ctx.fillStyle = c.unit; ctx.fillRect(1, 6, u.width - 2, 9);
-                ctx.fillStyle = c.unitDark; ctx.fillRect(7, 0, 12, 8);
-                if (!u.ai) { ctx.fillStyle = '#fff'; ctx.fillRect(3, 8, 3, 3); }
-                ctx.strokeStyle = '#999'; ctx.lineWidth = 3;
-                ctx.beginPath(); ctx.moveTo(13, 4); ctx.lineTo(13 + Math.cos(u.angle) * 15, 4 + Math.sin(u.angle) * 15); ctx.stroke();
+                const flip = u.dir < 0;
+                if (flip) { ctx.translate(u.width, 0); ctx.scale(-1, 1); }
+                const roll = u.moving ? (u.anim * 0.35) : 0;
+                // Tracks with road wheels
+                ctx.fillStyle = '#2b2b2b'; rrect(-1, 13, u.width + 2, 9, 4); ctx.fill();
+                ctx.fillStyle = '#555';
+                for (let i = 0; i < 4; i++) { const wx = 3 + i * 6.6; ctx.beginPath(); ctx.arc(wx, 17.5, 2.6, 0, Math.PI * 2); ctx.fill(); }
+                ctx.strokeStyle = '#888'; ctx.lineWidth = 1;
+                for (let i = 0; i < 4; i++) { const wx = 3 + i * 6.6; ctx.beginPath(); ctx.moveTo(wx, 17.5); ctx.lineTo(wx + Math.cos(roll) * 2.2, 17.5 + Math.sin(roll) * 2.2); ctx.stroke(); }
+                ctx.fillStyle = '#666'; for (let i = 0; i < 6; i++) ctx.fillRect(((i * 5 + (u.moving ? Math.floor(u.anim / 3) : 0)) % 28) - 1, 13, 2, 1.5);
+                // Sloped hull with highlight
+                ctx.fillStyle = c.unit; ctx.beginPath(); ctx.moveTo(0, 14); ctx.lineTo(2, 7); ctx.lineTo(u.width - 4, 7); ctx.lineTo(u.width + 1, 11); ctx.lineTo(u.width + 1, 14); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(3, 7.5, u.width - 8, 1.5);
+                ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0, 12, u.width + 1, 2);
+                // Turret dome, hatch and barrel with muzzle brake
+                ctx.fillStyle = c.unitDark; ctx.beginPath(); ctx.moveTo(6, 7); ctx.lineTo(9, 1); ctx.lineTo(19, 1); ctx.lineTo(22, 7); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(10, 1.5, 7, 1.2);
+                ctx.fillStyle = '#222'; ctx.fillRect(12, -1, 5, 2);
+                const ang = flip ? Math.PI - u.angle : u.angle;
+                ctx.save(); ctx.translate(14, 4); ctx.rotate(ang);
+                ctx.fillStyle = '#777'; ctx.fillRect(0, -1.6, 15, 3.2); ctx.fillStyle = '#444'; ctx.fillRect(12, -2.2, 3.5, 4.4);
+                ctx.restore();
+                if (!u.ai) { ctx.fillStyle = '#fff'; ctx.fillRect(3, 9, 3, 2.5); }
             }
             ctx.restore();
             if (u.health < u.maxHealth) {
@@ -685,16 +746,26 @@
         ctx.rotate((h.spin || 0) + (h.tilt || 0));
         if (flash) ctx.globalAlpha = 0.45;
         const d = h.dir;
+        const shade = cached('heli' + body, () => { const g = ctx.createLinearGradient(0, -12, 0, 12); g.addColorStop(0, '#ffffff'); g.addColorStop(0.35, body); g.addColorStop(1, '#000000'); return g; });
+        // Tail boom and fin
         ctx.fillStyle = body;
-        ctx.fillRect(d === 1 ? -30 : 2, -4, 28, 7);
-        ctx.fillRect(d === 1 ? -32 : 26, -12, 6, 12);
+        ctx.beginPath(); ctx.moveTo(d * -2, -5); ctx.lineTo(d * -30, -3); ctx.lineTo(d * -30, 2); ctx.lineTo(d * -2, 4); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.moveTo(d * -2, 1); ctx.lineTo(d * -30, 0); ctx.lineTo(d * -30, 2); ctx.lineTo(d * -2, 4); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = body; ctx.beginPath(); ctx.moveTo(d * -27, -3); ctx.lineTo(d * -32, -13); ctx.lineTo(d * -26, -13); ctx.lineTo(d * -23, -3); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(d * -30, -6, 1.6, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = '#ddd'; ctx.lineWidth = 2;
         const tr = Math.cos(frame * 0.9) * 6;
         ctx.beginPath(); ctx.moveTo(d === 1 ? -30 : 30, -6 - tr); ctx.lineTo(d === 1 ? -30 : 30, -6 + tr); ctx.stroke();
-        ctx.fillStyle = body;
-        ctx.beginPath(); ctx.ellipse(d * 4, 0, 22, 12, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = glass;
-        ctx.beginPath(); ctx.ellipse(d * 14, -2, 9, 7, 0, 0, Math.PI * 2); ctx.fill();
+        // Main body with vertical shading, then flat colour where the gradient is too strong
+        ctx.fillStyle = body; ctx.beginPath(); ctx.ellipse(d * 4, 0, 22, 12, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha *= 0.35; ctx.fillStyle = shade; ctx.beginPath(); ctx.ellipse(d * 4, 0, 22, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = flash ? 0.45 : 1;
+        // Weapon pod and winch
+        ctx.fillStyle = '#444'; rrect(d * -6 - 7, 8, 14, 4, 2); ctx.fill(); ctx.fillStyle = '#222'; ctx.fillRect(d * -6 - 5, 9, 2, 2); ctx.fillRect(d * -6 + 1, 9, 2, 2);
+        ctx.fillStyle = '#333'; ctx.fillRect(d * 6 - 2, 10, 4, 3);
+        // Cockpit glass with frame
+        ctx.fillStyle = glass; ctx.beginPath(); ctx.ellipse(d * 14, -2, 9, 7, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(d * 14, -2, 9, 7, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = 'rgba(0,40,80,0.25)'; ctx.beginPath(); ctx.ellipse(d * 13, 1, 7, 3.5, 0, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(-16, 14); ctx.lineTo(22, 14); ctx.moveTo(-8, 10); ctx.lineTo(-8, 14); ctx.moveTo(12, 10); ctx.lineTo(12, 14); ctx.stroke();
         // Door, panel line and exhaust
@@ -767,6 +838,7 @@
         particles.forEach(p => {
             ctx.globalAlpha = clamp(p.life / p.maxLife, 0, 1) * (p.grow ? 0.7 : 1);
             if (p.streak) { ctx.strokeStyle = p.color; ctx.lineWidth = p.size; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 3, p.y - p.vy * 3); ctx.stroke(); }
+            else if (p.debris) { p.rot += p.spin; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.color; ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2); ctx.restore(); }
             else if (p.grow) { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2); ctx.fill(); }
             else { ctx.fillStyle = p.color; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); }
         });
@@ -810,11 +882,12 @@
         ctx.save();
         ctx.font = 'bold 13px Arial';
         // Left block: hull, bombs, aboard
-        ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(8, 8, 154, 62);
+        panel(8, 8, 154, 62);
         ctx.fillStyle = '#fff'; ctx.fillText('HULL', 14, 22);
         const pct = clamp(p.health / p.maxHealth, 0, 1);
-        ctx.fillStyle = '#222'; ctx.fillRect(56, 12, 96, 10);
-        ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; ctx.fillRect(56, 12, Math.round(96 * pct), 10);
+        ctx.fillStyle = '#222'; rrect(56, 12, 96, 10, 3); ctx.fill();
+        ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; if (pct > 0) { rrect(56, 12, Math.max(6, Math.round(96 * pct)), 10, 3); ctx.fill(); }
+        ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(57, 13, Math.max(0, Math.round(96 * pct) - 2), 3);
         if (p.upgrades.armor) { ctx.fillStyle = '#8f8'; ctx.font = 'bold 9px Arial'; ctx.fillText('+' + p.upgrades.armor, 154, 21); ctx.font = 'bold 13px Arial'; }
         ctx.fillStyle = '#fff'; ctx.fillText('BOMBS', 14, 42);
         for (let i = 0; i < MAX_BOMBS; i++) { ctx.fillStyle = i < p.bombs ? '#f90' : '#444'; ctx.beginPath(); ctx.arc(70 + i * 15, 38, 5, 0, Math.PI * 2); ctx.fill(); }
@@ -826,7 +899,7 @@
         // Right block: score, credits, troops
         const myUnits = sim.units.filter(u => u.team === p.team).length;
         ctx.textAlign = 'right';
-        ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(GAME_WIDTH - 158, 8, 150, 92);
+        panel(GAME_WIDTH - 158, 8, 150, 92);
         ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
         ctx.fillText(String(p.score).padStart(6, '0'), GAME_WIDTH - 14, 26);
         ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#ccc';
@@ -838,7 +911,9 @@
         ctx.fillStyle = '#ccc'; ctx.fillText('TROOPS ' + myUnits + '/' + MAX_ALLIES, GAME_WIDTH - 152, 97);
         // Radar strip
         const rx = 170, ry = 10, rw = GAME_WIDTH - 340, rh = 12;
-        ctx.fillStyle = '#0007'; ctx.fillRect(rx, ry, rw, rh);
+        ctx.fillStyle = 'rgba(8,12,20,0.7)'; rrect(rx - 2, ry - 2, rw + 4, rh + 4, 4); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = 'rgba(0,255,120,0.05)'; ctx.fillRect(rx, ry, rw, rh);
         const mx = x => rx + (x / WORLD_WIDTH) * rw;
         sim.bases.forEach(b => { ctx.fillStyle = b.destroyed ? '#555' : colorsOf(b.team).ui; ctx.fillRect(mx(b.x), ry, 3, rh); });
         sim.huts.forEach(h => { if (h.garrison) { ctx.fillStyle = h.garrison.team === p.team ? '#8f8' : '#f66'; ctx.fillRect(mx(h.x + 20) - 1, ry + 1, 4, 3); } });
@@ -896,7 +971,15 @@
         const blink = Math.floor(frame / 30) % 2 === 0;
         if (screen === 'title') {
             overlay(0.45);
-            bigText('NQ CHOPPER', 120, 48, '#ff0');
+            // Demo flyby
+            const fx = ((frame * 1.6) % (GAME_WIDTH + 200)) - 100, bobY = 70 + Math.sin(frame / 40) * 6;
+            drawHeli({ x: fx - 30, y: bobY - 12, width: 60, height: 24, dir: 1, tilt: 0.15 }, '#3c3', '#9ff', false);
+            // Logo with gradient fill and shadow
+            ctx.save(); ctx.textAlign = 'center'; ctx.font = 'bold 52px Arial';
+            ctx.lineWidth = 8; ctx.strokeStyle = '#000'; ctx.strokeText('NQ CHOPPER', GAME_WIDTH / 2, 122);
+            ctx.fillStyle = cached('logo', () => { const g = ctx.createLinearGradient(0, 80, 0, 125); g.addColorStop(0, '#fff6a0'); g.addColorStop(0.5, '#ffd000'); g.addColorStop(1, '#e07000'); return g; });
+            ctx.fillText('NQ CHOPPER', GAME_WIDTH / 2, 122);
+            ctx.restore();
             bigText('Rescue the hostages and bring them home', 155, 16, '#fff');
             bigText('Land near hostages so they can run aboard · 4 seats · Return to BASE to unload', 200, 12, '#ddd');
             bigText('Bombs hit ground targets · Bullets for the enemy chopper · Base repairs and rearms', 220, 12, '#ddd');
@@ -1097,7 +1180,14 @@
         sim = Sim.createGame({ mode: 'solo', seed: 1 }); // world behind the title screen
         sim.fx = [];
         screen = 'title';
-        if (window.location.hash === '#autostart') { startSolo(); input.up = true; input.right = true; setTimeout(() => { input.up = false; input.fire = true; }, 1500); }
+        if (window.location.hash.indexOf('#autostart') === 0) {
+            startSolo(); input.up = true; input.right = true;
+            setTimeout(() => { input.up = false; input.fire = true; }, 1500);
+            if (window.location.hash === '#autostart-demo') { // screenshot/demo helper: show troops near base
+                sim.players[0].credits = 1000; input.right = false;
+                setTimeout(() => { buyQueued = 'tank'; }, 300); setTimeout(() => { buyQueued = 'soldier'; }, 600); setTimeout(() => { buyQueued = 'soldier'; }, 900);
+            }
+        }
     } else {
         startVersus();
     }

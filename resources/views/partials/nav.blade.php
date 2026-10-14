@@ -3,6 +3,7 @@
     <div class="nav-links">
         <a href="{{ route('game') }}" class="btn btn-play">Play</a>
         @auth
+            <a href="{{ route('multiplayer') }}">Multiplayer</a>
             <span class="pilot">Pilot <strong>{{ auth()->user()->name }}</strong></span>
             <form method="POST" action="{{ route('logout') }}" class="inline">
                 @csrf

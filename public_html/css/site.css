@@ -45,3 +45,12 @@ input:focus { outline: 2px solid var(--accent); }
 .error { color: #f88; margin: 4px 0 0; font-size: 0.9rem; }
 .card .btn-big { width: 100%; margin-top: 18px; }
 .footer { text-align: center; color: var(--muted); font-size: 0.85rem; padding: 14px; border-top: 1px solid #fff1; }
+/* Multiplayer lobby */
+.hero.compact { padding: 16px 0 8px; }
+.hero.compact h1 { font-size: 2.2rem; }
+.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.two-col .card { margin: 0; max-width: none; }
+.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.4rem; letter-spacing: 4px; color: #ff0; }
+.code-input { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: 6px; text-transform: uppercase; font-size: 1.3rem; }
+ul.plain { padding-left: 20px; margin: 0; color: var(--muted); }
+.win { color: #8f8; font-weight: 700; } .loss { color: #f88; font-weight: 700; }

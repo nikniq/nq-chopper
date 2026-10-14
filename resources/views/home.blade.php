@@ -9,11 +9,13 @@
         and spend the credits you earn on soldiers and tanks that march on the enemy base.
     </p>
     <div class="cta">
-        <a href="{{ route('game') }}" class="btn btn-big">Play now</a>
+        <a href="{{ route('game') }}" class="btn btn-big">Play solo</a>
         @guest
-            <a href="{{ route('register') }}" class="btn btn-ghost">Register to save your scores</a>
+            <a href="{{ route('login') }}" class="btn btn-big btn-ghost" title="Log in to play online">Multiplayer</a>
+            <span class="muted" style="width:100%">Register to save your scores and play 1v1 online.</span>
         @else
-            <span class="muted">Your best: <strong>{{ number_format($personalBest) }}</strong></span>
+            <a href="{{ route('multiplayer') }}" class="btn btn-big btn-ghost">Multiplayer 1v1</a>
+            <span class="muted" style="width:100%">Your best: <strong>{{ number_format($personalBest) }}</strong></span>
         @endguest
     </div>
 </section>
@@ -22,6 +24,7 @@
     <div class="feature"><h3>Rescue</h3><p>Land near the huts and hostages run aboard. Four seats, then back to base.</p></div>
     <div class="feature"><h3>Fight</h3><p>Guns for the enemy chopper, bombs for the tanks. Base repairs and rearms you.</p></div>
     <div class="feature"><h3>Command</h3><p>Buy soldiers and tanks with credits. They march across the field and destroy the enemy base.</p></div>
+    <div class="feature"><h3>Duel</h3><p>Challenge a friend to 1v1 online. Same map, two bases, armies marching at each other.</p></div>
 </section>
 
 <section class="leaderboard">

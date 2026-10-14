@@ -11,6 +11,9 @@
 <body>
     <div id="topbar">
         <a href="{{ route('home') }}">&larr; Home</a>
+        @if (!empty($match))
+            <span>Online match <strong>{{ $match['code'] }}</strong> &middot; <a href="{{ route('multiplayer') }}">Lobby</a></span>
+        @endif
         @auth
             <span>Pilot <strong>{{ auth()->user()->name }}</strong> &middot; scores are saved</span>
             <form method="POST" action="{{ route('logout') }}" style="display:inline">@csrf<button type="submit" class="linkbtn">Log out</button></form>
@@ -49,7 +52,9 @@
             <button class="touch-btn" id="btnBomb">Bomb</button>
         </div>
     </div>
-    <script>window.NQ_CONFIG = { scoreUrl: @json(auth()->check() ? route('scores.store') : null), csrf: @json(csrf_token()) };</script>
+    <script>window.NQ_CONFIG = { scoreUrl: @json(auth()->check() ? route('scores.store') : null), csrf: @json(csrf_token()), match: @json($match ?? null) };</script>
+    <script src="{{ asset('js/sim.js') }}?v={{ filemtime(public_path('js/sim.js')) }}"></script>
+    <script src="{{ asset('js/net.js') }}?v={{ filemtime(public_path('js/net.js')) }}"></script>
     <script src="{{ asset('js/game.js') }}?v={{ filemtime(public_path('js/game.js')) }}"></script>
 </body>
 </html>

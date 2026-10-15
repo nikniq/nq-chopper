@@ -10,6 +10,7 @@
     </p>
     <div class="cta">
         <a href="{{ route('game') }}" class="btn btn-big">Play solo</a>
+        <a href="{{ route('game', ['daily' => 1]) }}" class="btn btn-big btn-daily">Daily Challenge</a>
         @guest
             <a href="{{ route('login') }}" class="btn btn-big btn-ghost" title="Log in to play online">Multiplayer</a>
             <span class="muted" style="width:100%">Register to save your scores and play 1v1 online.</span>
@@ -24,11 +25,32 @@
     <div class="feature"><h3>Rescue</h3><p>Land near the huts and hostages run aboard. Four seats, then back to base.</p></div>
     <div class="feature"><h3>Fight</h3><p>Guns for the enemy chopper, bombs for the tanks. Base repairs and rearms you.</p></div>
     <div class="feature"><h3>Command</h3><p>Buy soldiers and tanks with credits. They march across the field and destroy the enemy base.</p></div>
+    <div class="feature"><h3>Survive</h3><p>Every third wave brings a gunship. Destroyed enemies drop hull, bombs and credits.</p></div>
     <div class="feature"><h3>Duel</h3><p>Challenge a friend to 1v1 online. Same map, two bases, armies marching at each other.</p></div>
 </section>
 
 <section class="leaderboard">
-    <h2>Leaderboard</h2>
+    <h2>Daily Challenge &middot; {{ $today }}</h2>
+    <p class="muted">Everyone gets the same world today. One board per day, resets at midnight UTC.
+        @auth @if ($dailyBest) Your best today: <strong>{{ number_format($dailyBest) }}</strong>. @endif @endauth</p>
+    @if ($dailyLeaders->isEmpty())
+        <p class="muted">Nobody has flown today's challenge yet. <a href="{{ route('game', ['daily' => 1]) }}">Be first.</a></p>
+    @else
+        <table>
+            <thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Wave</th><th>Rescued</th></tr></thead>
+            <tbody>
+            @foreach ($dailyLeaders as $i => $row)
+                <tr @class(['me' => auth()->check() && $row->user_id === auth()->id()])>
+                    <td>{{ $i + 1 }}</td><td>{{ $row->user->name }}</td><td>{{ number_format($row->score) }}</td><td>{{ $row->wave }}</td><td>{{ $row->rescued }}</td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table>
+    @endif
+</section>
+
+<section class="leaderboard">
+    <h2>All-time leaderboard</h2>
     @if ($leaders->isEmpty())
         <p class="muted">No scores yet. Be the first pilot on the board.</p>
     @else

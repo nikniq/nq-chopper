@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\GameMatch;
+use App\Models\Score;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 
@@ -39,7 +40,11 @@ class GameController extends Controller
             ];
         }
 
-        return view('game', ['match' => $match]);
+        $daily = $code === null && $request->boolean('daily')
+            ? ['seed' => Score::dailySeed(), 'day' => Score::today()]
+            : null;
+
+        return view('game', ['match' => $match, 'daily' => $daily]);
     }
 
     /**

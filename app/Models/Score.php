@@ -8,9 +8,33 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 
-#[Fillable(['score', 'wave', 'rescued'])]
+#[Fillable(['score', 'wave', 'rescued', 'mode', 'day'])]
 class Score extends Model
 {
+    protected function casts(): array
+    {
+        return ['day' => 'date'];
+    }
+
+    /** Today's Daily Challenge date (UTC) and the seed everyone shares for it. */
+    public static function today(): string
+    {
+        return now('UTC')->toDateString();
+    }
+
+    public static function dailySeed(?string $day = null): int
+    {
+        return (int) (crc32('nq-daily-'.($day ?? static::today())) & 0x7fffffff);
+    }
+
+    /** Query scoped to one board: the all-time solo board or one day's challenge. */
+    public static function board(string $mode = 'solo', ?string $day = null)
+    {
+        $q = static::query()->where('mode', $mode);
+
+        return $mode === 'daily' ? $q->whereDate('day', $day ?? static::today()) : $q;
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
@@ -21,13 +45,13 @@ class Score extends Model
      *
      * @return Collection<int, Score>
      */
-    public static function leaderboard(int $limit = 10): Collection
+    public static function leaderboard(int $limit = 10, string $mode = 'solo', ?string $day = null): Collection
     {
-        $best = static::query()
+        $best = static::board($mode, $day)
             ->select('user_id', DB::raw('MAX(score) as best'))
             ->groupBy('user_id');
 
-        return static::query()
+        return static::board($mode, $day)
             ->joinSub($best, 'best', fn ($join) => $join->on('scores.user_id', '=', 'best.user_id')->on('scores.score', '=', 'best.best'))
             ->with('user')
             ->select('scores.*')
@@ -39,9 +63,9 @@ class Score extends Model
             ->values();
     }
 
-    public static function bestFor(User $user): int
+    public static function bestFor(User $user, string $mode = 'solo', ?string $day = null): int
     {
-        return (int) static::query()->where('user_id', $user->id)->max('score');
+        return (int) static::board($mode, $day)->where('user_id', $user->id)->max('score');
     }
 
     /**
@@ -49,7 +73,7 @@ class Score extends Model
      */
     public static function rankOf(Score $score): int
     {
-        $better = static::query()
+        $better = static::board($score->mode, $score->day?->toDateString())
             ->select('user_id')
             ->where('user_id', '!=', $score->user_id)
             ->groupBy('user_id')

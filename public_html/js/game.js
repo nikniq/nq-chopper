@@ -8,6 +8,7 @@
     const Sim = window.NQSim;
     const cfg = window.NQ_CONFIG || {};
     const match = cfg.match || null;
+    const daily = cfg.daily || null;   // { seed, day } when playing the Daily Challenge
 
     // =====================================================================
     // Setup
@@ -282,7 +283,7 @@
     // Solo mode
     // =====================================================================
     function startSolo() {
-        sim = Sim.createGame({ mode: 'solo', seed: (Date.now() ^ (Math.random() * 0x7fffffff)) | 0 });
+        sim = Sim.createGame({ mode: 'solo', seed: daily ? daily.seed | 0 : (Date.now() ^ (Math.random() * 0x7fffffff)) | 0 });
         particles = []; floatTexts = []; rings = []; craters = []; screenFlash = 0; newBest = false; submitStatus = '';
         screen = 'playing'; screenTimer = 0;
         consumeFx();
@@ -317,9 +318,9 @@
         submitStatus = 'SAVING SCORE...';
         fetch(cfg.scoreUrl, { method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': cfg.csrf },
-            body: JSON.stringify({ score: p.score, wave: sim.wave, rescued: p.rescued }) })
+            body: JSON.stringify({ score: p.score, wave: sim.wave, rescued: p.rescued, mode: daily ? 'daily' : 'solo', day: daily ? daily.day : null }) })
             .then(r => r.ok ? r.json() : Promise.reject(r.status))
-            .then(d => { submitStatus = 'SCORE SAVED  ·  RANK #' + d.rank + '  ·  ONLINE BEST ' + d.best; })
+            .then(d => { submitStatus = (daily ? 'DAILY RANK #' : 'SCORE SAVED  ·  RANK #') + d.rank + '  ·  ' + (daily ? 'TODAY\'S BEST ' : 'ONLINE BEST ') + d.best; })
             .catch(() => { submitStatus = 'COULD NOT SAVE SCORE'; });
     }
 
@@ -441,7 +442,7 @@
     function updateDomScore() {
         const p = local();
         if (!p || screen === 'title' || screen === 'lobby') {
-            scoreDiv.textContent = mode === 'solo' ? `Best: ${highScore}` : `Online match ${match.code}`;
+            scoreDiv.textContent = mode === 'solo' ? (daily ? `Daily Challenge ${daily.day} | Best: ${highScore}` : `Best: ${highScore}`) : `Online match ${match.code}`;
         } else if (mode === 'solo') {
             scoreDiv.textContent = `Wave ${sim.wave} | Score: ${p.score} | Credits: $${p.credits} | Rescued: ${p.rescued} | Lost: ${p.lost} | Best: ${highScore}`;
         } else {
@@ -799,10 +800,32 @@
         ctx.fillStyle = '#0008'; ctx.fillRect(x - 1, y - 1, w + 2, 6);
         ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; ctx.fillRect(x, y, Math.round(w * pct), 4);
     }
+    function drawPickups() {
+        sim.pickups.forEach(k => {
+            if (!isVisible(k.x)) return;
+            const def = Sim.PICKUPS[k.type], y = k.y + Math.sin(k.bob / 10) * 2;
+            const fade = k.life < 120 && Math.floor(k.life / 6) % 2 === 0;
+            if (fade) return;
+            ctx.drawImage(glowSprite(def.color), k.x - 8, y - 8);
+            groundShadow(k.x, 10);
+            ctx.fillStyle = '#eee'; rrect(k.x - 6, y - 6, 12, 12, 2); ctx.fill();
+            ctx.fillStyle = def.color;
+            if (k.type === 'health') { ctx.fillRect(k.x - 1.5, y - 4, 3, 8); ctx.fillRect(k.x - 4, y - 1.5, 8, 3); }
+            else if (k.type === 'bombs') { ctx.beginPath(); ctx.arc(k.x, y + 1, 3, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(k.x - 1, y - 5, 2, 3); }
+            else { ctx.font = 'bold 9px Arial'; ctx.textAlign = 'center'; ctx.fillText('$', k.x, y + 3.5); ctx.textAlign = 'left'; }
+        });
+    }
     function drawChoppers() {
         if (sim.mode === 'solo' && sim.ai.alive) {
             const a = sim.ai, c = colorsOf(AI);
-            drawShadow(a); drawHeli(a, c.body, c.glass, false); drawHealthBar(a, 40);
+            drawShadow(a);
+            if (a.boss) {
+                ctx.save(); ctx.translate(cx(a), cy(a)); ctx.scale(1.3, 1.25); ctx.translate(-cx(a), -cy(a));
+                drawHeli({ x: cx(a) - 30, y: cy(a) - 12, width: 60, height: 24, dir: a.dir, tilt: a.tilt }, '#6a1a1a', '#f99', false);
+                ctx.restore();
+                ctx.fillStyle = '#f66'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center'; ctx.fillText('GUNSHIP', cx(a), a.y - 28); ctx.textAlign = 'left';
+                drawHealthBar(a, 60);
+            } else { drawHeli(a, c.body, c.glass, false); drawHealthBar(a, 40); }
         }
         sim.players.forEach(p => {
             const c = colorsOf(p.team), isLocal = p.id === localId;
@@ -823,6 +846,14 @@
             ctx.fillStyle = b.team === AI ? '#f88' : '#ffe'; ctx.fillRect(b.x, b.y, b.width, b.height);
         });
         sim.shells.forEach(b => {
+            if (b.kind === 'rocket') {
+                if (!isVisible(b.x)) return;
+                ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
+                ctx.fillStyle = '#ddd'; rrect(-7, -2.5, 14, 5, 2); ctx.fill(); ctx.fillStyle = '#f44'; ctx.fillRect(4, -2.5, 3, 5); ctx.fillStyle = '#ff8'; ctx.fillRect(-11, -1.5, 4, 3);
+                ctx.restore();
+                if (frame % 2 === 0) particles.push({ x: b.x - b.vx, y: b.y - b.vy, vx: rand(-0.3, 0.3), vy: rand(-0.3, 0.3), life: 18, maxLife: 18, color: '#999', size: 3, gravity: -0.01, grow: 0.15 });
+                return;
+            }
             if (b.kind === 'rifle') { if (!isVisible(b.x)) return; ctx.fillStyle = b.team === AI ? '#f88' : '#ff8'; ctx.fillRect(b.x - 2.5, b.y - 1, 5, 2); return; }
             if (!isVisible(b.x)) return;
             const col = b.kind === 'heli' ? '#0ff' : b.team === AI ? '#ff0' : '#ddd';
@@ -920,7 +951,8 @@
         ctx.fillStyle = '#fd4';
         sim.hostages.forEach(h => { if (h.state === 'waiting' || h.state === 'running') ctx.fillRect(mx(h.x), ry + 3, 2, 6); });
         sim.units.forEach(u => { ctx.fillStyle = u.team === p.team ? '#8f8' : '#f33'; ctx.fillRect(mx(u.x), ry + 4, u.type === 'tank' ? 3 : 2, 4); });
-        if (sim.mode === 'solo' && sim.ai.alive) { ctx.fillStyle = '#f0f'; ctx.fillRect(mx(sim.ai.x), ry + 2, 4, 4); }
+        if (sim.mode === 'solo' && sim.ai.alive) { ctx.fillStyle = sim.ai.boss ? '#f44' : '#f0f'; ctx.fillRect(mx(sim.ai.x), ry + 2, sim.ai.boss ? 6 : 4, 4); }
+        sim.pickups.forEach(k => { ctx.fillStyle = Sim.PICKUPS[k.type].color; ctx.fillRect(mx(k.x), ry + 9, 2, 2); });
         sim.players.forEach(o => { if (o.alive && o.id !== localId) { ctx.fillStyle = '#f0f'; ctx.fillRect(mx(o.x), ry + 2, 4, 4); } });
         ctx.fillStyle = '#0f0'; ctx.fillRect(mx(p.x), ry + 2, 4, 8);
         ctx.strokeStyle = '#fff6'; ctx.lineWidth = 1; ctx.strokeRect(mx(cameraX), ry, (GAME_WIDTH / WORLD_WIDTH) * rw, rh);
@@ -980,6 +1012,7 @@
             ctx.fillStyle = cached('logo', () => { const g = ctx.createLinearGradient(0, 80, 0, 125); g.addColorStop(0, '#fff6a0'); g.addColorStop(0.5, '#ffd000'); g.addColorStop(1, '#e07000'); return g; });
             ctx.fillText('NQ CHOPPER', GAME_WIDTH / 2, 122);
             ctx.restore();
+            if (daily) bigText('DAILY CHALLENGE ' + daily.day + ' · SAME WORLD FOR EVERYONE · ONE BOARD PER DAY', 138, 12, '#fc6');
             bigText('Rescue the hostages and bring them home', 155, 16, '#fff');
             bigText('Land near hostages so they can run aboard · 4 seats · Return to BASE to unload', 200, 12, '#ddd');
             bigText('Bombs hit ground targets · Bullets for the enemy chopper · Base repairs and rearms', 220, 12, '#ddd');
@@ -997,11 +1030,11 @@
             bigText('WAVE ' + sim.wave + ' CLEAR', 150, 40, '#ff0');
             bigText(`RESCUED ${sim.waveRescued}   LOST ${sim.waveLost}`, 195, 18, '#fff');
             bigText('BONUS +' + sim.waveBonus + (sim.waveLost === 0 ? '  PERFECT!' : ''), 225, 18, sim.waveLost === 0 ? '#0f0' : '#ff0');
-            bigText('GET READY FOR WAVE ' + (sim.wave + 1), 280, 16, '#ccc');
+            bigText('GET READY FOR WAVE ' + (sim.wave + 1) + ((sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '  ·  GUNSHIP WAVE' : ''), 280, 16, (sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '#f66' : '#ccc');
         } else if (screen === 'gameover') {
             const p = local();
             overlay(Math.min(0.55, screenTimer / 40));
-            bigText('CHOPPER DOWN', 140, 44, '#f44');
+            bigText(daily ? 'DAILY RUN OVER' : 'CHOPPER DOWN', 140, 44, '#f44');
             bigText('SCORE ' + p.score, 190, 24, '#fff');
             bigText(`RESCUED ${p.rescued}   LOST ${p.lost}   WAVE ${sim.wave}`, 220, 16, '#ccc');
             if (newBest) bigText('NEW BEST SCORE!', 255, 20, '#ff0'); else bigText('BEST ' + highScore, 255, 16, '#ccc');
@@ -1058,6 +1091,7 @@
             drawHuts();
             drawHostages();
             drawUnits();
+            drawPickups();
             drawChoppers();
             drawProjectiles();
             drawParticles();

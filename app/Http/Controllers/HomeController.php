@@ -14,7 +14,10 @@ class HomeController extends Controller
     {
         return view('home', [
             'leaders' => Score::leaderboard(10),
+            'dailyLeaders' => Score::leaderboard(10, 'daily'),
+            'today' => Score::today(),
             'personalBest' => auth()->check() ? Score::bestFor(auth()->user()) : null,
+            'dailyBest' => auth()->check() ? Score::bestFor(auth()->user(), 'daily') : null,
         ]);
     }
 }

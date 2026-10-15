@@ -125,4 +125,38 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
     for (let f = 0; f < 1500; f++) Sim.step(w2, [inp({})]);
     assert.ok(w2.units.some(u => u.ai && u.type === 'soldier') || w2.huts.some(h => h.garrison && h.garrison.team === Sim.AI), 'AI soldiers spawn in wave 2');
 }
+// Pickups: destroyed enemies drop crates the chopper can collect
+{
+    const k = Sim.createGame({ mode: 'solo', seed: 31 });
+    const p = k.players[0]; p.invuln = 1e9;
+    let drops = 0;
+    for (let tries = 0; tries < 40 && drops === 0; tries++) {
+        const t = k.units.find(u => u.ai && u.type === 'tank');
+        if (!t) break;
+        p.x = t.x - 100; p.y = t.y; p.dir = 1;
+        for (let f = 0; f < 30 && k.units.includes(t); f++) Sim.step(k, [inp({ f: 1 })]);
+        drops = k.pickups.length;
+        if (!k.units.find(u => u.ai && u.type === 'tank')) k.units.push({ team: Sim.AI, type: 'tank', x: p.x + 400, y: Sim.GROUND_Y - 22, width: 26, height: 22, vx: 0, dir: 1, speed: 0.6, health: 10, maxHealth: 10, range: 210, fireTimer: 999, angle: 0, anim: 0, moving: true, ai: true });
+    }
+    assert.ok(drops > 0, 'a destroyed tank eventually drops a pickup');
+    const pk = k.pickups[0]; pk.type = 'health'; p.health = 10;
+    p.x = pk.x - p.width / 2; p.y = Sim.GROUND_Y - p.height; p.landed = true;
+    for (let f = 0; f < 60 && k.pickups.includes(pk); f++) Sim.step(k, [inp({})]);
+    assert.ok(!k.pickups.includes(pk) && p.health === 45, 'health crate collected: hull ' + p.health);
+}
+// Boss gunship on every third wave
+{
+    const b = Sim.createGame({ mode: 'solo', seed: 32 });
+    assert.ok(!b.ai.boss, 'wave 1 is a normal enemy chopper');
+    b.wave = 2; b.status = 'waveclear'; b.statusTimer = 179; Sim.step(b, [inp({})]);
+    assert.strictEqual(b.wave, 3);
+    assert.ok(b.ai.boss && b.ai.maxHealth === (150 + 2 * 40) * 3, 'wave 3 spawns a gunship with triple hull');
+    const p = b.players[0]; p.invuln = 1e9; p.x = b.ai.x - 200; p.y = b.ai.y;
+    let rockets = 0;
+    for (let f = 0; f < 900; f++) { Sim.step(b, [inp({})]); rockets += b.shells.filter(s => s.kind === 'rocket' && s.life === 159).length; }
+    assert.ok(rockets > 0, 'gunship fires rocket salvos: ' + rockets);
+    b.ai.health = 1; p.x = b.ai.x - 120; p.y = b.ai.y; p.dir = 1;
+    for (let f = 0; f < 60 && b.ai.alive; f++) Sim.step(b, [inp({ f: 1 })]);
+    assert.ok(!b.ai.alive && p.score >= 1500 && b.pickups.length >= 3, 'gunship kill pays 1500 and drops three crates');
+}
 console.log('all sim tests passed');

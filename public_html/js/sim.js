@@ -20,6 +20,8 @@
     const MAX_ALLIES = 12;
     const GARRISON_CAP = { player: 3, ai: 2 };
     const GARRISON_RANGE = 170;
+    const PICKUPS = { health: { amount: 35, color: '#f55' }, bombs: { amount: MAX_BOMBS, color: '#f90' }, credits: { amount: 60, color: '#8f8' } };
+    const BOSS_EVERY = 3;
     const UNITS = {
         soldier: { name: 'SOLDIER', cost: 50, width: 8, height: 20, speed: 0.9, health: 24, range: 130, fireRate: 45, dmg: 8 },
         tank:    { name: 'TANK',    cost: 200, width: 26, height: 22, speed: 0.6, health: 120, range: 210, fireRate: 95, dmg: 35 }
@@ -91,8 +93,8 @@
             mode, seed: opts.seed | 0, rs: opts.seed | 0, frame: 0,
             status: 'playing', statusTimer: 0, winner: null, endReason: '',
             wave: 0, waveRescued: 0, waveLost: 0, waveBonus: 0,
-            players: [], bases: [], hostages: [], huts: [], units: [], bullets: [], shells: [], bombs: [],
-            ai: { team: AI, x: 0, y: 120, width: 60, height: 24, vx: 0, vy: 0, dir: -1, speed: 2, shootCooldown: 0, maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0, patrolDir: -1 },
+            players: [], bases: [], hostages: [], huts: [], units: [], bullets: [], shells: [], bombs: [], pickups: [],
+            ai: { team: AI, x: 0, y: 120, width: 60, height: 24, vx: 0, vy: 0, dir: -1, speed: 2, shootCooldown: 0, maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0, patrolDir: -1, boss: false, burst: 0 },
             tankSpawnTimer: 0, soldierSpawnTimer: 0, hostageTimer: 0, fx: []
         };
         const names = opts.names || [];
@@ -127,13 +129,16 @@
     }
     function spawnAiHeli(s) {
         const a = s.ai, base = s.bases[1];
-        a.x = base.x - 80; a.y = 110; a.vx = -a.speed; a.dir = -1; a.shootCooldown = 90;
-        a.maxHealth = 150 + (s.wave - 1) * 40; a.health = a.maxHealth;
-        a.speed = 2 + (s.wave - 1) * 0.25; a.alive = true; a.respawn = 0;
+        a.boss = s.wave % BOSS_EVERY === 0;
+        a.x = base.x - 80; a.y = 110; a.vx = -a.speed; a.dir = -1; a.shootCooldown = 90; a.burst = 0;
+        a.maxHealth = (150 + (s.wave - 1) * 40) * (a.boss ? 3 : 1); a.health = a.maxHealth;
+        a.speed = 2 + (s.wave - 1) * 0.25 + (a.boss ? 0.4 : 0); a.alive = true; a.respawn = 0;
+        a.width = a.boss ? 78 : 60; a.height = a.boss ? 30 : 24;
+        if (a.boss) { text(s, a.x, a.y - 30, 'GUNSHIP INBOUND', '#f66', true); snd(s, 'die'); }
     }
     function setupWave(s, n) {
         s.wave = n; s.waveRescued = 0; s.waveLost = 0; s.waveBonus = 0;
-        s.hostages = []; s.huts = []; s.bullets = []; s.shells = []; s.bombs = [];
+        s.hostages = []; s.huts = []; s.bullets = []; s.shells = []; s.bombs = []; s.pickups = [];
         s.units = s.units.filter(u => u.team !== AI);
         s.tankSpawnTimer = 0;
         const eb = s.bases[1];
@@ -539,6 +544,7 @@
         if (!u) return;
         if (u.type === 'tank') explosion(s, cx(u), cy(u), false);
         else parts(s, u.x + 4, GROUND_Y - 10, 8, { speed: 2, colors: [u.ai ? '#f88' : '#8c8', '#fff'], size: 3, life: 30, gravity: 0.1 });
+        if (u.type === 'tank' && killer) maybeDrop(s, cx(u), u.y, u.ai ? 0.3 : 0.2);
         if (killer) {
             const byPlayerShot = killer.direct;
             const pts = u.ai ? (byPlayerShot ? killer.pts : 50) : (u.type === 'tank' ? 150 : 40);
@@ -559,6 +565,33 @@
         if (u.health <= 0) killUnit(s, i, why, killer);
     }
     function playerByTeam(s, team) { return s.players[team] || null; }
+    function dropPickup(s, x, y, type) {
+        s.pickups.push({ type, x, y: Math.min(y, GROUND_Y - 14), vy: -1.5, life: 900, bob: 0 });
+    }
+    function maybeDrop(s, x, y, chance) {
+        if (rnd(s) >= chance) return;
+        dropPickup(s, x, y, pick(s, ['health', 'bombs', 'credits', 'credits']));
+    }
+    function updatePickups(s) {
+        for (let i = s.pickups.length - 1; i >= 0; i--) {
+            const k = s.pickups[i];
+            k.vy += 0.15; k.y += k.vy; k.bob++;
+            if (k.y > GROUND_Y - 14) { k.y = GROUND_Y - 14; k.vy = 0; }
+            if (--k.life <= 0) { s.pickups.splice(i, 1); continue; }
+            const box = { x: k.x - 7, y: k.y - 7, width: 14, height: 14 };
+            for (const p of s.players) {
+                if (!p.alive || !overlap(p, box)) continue;
+                const def = PICKUPS[k.type];
+                if (k.type === 'health') { p.health = Math.min(p.maxHealth, p.health + def.amount); text(s, cx(p), p.y - 24, '+' + def.amount + ' HULL', def.color); }
+                else if (k.type === 'bombs') { p.bombs = MAX_BOMBS; text(s, cx(p), p.y - 24, 'BOMBS REARMED', def.color); }
+                else { earn(s, p, def.amount, cx(p), p.y - 24); }
+                parts(s, k.x, k.y, 10, { speed: 2, colors: [def.color, '#fff'], size: 3, life: 20 });
+                snd(s, 'pickup');
+                s.pickups.splice(i, 1);
+                break;
+            }
+        }
+    }
 
     // ---------------------------------------------------------------------
     // AI helicopter (solo)
@@ -589,12 +622,24 @@
         if (Math.abs(a.vx) > 0.3) a.dir = a.vx < 0 ? -1 : 1;
         a.tilt += ((a.vx / a.speed) * 0.2 - a.tilt) * 0.1;
         a.shootCooldown--;
-        if (a.shootCooldown <= 0 && d < 380 && p.alive) {
+        if (a.shootCooldown <= 0 && d < (a.boss ? 460 : 380) && p.alive) {
             const sx = cx(a), sy = cy(a), tx = cx(p) + p.vx * 10, ty = cy(p);
-            const mag = dist(tx - sx, ty - sy) || 1, sp = 6;
-            s.shells.push({ team: AI, x: sx, y: sy, vx: (tx - sx) / mag * sp, vy: (ty - sy) / mag * sp, width: 7, height: 7, dmg: 18, life: 200, kind: 'heli' });
-            a.shootCooldown = Math.max(35, 75 - s.wave * 5);
-            snd(s, 'enemyShoot');
+            const mag = dist(tx - sx, ty - sy) || 1;
+            if (a.boss && a.burst > 0) {
+                // Rocket salvo: slower, heavier, slightly spread
+                a.burst--;
+                const sp = 4.5, spread = (a.burst - 1) * 0.08;
+                const vx = (tx - sx) / mag * sp, vy = (ty - sy) / mag * sp;
+                s.shells.push({ team: AI, x: sx + a.dir * 20, y: sy + 8, vx: vx - vy * spread, vy: vy + vx * spread, width: 9, height: 9, dmg: 30, life: 160, kind: 'rocket' });
+                a.shootCooldown = a.burst > 0 ? 7 : Math.max(60, 120 - s.wave * 5);
+                snd(s, 'bomb');
+            } else {
+                const sp = 6;
+                s.shells.push({ team: AI, x: sx, y: sy, vx: (tx - sx) / mag * sp, vy: (ty - sy) / mag * sp, width: 7, height: 7, dmg: 18, life: 200, kind: 'heli' });
+                a.shootCooldown = Math.max(35, 75 - s.wave * 5);
+                if (a.boss && rnd(s) < 0.5) { a.burst = 3; a.shootCooldown = 20; }
+                snd(s, 'enemyShoot');
+            }
         }
         if (a.health < a.maxHealth * 0.35 && s.frame % 5 === 0) parts(s, cx(a) + rand(s, -6, 6), a.y + 6, 1, { speed: 0.3, colors: ['#444'], size: 5, life: 40, up: 0.8 });
     }
@@ -607,9 +652,13 @@
             parts(s, cx(a), cy(a), 5, { speed: 2, colors: ['#ff0', '#fff'], size: 3, life: 18 });
             if (a.health <= 0) {
                 a.alive = false;
-                a.respawn = Math.max(420, 1000 - s.wave * 80);
+                a.respawn = Math.max(420, 1000 - s.wave * 80) * (a.boss ? 2 : 1);
                 explosion(s, cx(a), cy(a), true);
-                if (by) { award(s, by, 500, cx(a), a.y - 20, 0, true); earn(s, by, 120, cx(a), a.y - 40); }
+                if (a.boss) { explosion(s, cx(a) - 30, cy(a) + 10, false); explosion(s, cx(a) + 30, cy(a) - 10, false); }
+                if (by) { award(s, by, a.boss ? 1500 : 500, cx(a), a.y - 20, 0, true); earn(s, by, a.boss ? 300 : 120, cx(a), a.y - 40); }
+                dropPickup(s, cx(a), cy(a), 'credits');
+                if (a.boss) { dropPickup(s, cx(a) - 30, cy(a), 'health'); dropPickup(s, cx(a) + 30, cy(a), 'bombs'); }
+                else maybeDrop(s, cx(a) + 20, cy(a), 0.5);
             }
         } else damagePlayer(s, c, amount, why);
     }
@@ -696,7 +745,7 @@
                 const u = s.units[j];
                 if (u.team !== b.team && overlap(u, box)) { damageUnit(s, j, b.dmg, owner ? { player: owner, direct: false } : null); gone = true; break; }
             }
-            if (!gone && b.kind !== 'heli' && b.kind !== 'aa') { const eb = enemyBase(s, b.team); if (eb && overlap(eb, box)) { damageBase(s, eb, b.dmg, b.x, b.y, owner); gone = true; } }
+            if (!gone && b.kind !== 'heli' && b.kind !== 'aa' && b.kind !== 'rocket') { const eb = enemyBase(s, b.team); if (eb && overlap(eb, box)) { damageBase(s, eb, b.dmg, b.x, b.y, owner); gone = true; } }
             if (gone) {
                 if (b.kind === 'shell' && b.y < GROUND_Y + 1) parts(s, b.x, Math.min(b.y, GROUND_Y), 5, { speed: 1.5, colors: ['#ff0', '#f80'], size: 3, life: 15 });
                 s.shells.splice(i, 1);
@@ -759,6 +808,7 @@
             updateUnits(s);
             if (s.mode === 'solo') updateAiHeli(s);
             updateProjectiles(s);
+            updatePickups(s);
             checkCollisions(s);
             if (s.mode === 'solo') checkWaveClear(s);
         } else if (s.status === 'dying') {
@@ -783,10 +833,10 @@
         s.players.forEach(p => { mix(p.x); mix(p.y); mix(p.health); mix(p.credits); mix(p.score); mix(p.carrying); });
         s.bases.forEach(b => mix(b.health));
         s.units.forEach(u => { mix(u.x); mix(u.health); });
-        mix(s.hostages.length); mix(s.bullets.length); mix(s.shells.length);
+        mix(s.hostages.length); mix(s.bullets.length); mix(s.shells.length); mix(s.pickups.length);
         s.huts.forEach(h => mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5));
         return h >>> 0;
     }
 
-    return { createGame, step, hash, upgradeCost, UNITS, UPGRADES, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
+    return { createGame, step, hash, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
 });

@@ -33,6 +33,29 @@ class ScoreTest extends TestCase
         $this->assertDatabaseCount('scores', 3);
     }
 
+    public function test_daily_challenge_has_its_own_board_and_seed(): void
+    {
+        $a = User::factory()->create(['name' => 'Alpha']);
+        $b = User::factory()->create(['name' => 'Bravo']);
+        $a->scores()->create(['score' => 9000, 'wave' => 5, 'rescued' => 20]); // all-time solo
+
+        $this->actingAs($b)->get('/play?daily=1')->assertOk()->assertSee('"day":"'.Score::today().'"', false)->assertSee('"seed":'.Score::dailySeed(), false);
+        $this->actingAs($b)->get('/play')->assertSee('daily: null', false);
+
+        $this->actingAs($b)->postJson('/scores', ['score' => 1500, 'wave' => 2, 'rescued' => 6, 'mode' => 'daily', 'day' => Score::today()])
+            ->assertOk()->assertJson(['rank' => 1, 'best' => 1500]);
+        $this->actingAs($a)->postJson('/scores', ['score' => 1200, 'wave' => 2, 'rescued' => 5, 'mode' => 'daily', 'day' => '2001-01-01'])
+            ->assertOk()->assertJson(['rank' => 2]);
+
+        $this->assertDatabaseHas('scores', ['user_id' => $a->id, 'mode' => 'daily', 'day' => Score::today().' 00:00:00']);
+        $this->assertSame(['Bravo', 'Alpha'], Score::leaderboard(10, 'daily')->pluck('user.name')->all());
+        $this->assertSame(['Alpha'], Score::leaderboard(10)->pluck('user.name')->all(), 'daily runs stay off the all-time board');
+        $this->assertSame(Score::dailySeed('2026-10-16'), Score::dailySeed('2026-10-16'));
+        $this->assertNotSame(Score::dailySeed('2026-10-16'), Score::dailySeed('2026-10-17'));
+
+        $this->actingAs($b)->get('/')->assertOk()->assertSeeInOrder(['Daily Challenge', 'Bravo', 'Alpha', 'All-time leaderboard', 'Alpha']);
+    }
+
     public function test_score_validation(): void
     {
         $this->actingAs(User::factory()->create())

@@ -52,9 +52,9 @@ class PasswordResetTest extends TestCase
         $this->assertSame($guest->id, $match->fresh()->guest_user_id);
         $this->post('/logout');
 
-        $this->actingAs($host)->get('/play/'.$match->code)->assertDontSee('Copy invite link');
+        $this->actingAs($host)->get('/play/'.$match->code)->assertDontSee('id="copyInvite"', false);
         $match->update(['guest_user_id' => null, 'status' => 'waiting']);
-        $this->actingAs($host)->get('/play/'.$match->code)->assertSee('Copy invite link')->assertSee($invite);
+        $this->actingAs($host)->get('/play/'.$match->code)->assertSee('id="copyInvite"', false)->assertSee($invite);
         $this->actingAs($host)->get('/multiplayer')->assertSee($invite);
         $match->update(['guest_user_id' => $guest->id, 'status' => 'active']);
 

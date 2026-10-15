@@ -4,7 +4,8 @@
         <a href="{{ route('game') }}" class="btn btn-play">Play</a>
         @auth
             <a href="{{ route('multiplayer') }}">Multiplayer</a>
-            <span class="pilot">Pilot <strong>{{ auth()->user()->name }}</strong></span>
+            <a href="{{ route('profile', auth()->user()) }}" class="pilot">Pilot <strong>{{ auth()->user()->name }}</strong></a>
+            <a href="{{ route('settings') }}">Settings</a>
             <form method="POST" action="{{ route('logout') }}" class="inline">
                 @csrf
                 <button type="submit" class="link">Log out</button>

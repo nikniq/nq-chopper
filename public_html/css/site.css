@@ -56,3 +56,12 @@ ul.plain { padding-left: 20px; margin: 0; color: var(--muted); }
 .win { color: #8f8; font-weight: 700; } .loss { color: #f88; font-weight: 700; }
 .btn-daily { background: #b8620e; }
 .btn-daily:hover { background: #d8781a; }
+/* Profile & settings */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0 20px; }
+.stat { background: #0004; border: 1px solid #fff2; border-radius: 12px; padding: 14px; text-align: center; }
+.stat .num { display: block; font-size: 1.6rem; font-weight: 800; color: #ff0; }
+.stat .lbl { color: var(--muted); font-size: 0.85rem; }
+.flash { background: #2f6f3a; border-radius: 8px; padding: 10px 14px; }
+.card.danger { border-color: #a33; max-width: none; margin-top: 16px; }
+.btn-danger { background: #a33; } .btn-danger:hover { background: #c44; }
+a.pilot { text-decoration: none; }

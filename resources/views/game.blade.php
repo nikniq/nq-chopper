@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{{ config('app.name', 'NQ Chopper') }}</title>
     <link rel="stylesheet" href="{{ asset('css/game.css') }}?v={{ filemtime(public_path('css/game.css')) }}">
+    @include('partials.head-meta')
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @include('partials.analytics')
 </head>

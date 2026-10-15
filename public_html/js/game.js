@@ -313,6 +313,9 @@
             submitScore(p);
         }
     }
+    if (cfg.pingUrl && typeof fetch === 'function') {
+        setInterval(() => { if (!document.hidden) fetch(cfg.pingUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).catch(() => {}); }, 5 * 60 * 1000);
+    }
     function submitScore(p) {
         if (!cfg.scoreUrl || typeof fetch !== 'function') return;
         submitStatus = 'SAVING SCORE...';
@@ -1045,7 +1048,7 @@
             bigText('ONLINE MATCH', 90, 36, '#ff0');
             bigText('MATCH CODE', 135, 14, '#ccc');
             bigText(match.code, 175, 44, '#fff');
-            if (match.role === 'host' && !net.opponent) bigText('Send this code to your opponent. They enter it under Multiplayer > Join.', 210, 13, '#ddd');
+            if (match.role === 'host' && !net.opponent) bigText('Send this code, or use "Copy invite link" above. They can join with one click.', 210, 13, '#ddd');
             else bigText('Opponent: ' + (net.opponent ? net.opponent.name : '...'), 210, 15, '#9cf');
             bigText(net.status + (net.level === 'error' ? '' : (blink ? '' : ' ')), 255, 16, net.level === 'error' ? '#f66' : net.level === 'warn' ? '#fc6' : '#8f8');
             if (net.level === 'error') bigText('Open the Lobby link above to try again', 285, 13, '#ccc');

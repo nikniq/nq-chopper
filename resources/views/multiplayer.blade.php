@@ -13,6 +13,7 @@
         <p class="muted">You get a six-letter code to send to your opponent. The game starts when they join.</p>
         @if ($open)
             <p>Your open lobby: <strong class="code">{{ $open->code }}</strong></p>
+            <p class="muted">Invite link: <a href="{{ route('matches.invite', ['code' => $open->code]) }}">{{ route('matches.invite', ['code' => $open->code]) }}</a></p>
             <a class="btn btn-big" href="{{ route('game', ['code' => $open->code]) }}">Return to lobby</a>
         @endif
         <form method="POST" action="{{ route('matches.store') }}">

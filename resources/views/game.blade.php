@@ -13,7 +13,11 @@
     <div id="topbar">
         <a href="{{ route('home') }}">&larr; Home</a>
         @if (!empty($match))
-            <span>Online match <strong>{{ $match['code'] }}</strong> &middot; <a href="{{ route('multiplayer') }}">Lobby</a></span>
+            <span>Online match <strong>{{ $match['code'] }}</strong> &middot; <a href="{{ route('multiplayer') }}">Lobby</a>
+                @if ($match['role'] === 'host' && empty($match['opponent']))
+                    &middot; <button type="button" class="linkbtn" id="copyInvite" data-link="{{ route('matches.invite', ['code' => $match['code']]) }}">Copy invite link</button>
+                @endif
+            </span>
         @elseif (!empty($daily))
             <span>Daily Challenge <strong>{{ $daily['day'] }}</strong> &middot; <a href="{{ route('game') }}">Free play</a></span>
         @endif
@@ -55,7 +59,19 @@
             <button class="touch-btn" id="btnBomb">Bomb</button>
         </div>
     </div>
-    <script>window.NQ_CONFIG = { scoreUrl: @json(auth()->check() ? route('scores.store') : null), csrf: @json(csrf_token()), match: @json($match ?? null), daily: @json($daily ?? null) };</script>
+    <script>window.NQ_CONFIG = { scoreUrl: @json(auth()->check() ? route('scores.store') : null), csrf: @json(csrf_token()), match: @json($match ?? null), daily: @json($daily ?? null), pingUrl: @json(auth()->check() ? route('ping') : null) };</script>
+    <script>
+        (function () {
+            var b = document.getElementById('copyInvite');
+            if (!b) return;
+            b.addEventListener('click', function () {
+                var link = b.getAttribute('data-link');
+                var done = function () { b.textContent = 'Invite link copied!'; setTimeout(function () { b.textContent = 'Copy invite link'; }, 2500); };
+                if (navigator.clipboard) navigator.clipboard.writeText(link).then(done, function () { window.prompt('Copy this invite link', link); });
+                else window.prompt('Copy this invite link', link);
+            });
+        })();
+    </script>
     <script src="{{ asset('js/sim.js') }}?v={{ filemtime(public_path('js/sim.js')) }}"></script>
     <script src="{{ asset('js/net.js') }}?v={{ filemtime(public_path('js/net.js')) }}"></script>
     <script src="{{ asset('js/game.js') }}?v={{ filemtime(public_path('js/game.js')) }}"></script>

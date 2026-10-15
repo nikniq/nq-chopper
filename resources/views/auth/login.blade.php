@@ -4,6 +4,7 @@
 @section('content')
 <section class="card">
     <h1>Log in</h1>
+    @if (session('status'))<p class="flash">{{ session('status') }}</p>@endif
     <form method="POST" action="{{ route('login') }}">
         @csrf
         <label>Email
@@ -17,6 +18,6 @@
         <label class="check"><input type="checkbox" name="remember" value="1" {{ old('remember') ? 'checked' : '' }}> Remember me</label>
         <button type="submit" class="btn btn-big">Log in</button>
     </form>
-    <p class="muted">New pilot? <a href="{{ route('register') }}">Register</a></p>
+    <p class="muted">New pilot? <a href="{{ route('register') }}">Register</a> &middot; <a href="{{ route('password.request') }}">Forgot password?</a></p>
 </section>
 @endsection

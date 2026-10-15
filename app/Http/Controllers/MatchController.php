@@ -40,6 +40,14 @@ class MatchController extends Controller
         return redirect()->route('game', ['code' => $match->code]);
     }
 
+    /** Invite link: /join/{code} joins (or returns to) the match, after login if needed. */
+    public function invite(Request $request, string $code): RedirectResponse
+    {
+        $request->merge(['code' => $code]);
+
+        return $this->join($request);
+    }
+
     public function join(Request $request): RedirectResponse
     {
         $code = strtoupper(trim((string) $request->input('code')));
@@ -47,13 +55,13 @@ class MatchController extends Controller
         $user = $request->user();
 
         if (! $match) {
-            throw ValidationException::withMessages(['code' => 'No match with that code.']);
+            throw ValidationException::withMessages(['code' => 'No match with that code.'])->redirectTo(route('multiplayer'));
         }
         if ($match->isParticipant($user)) {
             return redirect()->route('game', ['code' => $match->code]);
         }
         if ($match->status !== 'waiting') {
-            throw ValidationException::withMessages(['code' => 'That match has already started.']);
+            throw ValidationException::withMessages(['code' => 'That match has already started.'])->redirectTo(route('multiplayer'));
         }
 
         $match->update(['guest_user_id' => $user->id, 'status' => 'active']);

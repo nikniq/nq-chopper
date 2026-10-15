@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\HomeController;
@@ -19,10 +20,15 @@ Route::middleware('guest')->group(function () {
     Route::post('/register', [RegisterController::class, 'store'])->middleware('throttle:10,1');
     Route::get('/login', [LoginController::class, 'create'])->name('login');
     Route::post('/login', [LoginController::class, 'store'])->middleware('throttle:20,1');
+    Route::get('/forgot-password', [PasswordResetController::class, 'request'])->name('password.request');
+    Route::post('/forgot-password', [PasswordResetController::class, 'email'])->middleware('throttle:5,1')->name('password.email');
+    Route::get('/reset-password/{token}', [PasswordResetController::class, 'reset'])->name('password.reset');
+    Route::post('/reset-password', [PasswordResetController::class, 'update'])->middleware('throttle:5,1')->name('password.update');
 });
 
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
+    Route::get('/ping', fn () => response()->noContent())->name('ping');
     Route::post('/scores', [ScoreController::class, 'store'])->middleware('throttle:30,1')->name('scores.store');
 
     Route::get('/settings', [SettingsController::class, 'edit'])->name('settings');
@@ -33,6 +39,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/multiplayer', [MatchController::class, 'index'])->name('multiplayer');
     Route::post('/matches', [MatchController::class, 'store'])->middleware('throttle:10,1')->name('matches.store');
     Route::post('/matches/join', [MatchController::class, 'join'])->middleware('throttle:20,1')->name('matches.join');
+    Route::get('/join/{code}', [MatchController::class, 'invite'])->name('matches.invite');
     Route::get('/matches/{match:code}/status', [MatchController::class, 'status'])->name('matches.status');
     Route::post('/matches/{match:code}/signal', [MatchController::class, 'signal'])->middleware('throttle:120,1')->name('matches.signal');
     Route::get('/matches/{match:code}/signals', [MatchController::class, 'signals'])->name('matches.signals');

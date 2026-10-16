@@ -31,7 +31,10 @@
         [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor']
     ];
 
-    const GAME_WIDTH = 640, GAME_HEIGHT = 400;
+    // Logical viewport: fixed height, width follows the window's aspect ratio so wide screens
+    // see more battlefield instead of bigger pixels.
+    const GAME_HEIGHT = 400, MIN_GAME_WIDTH = 640, MAX_GAME_WIDTH = 1100;
+    let GAME_WIDTH = MIN_GAME_WIDTH;
     const { WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, UNITS, UPGRADES, AI } = Sim;
     const HIGH_SCORE_KEY = 'nqChopperHighScore';
     // Lockstep input latency in ticks. Starts at a guess per transport and adapts to the measured
@@ -53,18 +56,29 @@
     const view = { scale: 1, ox: 0, oy: 0 };
     function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
     function fitCanvas() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        let cssW, cssH;
         if (isFullscreen()) {
-            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-            canvas.style.transform = 'none';
+            cssW = window.innerWidth; cssH = window.innerHeight;
             canvasWrapper.style.width = ''; canvasWrapper.style.height = '';
         } else {
-            canvas.width = GAME_WIDTH; canvas.height = GAME_HEIGHT;
-            const reserve = isTouch ? 200 : 110;
-            const scale = Math.min(window.innerWidth / GAME_WIDTH, (window.innerHeight - reserve) / GAME_HEIGHT, 1);
-            canvas.style.transform = `scale(${scale})`;
-            canvasWrapper.style.width = (GAME_WIDTH * scale) + 'px';
-            canvasWrapper.style.height = (GAME_HEIGHT * scale) + 'px';
+            // Measure the page chrome above the canvas rather than guessing its height
+            const wrapper = document.getElementById('gameWrapper');
+            const above = wrapper && wrapper.getBoundingClientRect ? wrapper.getBoundingClientRect().top + (window.scrollY || 0) : 150;
+            const below = (isTouch ? 100 : 0) + 16;
+            const maxW = Math.max(320, window.innerWidth - 24);
+            const maxH = Math.max(200, window.innerHeight - above - below);
+            cssH = Math.min(maxH, maxW / (MIN_GAME_WIDTH / GAME_HEIGHT));
+            cssW = Math.min(maxW, cssH * (MAX_GAME_WIDTH / GAME_HEIGHT));
         }
+        GAME_WIDTH = Math.round(Math.max(MIN_GAME_WIDTH, Math.min(MAX_GAME_WIDTH, GAME_HEIGHT * cssW / cssH)));
+        if (!isFullscreen()) {
+            cssW = Math.round(cssH * GAME_WIDTH / GAME_HEIGHT); // exact aspect: no letterbox in the page
+            canvasWrapper.style.width = cssW + 'px'; canvasWrapper.style.height = Math.round(cssH) + 'px';
+        }
+        canvas.style.transform = 'none';
+        canvas.style.width = cssW + 'px'; canvas.style.height = Math.round(cssH) + 'px';
+        canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr);
         view.scale = Math.min(canvas.width / GAME_WIDTH, canvas.height / GAME_HEIGHT);
         view.ox = (canvas.width - GAME_WIDTH * view.scale) / 2;
         view.oy = (canvas.height - GAME_HEIGHT * view.scale) / 2;
@@ -175,7 +189,7 @@
     for (let x = 0; x < WORLD_WIDTH; x += rand(14, 30)) grass.push({ x, h: rand(3, 7), ph: rand(0, 6) });
     for (let x = 0; x < WORLD_WIDTH; x += rand(90, 220)) rocks.push({ x, w: rand(6, 14), h: rand(3, 6) });
     const stars = [];
-    for (let i = 0; i < 60; i++) stars.push({ x: rand(0, GAME_WIDTH), y: rand(0, 200), r: rand(0.5, 1.4), tw: rand(0, 6) });
+    for (let i = 0; i < 100; i++) stars.push({ x: rand(0, MAX_GAME_WIDTH), y: rand(0, 200), r: rand(0.5, 1.4), tw: rand(0, 6) });
     // Client-only effect lists
     let rings = [], screenFlash = 0;
     const MAX_PARTICLES = 350;
@@ -507,7 +521,7 @@
             ctx.globalAlpha = 1;
         }
         // Sun / moon with glow
-        const sx = 560 - cameraX * 0.02, sy = night ? 70 : 60;
+        const sx = GAME_WIDTH - 200 - cameraX * 0.02, sy = night ? 100 : 95;
         const glowSize = night ? 140 : 240;
         ctx.drawImage(cached('sunglow' + night, () => makeSprite(glowSize, (g, n) => { const r = g.createRadialGradient(n / 2, n / 2, n * 0.05, n / 2, n / 2, n / 2); r.addColorStop(0, night ? 'rgba(220,230,255,0.35)' : 'rgba(255,240,180,0.55)'); r.addColorStop(1, 'rgba(255,240,180,0)'); g.fillStyle = r; g.fillRect(0, 0, n, n); })), sx - glowSize / 2, sy - glowSize / 2);
         ctx.fillStyle = night ? '#e8ecff' : '#ffe680';

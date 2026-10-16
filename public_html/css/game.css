@@ -1,6 +1,6 @@
 body { margin: 0; background: linear-gradient(to bottom, #15181f 0%, #2b3140 100%); -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; color: #fff; font-family: 'Segoe UI', Arial, sans-serif; }
-#gameWrapper { display: flex; justify-content: center; align-items: center; padding: 8px 12px 12px; }
-#canvasWrapper { width: 640px; height: 400px; display: inline-block; position: relative; }
+#gameWrapper { display: flex; justify-content: center; align-items: center; padding: 8px 12px 12px; width: 100%; box-sizing: border-box; }
+#canvasWrapper { width: 640px; height: 400px; display: inline-block; position: relative; max-width: 100%; }
 canvas { display: block; width: 640px; height: 400px; background: #1b4f9c; box-shadow: 0 0 24px #000a; border-radius: 12px; transform-origin: top left; touch-action: none; -webkit-user-drag: none; image-rendering: auto; }
 #topbar { text-align: center; font-size: 0.85rem; padding: 6px 12px; background: #0005; border-bottom: 1px solid #fff2; display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
 #topbar a { color: #9cf; } #topbar strong { color: #8f8; }

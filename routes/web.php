@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AdminController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\Auth\RegisterController;
@@ -9,11 +10,13 @@ use App\Http\Controllers\MatchController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ScoreController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\SitemapController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', HomeController::class)->name('home');
 Route::get('/play/{code?}', GameController::class)->name('game');
 Route::get('/pilots/{user}', ProfileController::class)->name('profile');
+Route::get('/sitemap.xml', SitemapController::class)->name('sitemap');
 
 Route::middleware('guest')->group(function () {
     Route::get('/register', [RegisterController::class, 'create'])->name('register');
@@ -29,6 +32,7 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
     Route::get('/ping', fn () => response()->noContent())->name('ping');
+    Route::get('/admin', AdminController::class)->name('admin');
     Route::post('/scores', [ScoreController::class, 'store'])->middleware('throttle:30,1')->name('scores.store');
 
     Route::get('/settings', [SettingsController::class, 'edit'])->name('settings');

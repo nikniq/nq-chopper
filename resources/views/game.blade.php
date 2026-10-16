@@ -41,6 +41,7 @@
         <button id="buyGun" class="shop-btn upgrade" disabled>Guns<span class="lvl"></span> <span class="price">$150</span></button>
         <button id="buyArmor" class="shop-btn upgrade" disabled>Armor<span class="lvl"></span> <span class="price">$150</span></button>
         <span id="shopHint">Troops deploy from BASE and march on the enemy base &middot; Upgrades last the whole game</span>
+        <button id="shareBtn" class="shop-btn share" style="display:none" data-url="{{ url('/') }}">Share score</button>
     </div>
     <div id="gameWrapper">
         <div id="canvasWrapper">

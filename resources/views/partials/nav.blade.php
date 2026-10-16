@@ -6,6 +6,7 @@
             <a href="{{ route('multiplayer') }}">Multiplayer</a>
             <a href="{{ route('profile', auth()->user()) }}" class="pilot">Pilot <strong>{{ auth()->user()->name }}</strong></a>
             <a href="{{ route('settings') }}">Settings</a>
+            @if (\App\Http\Controllers\AdminController::isAdmin(auth()->user()))<a href="{{ route('admin') }}">Ops</a>@endif
             <form method="POST" action="{{ route('logout') }}" class="inline">
                 @csrf
                 <button type="submit" class="link">Log out</button>

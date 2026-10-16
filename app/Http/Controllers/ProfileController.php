@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\GameMatch;
 use App\Models\Score;
 use App\Models\User;
+use App\Support\Achievements;
 use Illuminate\Contracts\View\View;
 
 class ProfileController extends Controller
@@ -34,6 +35,7 @@ class ProfileController extends Controller
                 'wins' => GameMatch::where('status', 'finished')->where('winner_user_id', $user->id)->count(),
             ],
             'recent' => Score::where('user_id', $user->id)->latest()->limit(10)->get(),
+            'badges' => Achievements::for($user),
             'matches' => $matches,
         ]);
     }

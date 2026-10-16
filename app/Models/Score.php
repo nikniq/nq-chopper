@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 #[Fillable(['score', 'wave', 'rescued', 'mode', 'day'])]
@@ -33,6 +34,26 @@ class Score extends Model
         $q = static::query()->where('mode', $mode);
 
         return $mode === 'daily' ? $q->whereDate('day', $day ?? static::today()) : $q;
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(fn () => static::forgetBoards());
+        static::deleted(fn () => static::forgetBoards());
+    }
+
+    public static function forgetBoards(): void
+    {
+        Cache::forget('lb:solo');
+        Cache::forget('lb:daily:'.static::today());
+    }
+
+    /** Cached top-10 boards for the front page (invalidated on every new score). */
+    public static function cachedLeaderboard(string $mode = 'solo'): Collection
+    {
+        $key = $mode === 'daily' ? 'lb:daily:'.static::today() : 'lb:solo';
+
+        return Cache::remember($key, 120, fn () => static::leaderboard(10, $mode));
     }
 
     public function user(): BelongsTo

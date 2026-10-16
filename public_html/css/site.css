@@ -66,3 +66,11 @@ ul.plain { padding-left: 20px; margin: 0; color: var(--muted); }
 .btn-danger { background: #a33; } .btn-danger:hover { background: #c44; }
 a.pilot { text-decoration: none; }
 .err-code { font-size: 5rem !important; color: #f66 !important; }
+/* Achievements */
+.badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.badge { background: #0003; border: 1px solid #fff1; border-radius: 10px; padding: 10px; text-align: center; opacity: 0.4; filter: grayscale(1); }
+.badge.earned { opacity: 1; filter: none; border-color: #ff06; background: #ff01; }
+.badge-icon { display: block; font-size: 1.6rem; }
+.badge-name { display: block; font-weight: 700; margin-top: 4px; }
+.badge-desc { display: block; color: var(--muted); font-size: 0.78rem; }
+code { background: #0005; padding: 2px 6px; border-radius: 4px; }

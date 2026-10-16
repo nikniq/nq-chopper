@@ -17,6 +17,19 @@
 </section>
 
 <section class="leaderboard">
+    <h2>Achievements <span class="muted">{{ collect($badges)->where('earned', true)->count() }} / {{ count($badges) }}</span></h2>
+    <div class="badges">
+        @foreach ($badges as $b)
+            <div class="badge {{ $b['earned'] ? 'earned' : '' }}" title="{{ $b['desc'] }}">
+                <span class="badge-icon">{{ $b['icon'] }}</span>
+                <span class="badge-name">{{ $b['name'] }}</span>
+                <span class="badge-desc">{{ $b['desc'] }}</span>
+            </div>
+        @endforeach
+    </div>
+</section>
+
+<section class="leaderboard">
     <h2>Recent runs</h2>
     @if ($recent->isEmpty())
         <p class="muted">No runs recorded yet.</p>

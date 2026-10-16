@@ -13,8 +13,8 @@ class HomeController extends Controller
     public function __invoke(): View
     {
         return view('home', [
-            'leaders' => Score::leaderboard(10),
-            'dailyLeaders' => Score::leaderboard(10, 'daily'),
+            'leaders' => Score::cachedLeaderboard('solo'),
+            'dailyLeaders' => Score::cachedLeaderboard('daily'),
             'today' => Score::today(),
             'personalBest' => auth()->check() ? Score::bestFor(auth()->user()) : null,
             'dailyBest' => auth()->check() ? Score::bestFor(auth()->user(), 'daily') : null,

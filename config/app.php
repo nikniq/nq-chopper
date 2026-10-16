@@ -15,6 +15,9 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
+    // Comma-separated emails allowed to open the /admin dashboard
+    'admins' => env('ADMIN_EMAILS', ''),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

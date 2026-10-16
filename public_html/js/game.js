@@ -21,6 +21,7 @@
     const scoreDiv = document.getElementById('score');
     const touchControls = document.getElementById('touchControls');
     const creditsSpan = document.getElementById('credits');
+    const shareBtn = document.getElementById('shareBtn');
     const shopButtons = [
         [document.getElementById('buySoldier'), 'soldier'], [document.getElementById('buyTank'), 'tank'],
         [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor']
@@ -285,6 +286,7 @@
     function startSolo() {
         sim = Sim.createGame({ mode: 'solo', seed: daily ? daily.seed | 0 : (Date.now() ^ (Math.random() * 0x7fffffff)) | 0 });
         particles = []; floatTexts = []; rings = []; craters = []; screenFlash = 0; newBest = false; submitStatus = '';
+        if (shareBtn) shareBtn.style.display = 'none';
         screen = 'playing'; screenTimer = 0;
         consumeFx();
     }
@@ -311,6 +313,7 @@
             const p = local();
             if (p.score > highScore) { highScore = p.score; newBest = true; saveHighScore(highScore); }
             submitScore(p);
+            if (shareBtn) shareBtn.style.display = '';
         }
     }
     if (cfg.pingUrl && typeof fetch === 'function') {
@@ -1151,6 +1154,15 @@
     shopButtons.forEach(([btn, type]) => {
         if (!btn) return;
         btn.addEventListener('click', () => { Sound.unlock(); if (inPlay()) buyQueued = type; btn.blur(); });
+    });
+    if (shareBtn) shareBtn.addEventListener('click', () => {
+        const p = local(); if (!p) return;
+        const what = daily ? 'the NQ Chopper Daily Challenge (' + daily.day + ')' : 'NQ Chopper';
+        const text = `I scored ${p.score.toLocaleString()} in ${what}: wave ${sim.wave}, ${p.rescued} hostages rescued. Beat me: ${shareBtn.getAttribute('data-url')}${daily ? '/play?daily=1' : '/play'}`;
+        const done = () => { shareBtn.textContent = 'Copied!'; setTimeout(() => { shareBtn.textContent = 'Share score'; }, 2500); };
+        if (navigator.share) navigator.share({ text }).catch(() => {});
+        else if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => window.prompt('Copy your score', text));
+        else window.prompt('Copy your score', text);
     });
 
     // Canvas gestures: drag to steer, tap to shoot/start, long-press to bomb

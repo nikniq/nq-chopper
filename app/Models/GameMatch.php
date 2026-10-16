@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
-#[Fillable(['code', 'host_user_id', 'guest_user_id', 'seed', 'status', 'winner_user_id', 'host_score', 'guest_score', 'reason', 'finished_at'])]
+#[Fillable(['code', 'host_user_id', 'guest_user_id', 'seed', 'mode', 'status', 'winner_user_id', 'host_score', 'guest_score', 'wave', 'reason', 'finished_at'])]
 class GameMatch extends Model
 {
     protected $table = 'matches';
@@ -38,7 +38,9 @@ class GameMatch extends Model
         return $this->hasMany(MatchSignal::class, 'match_id');
     }
 
-    public static function createFor(User $host): self
+    public const MODES = ['versus' => 'Versus 1v1', 'coop' => 'Co-op vs AI'];
+
+    public static function createFor(User $host, string $mode = 'versus'): self
     {
         do {
             // Unambiguous characters only; easy to read out loud
@@ -50,6 +52,7 @@ class GameMatch extends Model
             'code' => $code,
             'host_user_id' => $host->id,
             'seed' => random_int(1, 2_000_000_000),
+            'mode' => array_key_exists($mode, self::MODES) ? $mode : 'versus',
         ]);
     }
 

@@ -88,14 +88,14 @@
 
     function createGame(opts) {
         opts = opts || {};
-        const mode = opts.mode === 'versus' ? 'versus' : 'solo';
+        const mode = opts.mode === 'versus' ? 'versus' : opts.mode === 'coop' ? 'coop' : 'solo';
         const s = {
             mode, seed: opts.seed | 0, rs: opts.seed | 0, frame: 0,
             status: 'playing', statusTimer: 0, winner: null, endReason: '',
             wave: 0, waveRescued: 0, waveLost: 0, waveBonus: 0,
             players: [], bases: [], hostages: [], huts: [], units: [], bullets: [], shells: [], bombs: [], pickups: [],
             ai: { team: AI, x: 0, y: 120, width: 60, height: 24, vx: 0, vy: 0, dir: -1, speed: 2, shootCooldown: 0, maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0, patrolDir: -1, boss: false, burst: 0 },
-            tankSpawnTimer: 0, soldierSpawnTimer: 0, hostageTimer: 0, fx: []
+            tankSpawnTimer: 0, soldierSpawnTimer: 0, hostageTimer: 0, lives: 0, fx: []
         };
         const names = opts.names || [];
         s.players.push(makePlayer(0, 1, names[0]));
@@ -106,6 +106,13 @@
             s.bases.forEach(b => { b.maxHealth = b.health = 1500; });
             s.players.forEach(p => { p.credits = 300; });
             setupVersus(s);
+        } else if (mode === 'coop') {
+            // Two pilots, one base, shared pool of lives against the AI waves
+            s.players.push(makePlayer(1, 1, names[1]));
+            s.bases.push(makeBase(AI, -1));
+            s.players.forEach(p => { p.credits = 100; });
+            s.lives = 4;
+            setupWave(s, 1);
         } else {
             s.bases.push(makeBase(AI, -1));
             s.players[0].credits = 100;
@@ -115,7 +122,7 @@
     }
 
     function resetPlayer(s, p) {
-        const b = s.bases[p.id];
+        const b = ownBase(s, p.team);
         p.x = b.x + b.width / 2 - p.width / 2;
         p.y = GROUND_Y - p.height;
         p.vx = 0; p.vy = 0; p.dir = p.side; p.carrying = 0;
@@ -143,18 +150,18 @@
         s.tankSpawnTimer = 0;
         const eb = s.bases[1];
         eb.maxHealth = 400 + (n - 1) * 150; eb.health = eb.maxHealth; eb.destroyed = false;
-        resetPlayer(s, s.players[0]);
+        s.players.forEach(p => { if (p.alive || s.mode === 'solo') resetPlayer(s, p); });
         const groups = Math.min(2 + n, 5);
         const span = (WORLD_WIDTH - 900) / groups;
         for (let g = 0; g < groups; g++) spawnHostageGroup(s, 480 + g * span + rand(s, 40, span - 120));
-        const tankCount = 2 + n;
+        const tankCount = 2 + n + (s.mode === 'coop' ? 1 : 0);
         for (let i = 0; i < tankCount; i++) {
             let tx = rand(s, 380, WORLD_WIDTH - 260), tries = 0;
             while (tries++ < 20 && s.huts.some(h => Math.abs(h.x + 40 - tx) < 160)) tx = rand(s, 380, WORLD_WIDTH - 260);
             s.units.push(makeTank(s, AI, tx, pick(s, [-1, 1]) * (0.8 + n * 0.15)));
         }
         spawnAiHeli(s);
-        text(s, s.players[0].x + 30, s.players[0].y - 30, 'WAVE ' + n, '#ff0', true);
+        s.players.forEach(p => text(s, p.x + 30, p.y - 30, 'WAVE ' + n, '#ff0', true));
         snd(s, 'wave');
     }
     function setupVersus(s) {
@@ -170,19 +177,26 @@
     // ---------------------------------------------------------------------
     function choppers(s) {
         const list = s.players.filter(p => p.alive);
-        if (s.mode === 'solo' && s.ai.alive) list.push(s.ai);
+        if (s.mode !== 'versus' && s.ai.alive) list.push(s.ai);
         return list;
     }
-    function enemyBase(s, team) { return s.bases.find(b => b.team !== team && !b.destroyed) || null; }
-    function ownBase(s, team) { return s.bases.find(b => b.team === team); }
-    function marchDir(s, team) { return team === 0 ? 1 : -1; }
+    // Teams are hostile unless they are both human teams in co-op
+    function hostile(s, a, b) { return a !== b && !(s.mode === 'coop' && a !== AI && b !== AI); }
+    function enemyBase(s, team) { return s.bases.find(b => hostile(s, b.team, team) && !b.destroyed) || null; }
+    function ownBase(s, team) { return s.bases.find(b => !hostile(s, b.team, team)); }
+    function marchDir(s, team) { return team === AI ? -1 : (s.mode === 'versus' && team === 1 ? -1 : 1); }
+    function nearestPlayer(s, x) {
+        let best = null, bd = Infinity;
+        s.players.forEach(p => { if (!p.alive) return; const d = Math.abs(p.x - x); if (d < bd) { bd = d; best = p; } });
+        return best;
+    }
     const hutDoor = h => h.x + h.w / 2;
     function hutOf(s, x) {
         let best = null, bestD = 110;
         s.huts.forEach(h => { const d = Math.abs(x - (h.x + 80)); if (d < bestD) { bestD = d; best = h; } });
         return best;
     }
-    const hutBlocks = (h, team) => !!(h && h.garrison && h.garrison.team !== team);
+    const hutBlocks = (s, h, team) => !!(h && h.garrison && hostile(s, h.garrison.team, team));
 
     // ---------------------------------------------------------------------
     // Economy
@@ -272,8 +286,15 @@
         // Anyone aboard is lost
         s.hostages.forEach(h => { if (h.state === 'aboard' && h.carrier === p.id) { h.state = 'dead'; p.lost++; s.waveLost++; } });
         p.carrying = 0;
-        if (s.mode === 'solo') { s.status = 'dying'; s.statusTimer = 0; }
-        else { s.status === 'playing' && text(s, cx(p), p.y - 40, p.name + ' DOWN', '#f66', true); }
+        if (s.mode === 'solo') { s.status = 'dying'; s.statusTimer = 0; return; }
+        if (s.status === 'playing') text(s, cx(p), p.y - 40, p.name + ' DOWN', '#f66', true);
+        if (s.mode === 'coop') {
+            if (s.lives > 0) { s.lives--; p.canRespawn = true; text(s, cx(p), p.y - 56, s.lives + (s.lives === 1 ? ' LIFE LEFT' : ' LIVES LEFT'), '#fc6'); }
+            else {
+                p.canRespawn = false;
+                if (!s.players.some(o => o.alive)) endMatch(s, null, 'SQUAD WIPED ON WAVE ' + s.wave);
+            }
+        } else p.canRespawn = true;
     }
     function updateDyingPlayer(s, p) {
         p.vy += GRAVITY; p.vx *= 0.98; p.x += p.vx; p.y += p.vy; p.spin += 0.15; p.respawn++;
@@ -282,14 +303,14 @@
             p.y = GROUND_Y - p.height; p.vy = 0; p.vx = 0;
             if (p.respawn <= 120) { explosion(s, cx(p), cy(p), true); p.respawn = 121; }
         }
-        if (s.mode === 'versus' && p.respawn >= 121 + 180) {
+        if (s.mode !== 'solo' && p.canRespawn && p.respawn >= 121 + 180) {
             resetPlayer(s, p);
             p.invuln = 90;
             text(s, cx(p), p.y - 30, 'REDEPLOYED', '#8f8');
         }
     }
     function updatePlayer(s, p, inp) {
-        if (!p.alive) { if (s.mode === 'versus') updateDyingPlayer(s, p); return; }
+        if (!p.alive) { if (s.mode !== 'solo') updateDyingPlayer(s, p); return; }
         const targetVx = inp.l ? -p.speed : inp.r ? p.speed : 0;
         if (inp.l) p.dir = -1; else if (inp.r) p.dir = 1;
         p.vx += (targetVx - p.vx) * 0.12;
@@ -343,7 +364,7 @@
             landed.forEach(p => {
                 const d = Math.abs(cx(p) - h.x);
                 if (d >= bestD) return;
-                if (hutBlocks(hut, p.team)) {
+                if (hutBlocks(s, hut, p.team)) {
                     if (hut.warnTimer <= 0) { hut.warnTimer = 150; text(s, cx(p), p.y - 36, 'HUT HELD BY ENEMY SOLDIERS - SEND INFANTRY', '#f66'); }
                     return;
                 }
@@ -387,7 +408,7 @@
         const ux = cx(u);
         let best = null, bestD = Infinity;
         s.units.forEach(o => {
-            if (o.team === u.team) return;
+            if (!hostile(s, o.team, u.team)) return;
             const d = Math.abs(cx(o) - ux);
             if (d < u.range && d < bestD) { bestD = d; best = { kind: 'unit', x: cx(o), y: cy(o), obj: o }; }
         });
@@ -400,7 +421,7 @@
         if (u.type === 'tank') {
             let bh = null, bd = u.ai ? 320 : u.range;
             choppers(s).forEach(c => {
-                if (c.team === u.team) return;
+                if (!hostile(s, c.team, u.team)) return;
                 const dx = cx(c) - ux, dy = cy(c) - u.y;
                 const d = u.ai ? Math.abs(dx) : dist(dx, dy);
                 if (d < bd && dy < -10) { bd = d; bh = { kind: 'heli', x: cx(c), y: cy(c), obj: c }; }
@@ -470,15 +491,15 @@
             // Tanks crush enemy soldiers
             if (u.type === 'soldier') {
                 for (const o of s.units) {
-                    if (o.team !== u.team && o.type === 'tank' && overlap(o, u)) { killUnit(s, i, 'CRUSHED'); break; }
+                    if (hostile(s, o.team, u.team) && o.type === 'tank' && overlap(o, u)) { killUnit(s, i, 'CRUSHED'); break; }
                 }
             }
         }
         updateGarrisons(s);
-        // Solo: enemy base spawns reinforcements until destroyed
-        if (s.mode === 'solo') {
+        // Solo / co-op: enemy base spawns reinforcements until destroyed
+        if (s.mode !== 'versus') {
             s.tankSpawnTimer++;
-            const interval = Math.max(220, 480 - s.wave * 30), eb = s.bases[1];
+            const interval = Math.round(Math.max(220, 480 - s.wave * 30) * (s.mode === 'coop' ? 0.8 : 1)), eb = s.bases[1];
             if (s.tankSpawnTimer >= interval && !eb.destroyed) {
                 s.tankSpawnTimer = 0;
                 if (s.units.filter(u => u.ai && u.type === 'tank').length < 3 + s.wave * 2) {
@@ -508,7 +529,7 @@
                 h.garrison = { team: u.team, count: 1 };
                 text(s, hutDoor(h), GROUND_Y - h.h - 30, 'HUT SECURED', u.ai ? '#f66' : '#8f8');
                 snd(s, 'pickup');
-            } else if (g.team === u.team) {
+            } else if (!hostile(s, g.team, u.team)) {
                 if (g.count >= (u.ai ? GARRISON_CAP.ai : GARRISON_CAP.player)) return false; // full: march on
                 g.count++;
             } else {
@@ -530,7 +551,7 @@
             if (h.fireTimer > 0) { h.fireTimer--; return; }
             const door = hutDoor(h);
             let best = null, bestD = GARRISON_RANGE;
-            s.units.forEach(u => { if (u.team === g.team) return; const d = Math.abs(cx(u) - door); if (d < bestD) { bestD = d; best = u; } });
+            s.units.forEach(u => { if (!hostile(s, u.team, g.team)) return; const d = Math.abs(cx(u) - door); if (d < bestD) { bestD = d; best = u; } });
             if (!best) return;
             const dir = cx(best) < door ? -1 : 1;
             s.shells.push({ team: g.team, x: door + dir * 10, y: GROUND_Y - h.h + 14, vx: dir * 6, vy: 0.35, width: 5, height: 2, dmg: UNITS.soldier.dmg, life: 40, kind: 'rifle' });
@@ -597,11 +618,12 @@
     // AI helicopter (solo)
     // ---------------------------------------------------------------------
     function updateAiHeli(s) {
-        const a = s.ai, p = s.players[0], eb = s.bases[1];
+        const a = s.ai, eb = s.bases[1];
         if (!a.alive) {
             if (a.respawn > 0 && !eb.destroyed) { a.respawn--; if (a.respawn === 0) spawnAiHeli(s); }
             return;
         }
+        const p = nearestPlayer(s, a.x) || s.players[0];
         const dx = p.x - a.x, dy = p.y - a.y, d = Math.abs(dx);
         let targetX;
         if (d < 480 && p.alive) {
@@ -676,11 +698,9 @@
             explosion(s, cx(b) - 40, cy(b) + 10, false);
             explosion(s, cx(b) + 40, cy(b) + 10, false);
             fx(s, { t: 'shake', v: 18 });
-            if (s.mode === 'solo') {
-                const p = s.players[0];
-                p.score += 1000; earn(s, p, 300);
+            if (s.mode !== 'versus') {
+                s.players.forEach(p => { p.score += 1000; earn(s, p, 300); text(s, cx(p), p.y - 30, 'ENEMY BASE DESTROYED!', '#ff0', true); });
                 text(s, cx(b), b.y - 40, 'ENEMY BASE DESTROYED +1000 +$300', '#ff0', true);
-                text(s, cx(p), p.y - 30, 'ENEMY BASE DESTROYED!', '#ff0', true);
             } else {
                 const winner = s.players.find(p => p.team !== b.team);
                 winner.score += 2000;
@@ -702,13 +722,14 @@
         const owner = playerByTeam(s, b.team);
         for (let i = s.units.length - 1; i >= 0; i--) {
             const u = s.units[i];
-            if (dist(cx(u) - x, cy(u) - y) < (u.team === b.team ? 44 : 48)) {
-                if (u.team === b.team) damageUnit(s, i, 60, null, 'FRIENDLY FIRE');
+            const friendly = !hostile(s, u.team, b.team);
+            if (dist(cx(u) - x, cy(u) - y) < (friendly ? 44 : 48)) {
+                if (friendly) damageUnit(s, i, 60, null, 'FRIENDLY FIRE');
                 else damageUnit(s, i, u.ai ? 999 : 80, owner ? { player: owner, direct: true, pts: 150 } : null);
             }
         }
         choppers(s).forEach(c => {
-            if (c.team === b.team) { if (dist(cx(c) - x, cy(c) - y) < 45) damagePlayer(s, c, 20, 'TOO LOW'); }
+            if (!hostile(s, c.team, b.team)) { if (dist(cx(c) - x, cy(c) - y) < 45) damagePlayer(s, c, 20, c.team === b.team ? 'TOO LOW' : 'FRIENDLY FIRE'); }
             else if (dist(cx(c) - x, cy(c) - y) < 50) damageChopper(s, c, 90, owner, 'BOMBED');
         });
         s.hostages.forEach(h => { if ((h.state === 'waiting' || h.state === 'running') && Math.abs(h.x - x) < 30) killHostage(s, h, 'FRIENDLY FIRE'); });
@@ -723,10 +744,10 @@
             let hit = b.life <= 0 || b.x < 0 || b.x > WORLD_WIDTH;
             if (!hit) for (let j = s.units.length - 1; j >= 0; j--) {
                 const u = s.units[j];
-                if (u.team !== b.team && overlap(u, b)) { damageUnit(s, j, u.ai || u.type === 'soldier' ? 999 : 20, owner ? { player: owner, direct: true, pts: 100 } : null); hit = true; break; }
+                if (hostile(s, u.team, b.team) && overlap(u, b)) { damageUnit(s, j, u.ai || u.type === 'soldier' ? 999 : 20, owner ? { player: owner, direct: true, pts: 100 } : null); hit = true; break; }
             }
             if (!hit) for (const c of choppers(s)) {
-                if (c.team !== b.team && overlap(c, b)) { damageChopper(s, c, UPGRADES.gun.dmg[owner ? owner.upgrades.gun : 0], owner); hit = true; break; }
+                if (hostile(s, c.team, b.team) && overlap(c, b)) { damageChopper(s, c, UPGRADES.gun.dmg[owner ? owner.upgrades.gun : 0], owner); hit = true; break; }
             }
             if (!hit && s.mode === 'versus') { const eb = enemyBase(s, b.team); if (eb && overlap(eb, b)) { damageBase(s, eb, 3, b.x, b.y, owner); hit = true; } }
             if (hit) s.bullets.splice(i, 1);
@@ -739,11 +760,11 @@
             if (b.y >= GROUND_Y) { gone = true; parts(s, b.x, GROUND_Y, 3, { speed: 1, colors: ['#a86'], size: 2, life: 15, up: 1 }); }
             const box = { x: b.x - b.width / 2, y: b.y - b.height / 2, width: b.width, height: b.height };
             if (!gone) for (const c of choppers(s)) {
-                if (c.team !== b.team && overlap(c, box)) { damageChopper(s, c, b.dmg, owner); gone = true; break; }
+                if (hostile(s, c.team, b.team) && overlap(c, box)) { damageChopper(s, c, b.dmg, owner); gone = true; break; }
             }
             if (!gone) for (let j = s.units.length - 1; j >= 0; j--) {
                 const u = s.units[j];
-                if (u.team !== b.team && overlap(u, box)) { damageUnit(s, j, b.dmg, owner ? { player: owner, direct: false } : null); gone = true; break; }
+                if (hostile(s, u.team, b.team) && overlap(u, box)) { damageUnit(s, j, b.dmg, owner ? { player: owner, direct: false } : null); gone = true; break; }
             }
             if (!gone && b.kind !== 'heli' && b.kind !== 'aa' && b.kind !== 'rocket') { const eb = enemyBase(s, b.team); if (eb && overlap(eb, box)) { damageBase(s, eb, b.dmg, b.x, b.y, owner); gone = true; } }
             if (gone) {
@@ -757,8 +778,8 @@
             b.vy += 0.28; b.x += b.vx; b.y += b.vy;
             let boom = b.y >= GROUND_Y - 4;
             const box = { x: b.x - 6, y: b.y - 6, width: 12, height: 12 };
-            if (!boom && s.units.some(u => u.team !== b.team && overlap(u, box))) boom = true;
-            if (!boom && choppers(s).some(c => c.team !== b.team && overlap(c, box))) boom = true;
+            if (!boom && s.units.some(u => hostile(s, u.team, b.team) && overlap(u, box))) boom = true;
+            if (!boom && choppers(s).some(c => hostile(s, c.team, b.team) && overlap(c, box))) boom = true;
             if (boom) { s.bombs.splice(i, 1); explodeBomb(s, b, b.x, Math.min(b.y, GROUND_Y - 4)); }
         }
     }
@@ -770,10 +791,10 @@
         s.players.forEach(p => {
             if (!p.alive) return;
             for (const u of s.units) {
-                if (u.team !== p.team && u.type === 'tank' && overlap(p, u)) { damagePlayer(s, p, 30, 'COLLISION'); p.vy = -3; break; }
+                if (hostile(s, u.team, p.team) && u.type === 'tank' && overlap(p, u)) { damagePlayer(s, p, 30, 'COLLISION'); p.vy = -3; break; }
             }
             choppers(s).forEach(c => {
-                if (c === p || c.team === p.team || c.id < p.id) return; // handle each pair once
+                if (c === p || !hostile(s, c.team, p.team) || c.id < p.id) return; // handle each pair once
                 if (overlap(p, c)) {
                     damagePlayer(s, p, 50, 'COLLISION');
                     damageChopper(s, c, c.team === AI ? 60 : 50, null, 'COLLISION');
@@ -785,11 +806,10 @@
     }
     function checkWaveClear(s) {
         if (s.hostages.length === 0) return;
-        const p = s.players[0];
-        if (s.hostages.every(h => h.state === 'saved' || h.state === 'dead') && p.carrying === 0) {
+        if (s.hostages.every(h => h.state === 'saved' || h.state === 'dead') && s.players.every(p => p.carrying === 0)) {
             s.waveBonus = s.waveRescued * 50 * s.wave + (s.waveLost === 0 ? 500 : 0);
-            p.score += s.waveBonus;
-            earn(s, p, 100 + (s.waveLost === 0 ? 100 : 0));
+            s.players.forEach(p => { p.score += s.waveBonus; earn(s, p, 100 + (s.waveLost === 0 ? 100 : 0)); });
+            if (s.mode === 'coop') { s.lives++; s.players.forEach(p => text(s, cx(p), p.y - 50, '+1 LIFE', '#8f8')); }
             s.status = 'waveclear'; s.statusTimer = 0;
             snd(s, 'dropoff');
         }
@@ -806,11 +826,11 @@
             s.players.forEach((p, i) => updatePlayer(s, p, (inputs && inputs[i]) || EMPTY));
             updateHostages(s);
             updateUnits(s);
-            if (s.mode === 'solo') updateAiHeli(s);
+            if (s.mode !== 'versus') updateAiHeli(s);
             updateProjectiles(s);
             updatePickups(s);
             checkCollisions(s);
-            if (s.mode === 'solo') checkWaveClear(s);
+            if (s.mode !== 'versus') checkWaveClear(s);
         } else if (s.status === 'dying') {
             s.statusTimer++;
             const p = s.players[0];
@@ -833,7 +853,7 @@
         s.players.forEach(p => { mix(p.x); mix(p.y); mix(p.health); mix(p.credits); mix(p.score); mix(p.carrying); });
         s.bases.forEach(b => mix(b.health));
         s.units.forEach(u => { mix(u.x); mix(u.health); });
-        mix(s.hostages.length); mix(s.bullets.length); mix(s.shells.length); mix(s.pickups.length);
+        mix(s.hostages.length); mix(s.bullets.length); mix(s.shells.length); mix(s.pickups.length); mix(s.lives);
         s.huts.forEach(h => mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5));
         return h >>> 0;
     }

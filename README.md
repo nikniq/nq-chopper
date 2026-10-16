@@ -45,7 +45,7 @@ npm run test:js       # deterministic simulation + headless client/lockstep test
 
 ## Online multiplayer
 
-Two logged-in players run the same deterministic simulation in lockstep and exchange only inputs over a WebRTC data channel.
+Two logged-in players run the same deterministic simulation in lockstep and exchange only inputs over a WebRTC data channel, either as a 1v1 duel (two bases) or in co-op against the AI waves (one shared base and a pool of lives).
 The server pairs players by a six-letter code, relays the offer/answer/ICE handshake through ordinary HTTP polling, and records
 the result. No long-running process is needed, so it works on shared PHP hosting. Peers behind restrictive NATs with no
 TURN server may fail to connect; add a TURN entry to `ICE` in `public_html/js/net.js` if that matters for your players.

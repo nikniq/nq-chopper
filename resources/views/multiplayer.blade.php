@@ -4,7 +4,7 @@
 @section('content')
 <section class="hero compact">
     <h1>Multiplayer</h1>
-    <p class="tagline">1v1 online. Rescue hostages for credits, raise an army, and destroy the other pilot's base.</p>
+    <p class="tagline">Play online with a friend: duel 1v1, or team up in co-op against the AI waves.</p>
 </section>
 
 <div class="two-col">
@@ -18,6 +18,11 @@
         @endif
         <form method="POST" action="{{ route('matches.store') }}">
             @csrf
+            <fieldset class="modes">
+                <legend class="muted">Mode</legend>
+                <label class="mode"><input type="radio" name="mode" value="versus" checked> <strong>Versus 1v1</strong><span class="muted">Two bases, armies marching at each other. First base down loses.</span></label>
+                <label class="mode"><input type="radio" name="mode" value="coop"> <strong>Co-op vs AI</strong><span class="muted">One base, shared lives, survive the waves together.</span></label>
+            </fieldset>
             <button type="submit" class="btn btn-big {{ $open ? 'btn-ghost' : '' }}">{{ $open ? 'Create a new code' : 'Create match' }}</button>
         </form>
     </section>
@@ -39,6 +44,7 @@
     <h2>How it works</h2>
     <ul class="plain">
         <li>Both browsers run the same simulation in lockstep and talk directly to each other over WebRTC. The server only pairs you up.</li>
+        <li><strong>Co-op:</strong> you share one base and a pool of four lives. Each wave cleared adds a life. Allied fire never hurts your partner, but bombs still do.</li>
         <li>Your troops march toward the enemy base, theirs march toward yours. Bases have 1500 hull. First base down loses.</li>
         <li>Hostages keep appearing in the middle of the map. Each one you fly home is worth $40 and 100 points.</li>
         <li>Soldiers garrison the huts they reach and hold them against tanks and bombs. Only enemy soldiers entering the hut can clear them, one defender per attacker. Hostages at a hut your opponent holds will not board you.</li>
@@ -53,16 +59,18 @@
         <p class="muted">No finished matches yet.</p>
     @else
         <table>
-            <thead><tr><th>When</th><th>Host</th><th>Guest</th><th>Score</th><th>Result</th></tr></thead>
+            <thead><tr><th>When</th><th>Mode</th><th>Host</th><th>Guest</th><th>Score</th><th>Result</th></tr></thead>
             <tbody>
             @foreach ($recent as $m)
                 <tr>
                     <td>{{ $m->finished_at?->diffForHumans() }}</td>
+                    <td>{{ $m->mode === 'coop' ? 'Co-op' : 'Versus' }}</td>
                     <td>{{ $m->host->name }}</td>
                     <td>{{ $m->guest?->name ?? '—' }}</td>
                     <td>{{ $m->host_score }} – {{ $m->guest_score }}</td>
                     <td>
-                        @if ($m->winner_user_id === auth()->id()) <span class="win">Won</span>
+                        @if ($m->mode === 'coop') Wave {{ $m->wave ?? '?' }}
+                        @elseif ($m->winner_user_id === auth()->id()) <span class="win">Won</span>
                         @elseif ($m->winner_user_id) <span class="loss">Lost</span>
                         @else Draw @endif
                         <span class="muted">({{ strtolower($m->reason) }})</span>

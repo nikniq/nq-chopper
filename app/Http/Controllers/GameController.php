@@ -25,6 +25,7 @@ class GameController extends Controller
                 'code' => $m->code,
                 'role' => $m->roleOf($request->user()),
                 'seed' => $m->seed,
+                'mode' => $m->mode,
                 'status' => $m->status,
                 'me' => ['id' => $request->user()->id, 'name' => $request->user()->name],
                 'opponent' => $opponent ? ['id' => $opponent->id, 'name' => $opponent->name] : null,

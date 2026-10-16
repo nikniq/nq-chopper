@@ -57,6 +57,26 @@ class MatchTest extends TestCase
             ->assertOk()->assertJsonPath('guest.name', 'Guest')->assertJsonPath('seed', $match->seed);
     }
 
+    public function test_coop_matches_carry_their_mode_and_record_the_wave(): void
+    {
+        $host = User::factory()->create();
+        $guest = User::factory()->create();
+        $this->actingAs($host)->get('/multiplayer')->assertSee('Co-op vs AI');
+        $this->actingAs($host)->post('/matches', ['mode' => 'coop']);
+        $match = GameMatch::first();
+        $this->assertSame('coop', $match->mode);
+        $this->actingAs($host)->post('/matches', ['mode' => 'nonsense'])->assertSessionHasErrors('mode');
+
+        $match->update(['guest_user_id' => $guest->id, 'status' => 'active']);
+        $this->actingAs($guest)->get('/play/'.$match->code)->assertOk()->assertSee('"mode":"coop"', false);
+        $this->actingAs($guest)->getJson(route('matches.status', $match))->assertJsonPath('mode', 'coop');
+
+        $this->actingAs($host)->postJson(route('matches.result', $match), ['winner' => null, 'reason' => 'SQUAD WIPED ON WAVE 4', 'scores' => [3100, 2800], 'wave' => 4])
+            ->assertOk()->assertJson(['recorded' => true]);
+        $this->assertSame(4, $match->fresh()->wave);
+        $this->actingAs($host)->get('/multiplayer')->assertSeeInOrder(['Co-op', 'Wave 4']);
+    }
+
     public function test_signals_are_relayed_only_to_the_other_participant(): void
     {
         $host = User::factory()->create();

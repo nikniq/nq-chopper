@@ -159,4 +159,44 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
     for (let f = 0; f < 60 && b.ai.alive; f++) Sim.step(b, [inp({ f: 1 })]);
     assert.ok(!b.ai.alive && p.score >= 1500 && b.pickups.length >= 3, 'gunship kill pays 1500 and drops three crates');
 }
+// Co-op: two allied pilots share a base and a pool of lives against the AI
+{
+    const c1 = run('coop', 55, 1500, 2), c2 = run('coop', 55, 1500, 2);
+    assert.deepStrictEqual(c1.hashes, c2.hashes, 'co-op run is deterministic');
+    const c = Sim.createGame({ mode: 'coop', seed: 56 });
+    const [p0, p1] = c.players;
+    assert.ok(c.bases.length === 2 && c.bases[1].team === Sim.AI && p1.side === 1, 'shared left base, AI base on the right');
+    assert.ok(Math.abs(p0.x - p1.x) < 1, 'both pilots start on the same pad');
+    // Allied bullets do not hurt each other
+    p1.x = p0.x + 150; p1.y = p0.y = 200; p0.dir = 1; p1.invuln = 0;
+    const hp = p1.health;
+    for (let f = 0; f < 30; f++) Sim.step(c, [inp({ f: 1 }), inp({ u: f % 2 })]);
+    assert.strictEqual(p1.health, hp, 'allies cannot shoot each other');
+    // Allied troops march the same way and do not fight each other
+    p0.credits = p1.credits = 1000;
+    Sim.step(c, [inp({ buy: 'tank' }), inp({ buy: 'soldier' })]);
+    const t0 = c.units.find(u => u.team === 0), s1 = c.units.find(u => u.team === 1);
+    assert.ok(t0 && s1, 'both pilots can deploy');
+    for (let f = 0; f < 120; f++) Sim.step(c, [inp({}), inp({})]);
+    assert.ok(c.units.includes(t0) && c.units.includes(s1) && t0.x > 150 && s1.x > 150, 'allied units coexist and march right');
+    // Lives: a death costs a life and the pilot redeploys; squad wipe ends the match
+    p1.invuln = 0; p1.health = 1; p1.x = 1200; p1.y = 100; p1.vy = 5;
+    c.lives = 1;
+    for (let f = 0; f < 60 && p1.alive; f++) Sim.step(c, [inp({}), inp({ d: 1 })]);
+    assert.ok(!p1.alive && c.lives === 0, 'hard landing costs the last life: lives ' + c.lives);
+    for (let f = 0; f < 400; f++) Sim.step(c, [inp({}), inp({})]);
+    assert.ok(p1.alive, 'pilot redeployed from the shared pool');
+    p0.invuln = 0; p0.health = 1; p0.x = 1200; p0.y = 100; p0.vy = 5; p1.invuln = 0; p1.health = 1; p1.x = 1300; p1.y = 100; p1.vy = 5;
+    for (let f = 0; f < 90 && c.status === 'playing'; f++) Sim.step(c, [inp({ d: 1 }), inp({ d: 1 })]);
+    assert.strictEqual(c.status, 'over', 'no lives and both down ends the mission: ' + c.endReason);
+    assert.ok(/SQUAD WIPED/.test(c.endReason));
+}
+// Solo and versus still behave: AI heli chases the nearest pilot, versus hostility unchanged
+{
+    const v = Sim.createGame({ mode: 'versus', seed: 57 });
+    const [a, b] = v.players; b.x = a.x + 150; b.y = a.y = 200; a.dir = 1; b.invuln = 0;
+    const hp = b.health;
+    for (let f = 0; f < 30; f++) Sim.step(v, [inp({ f: 1 }), inp({})]);
+    assert.ok(b.health < hp, 'versus opponents still take damage');
+}
 console.log('all sim tests passed');

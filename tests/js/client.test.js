@@ -102,4 +102,26 @@ assert.strictEqual(host.nq.screen, 'over', 'host sees match over'); assert.stric
 assert.strictEqual(sa.winner, 0, 'host wins'); assert.strictEqual(sb.winner, 0, 'guest agrees host won');
 assert.ok(host.fetches.some(f => f.url === '/result' && f.body.winner === 0), 'result posted');
 console.log('lockstep client ok');
+
+// ---- Co-op: same harness, allied pilots vs the AI, must stay in sync and share lives ----
+{
+    const nA = fakeNetPair(), nB = fakeNetPair();
+    const mk = (role, me, op, net) => makeClient({ scoreUrl: null, csrf: 'x', match: { code: 'COOP01', role, mode: 'coop', seed: 4242, status: 'active', me, opponent: op, urls } }, net);
+    const h = mk('host', { id: 1, name: 'Alpha' }, { id: 2, name: 'Bravo' }, nA), g = mk('guest', { id: 2, name: 'Bravo' }, { id: 1, name: 'Alpha' }, nB);
+    const la = nA.links[0], lb = nB.links[0]; la.peer = lb; lb.peer = la;
+    const pump = () => { nA.pump(); nB.pump(); };
+    la.opts.onOpen(); lb.opts.onOpen();
+    h.frames(183); g.frames(183);
+    assert.strictEqual(h.nq.sim.mode, 'coop'); assert.strictEqual(g.nq.sim.mode, 'coop');
+    assert.strictEqual(h.nq.sim.lives, 4, 'co-op starts with four shared lives');
+    h.key('ArrowUp'); h.key('ArrowRight'); h.key('Space'); g.key('ArrowUp'); g.key('ArrowRight');
+    for (let i = 0; i < 400; i++) { h.frames(1); if (i % 4 !== 0) g.frames(1); if (i % 9 === 0) g.frames(4); if (i % 5 === 0) pump(); }
+    for (let i = 0; i < 30; i++) { h.frames(1); g.frames(1); pump(); }
+    const sa = h.nq.sim, sb = g.nq.sim;
+    while (sb.frame < sa.frame) { g.frames(1); pump(); } while (sa.frame < sb.frame) { h.frames(1); pump(); }
+    assert.strictEqual(h.win.NQSim.hash(sa), g.win.NQSim.hash(sb), 'co-op lockstep states identical');
+    assert.ok(sa.players.every(p => p.x > 150), 'both allied pilots flew right on both sims');
+    assert.ok(sa.players[0].health === sa.players[0].maxHealth || sa.players[0].health > 0, 'host alive');
+    console.log('coop lockstep ok');
+}
 console.log('all client tests passed');

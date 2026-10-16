@@ -354,7 +354,7 @@
     }
     function beginMatch() {
         const names = match.role === 'host' ? [match.me.name, net.opponent ? net.opponent.name : 'GUEST'] : [net.opponent ? net.opponent.name : 'HOST', match.me.name];
-        sim = Sim.createGame({ mode: 'versus', seed: match.seed, names });
+        sim = Sim.createGame({ mode: match.mode === 'coop' ? 'coop' : 'versus', seed: match.seed, names });
         for (let f = 0; f < INPUT_DELAY; f++) { net.localInputs[f] = Sim.EMPTY; net.remoteInputs[f] = Sim.EMPTY; }
         particles = []; floatTexts = []; consumeFx();
         screen = 'countdown'; screenTimer = 0;
@@ -425,7 +425,7 @@
         net.posted = true;
         fetch(match.urls.result, { method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': cfg.csrf },
-            body: JSON.stringify({ winner: sim.winner, reason: sim.endReason || 'FINISHED', scores: sim.players.map(p => p.score) }) }).catch(() => {});
+            body: JSON.stringify({ winner: sim.mode === 'coop' ? null : sim.winner, reason: (sim.endReason || 'FINISHED').slice(0, 40), scores: sim.players.map(p => p.score), wave: sim.mode === 'coop' ? sim.wave : null }) }).catch(() => {});
     }
 
     // =====================================================================
@@ -456,7 +456,7 @@
         else if (screen === 'paused') announce('Paused.');
         else if (screen === 'gameover' && p) announce(`Game over. Score ${p.score}, wave ${sim.wave}, ${p.rescued} rescued. Press R or Space to retry.`);
         else if (screen === 'lobby') announce('Online lobby. ' + net.status.toLowerCase());
-        else if (screen === 'over' && p) announce((sim.winner === localId ? 'Victory. ' : sim.winner === null ? 'Draw. ' : 'Defeat. ') + (sim.endReason || ''));
+        else if (screen === 'over' && p) announce((sim.mode === 'coop' ? 'Mission over. ' : sim.winner === localId ? 'Victory. ' : sim.winner === null ? 'Draw. ' : 'Defeat. ') + (sim.endReason || ''));
         else if (screen === 'playing' && sim.mode === 'solo' && sim.status === 'waveclear') announce(`Wave ${sim.wave} clear. Get ready for wave ${sim.wave + 1}.`);
         else if (screen === 'playing' && sim.mode === 'solo' && sim.statusTimer === 0 && sim.frame < 20) announce(`Wave ${sim.wave}. Rescue the hostages.`);
     }
@@ -466,6 +466,9 @@
             scoreDiv.textContent = mode === 'solo' ? (daily ? `Daily Challenge ${daily.day} | Best: ${highScore}` : `Best: ${highScore}`) : `Online match ${match.code}`;
         } else if (mode === 'solo') {
             scoreDiv.textContent = `Wave ${sim.wave} | Score: ${p.score} | Credits: $${p.credits} | Rescued: ${p.rescued} | Lost: ${p.lost} | Best: ${highScore}`;
+        } else if (sim.mode === 'coop') {
+            const o = sim.players[1 - localId];
+            scoreDiv.textContent = `Co-op Wave ${sim.wave} | Lives ${sim.lives} | ${p.name} ${p.score} + ${o.name} ${o.score} | Credits: $${p.credits}`;
         } else {
             const o = sim.players[1 - localId];
             scoreDiv.textContent = `${p.name} ${p.score} | ${o.name} ${o.score} | Credits: $${p.credits} | Rescued: ${p.rescued}`;
@@ -622,7 +625,7 @@
         ctx.fillStyle = '#ccc'; ctx.fillRect(tx + 8, GROUND_Y - 80, 2, 20);
         ctx.fillStyle = c.ui; ctx.fillRect(tx + 10, GROUND_Y - 80, 12 + Math.sin(frame / 8) * 2, 7);
         ctx.font = 'bold 12px Arial';
-        const label = sim.mode === 'versus' ? (sim.players[team] ? sim.players[team].name.toUpperCase().slice(0, 10) : 'BASE') : 'BASE';
+        const label = sim.mode === 'versus' && sim.players[team] ? sim.players[team].name.toUpperCase().slice(0, 10) : 'BASE';
         ctx.fillText(label, tx + 9, GROUND_Y - 86);
         ctx.textAlign = 'left';
         drawBaseHealth(b);
@@ -956,6 +959,7 @@
         ctx.fillText(String(p.score).padStart(6, '0'), GAME_WIDTH - 14, 26);
         ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#ccc';
         if (sim.mode === 'solo') { ctx.fillText('BEST ' + highScore, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave, GAME_WIDTH - 14, 62); }
+        else if (sim.mode === 'coop') { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + '   LIVES ' + sim.lives, GAME_WIDTH - 14, 62); }
         else { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('DOWNED ' + p.deaths + ' / ' + o.deaths, GAME_WIDTH - 14, 62); }
         ctx.fillStyle = '#8f8'; ctx.font = 'bold 18px Arial'; ctx.fillText('$' + p.credits, GAME_WIDTH - 14, 84);
         ctx.textAlign = 'left'; ctx.font = 'bold 11px Arial';
@@ -968,20 +972,21 @@
         ctx.fillStyle = 'rgba(0,255,120,0.05)'; ctx.fillRect(rx, ry, rw, rh);
         const mx = x => rx + (x / WORLD_WIDTH) * rw;
         sim.bases.forEach(b => { ctx.fillStyle = b.destroyed ? '#555' : colorsOf(b.team).ui; ctx.fillRect(mx(b.x), ry, 3, rh); });
-        sim.huts.forEach(h => { if (h.garrison) { ctx.fillStyle = h.garrison.team === p.team ? '#8f8' : '#f66'; ctx.fillRect(mx(h.x + 20) - 1, ry + 1, 4, 3); } });
+        sim.huts.forEach(h => { if (h.garrison) { ctx.fillStyle = h.garrison.team === AI || (sim.mode === 'versus' && h.garrison.team !== p.team) ? '#f66' : '#8f8'; ctx.fillRect(mx(h.x + 20) - 1, ry + 1, 4, 3); } });
         ctx.fillStyle = '#fd4';
         sim.hostages.forEach(h => { if (h.state === 'waiting' || h.state === 'running') ctx.fillRect(mx(h.x), ry + 3, 2, 6); });
-        sim.units.forEach(u => { ctx.fillStyle = u.team === p.team ? '#8f8' : '#f33'; ctx.fillRect(mx(u.x), ry + 4, u.type === 'tank' ? 3 : 2, 4); });
+        sim.units.forEach(u => { ctx.fillStyle = u.team === p.team ? '#8f8' : (sim.mode === 'coop' && u.team !== AI) ? '#9cf' : '#f33'; ctx.fillRect(mx(u.x), ry + 4, u.type === 'tank' ? 3 : 2, 4); });
         if (sim.mode === 'solo' && sim.ai.alive) { ctx.fillStyle = sim.ai.boss ? '#f44' : '#f0f'; ctx.fillRect(mx(sim.ai.x), ry + 2, sim.ai.boss ? 6 : 4, 4); }
         sim.pickups.forEach(k => { ctx.fillStyle = Sim.PICKUPS[k.type].color; ctx.fillRect(mx(k.x), ry + 9, 2, 2); });
-        sim.players.forEach(o => { if (o.alive && o.id !== localId) { ctx.fillStyle = '#f0f'; ctx.fillRect(mx(o.x), ry + 2, 4, 4); } });
+        sim.players.forEach(o => { if (o.alive && o.id !== localId) { ctx.fillStyle = sim.mode === 'coop' ? '#9cf' : '#f0f'; ctx.fillRect(mx(o.x), ry + 2, 4, 4); } });
         ctx.fillStyle = '#0f0'; ctx.fillRect(mx(p.x), ry + 2, 4, 8);
         ctx.strokeStyle = '#fff6'; ctx.lineWidth = 1; ctx.strokeRect(mx(cameraX), ry, (GAME_WIDTH / WORLD_WIDTH) * rw, rh);
         // Centre lines
         ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
-        if (sim.mode === 'solo') {
+        if (sim.mode !== 'versus') {
             const remaining = sim.hostages.filter(h => h.state === 'waiting' || h.state === 'running' || h.state === 'aboard').length;
-            ctx.fillText(`RESCUED ${p.rescued}   LOST ${p.lost}   REMAINING ${remaining}`, GAME_WIDTH / 2, 36);
+            const rescued = sim.mode === 'coop' ? sim.players.reduce((a, q) => a + q.rescued, 0) : p.rescued;
+            ctx.fillText(`RESCUED ${rescued}   LOST ${sim.waveLost}   REMAINING ${remaining}`, GAME_WIDTH / 2, 36);
         } else {
             // Base hull bars
             const mine = sim.bases[localId], theirs = sim.bases[1 - localId];
@@ -1002,11 +1007,11 @@
         if (screen === 'playing' && p.alive && pct < 0.3 && Math.floor(frame / 15) % 2 === 0) {
             ctx.fillStyle = '#f44'; ctx.font = 'bold 14px Arial'; ctx.fillText('HULL CRITICAL - RETURN TO BASE', GAME_WIDTH / 2, GAME_HEIGHT - 14);
         }
-        if (sim.mode === 'versus' && !p.alive && screen === 'playing') {
+        if (sim.mode !== 'solo' && !p.alive && screen === 'playing') {
             ctx.fillStyle = '#f88'; ctx.font = 'bold 16px Arial';
-            ctx.fillText('SHOT DOWN - REDEPLOYING IN ' + Math.max(0, Math.ceil((301 - p.respawn) / 60)), GAME_WIDTH / 2, 130);
+            ctx.fillText(p.canRespawn === false ? 'NO LIVES LEFT - YOUR PARTNER FIGHTS ON' : 'SHOT DOWN - REDEPLOYING IN ' + Math.max(0, Math.ceil((301 - p.respawn) / 60)), GAME_WIDTH / 2, 130);
         }
-        if (sim.mode === 'versus') { ctx.fillStyle = net.transport === 'relay' ? '#fc6' : '#9cf'; ctx.font = 'bold 10px Arial'; ctx.fillText((net.transport === 'relay' ? 'SERVER RELAY  ' : '') + 'PING ' + Math.round(net.rtt) + 'ms  DELAY ' + INPUT_DELAY, GAME_WIDTH / 2, 112); }
+        if (sim.mode !== 'solo') { ctx.fillStyle = net.transport === 'relay' ? '#fc6' : '#9cf'; ctx.font = 'bold 10px Arial'; ctx.fillText((net.transport === 'relay' ? 'SERVER RELAY  ' : '') + 'PING ' + Math.round(net.rtt) + 'ms  DELAY ' + INPUT_DELAY, GAME_WIDTH / 2, 112); }
         if (sim.mode === 'versus' && net.stalled > 20 && screen === 'playing') {
             ctx.fillStyle = '#fc6'; ctx.font = 'bold 14px Arial'; ctx.fillText('WAITING FOR OPPONENT...', GAME_WIDTH / 2, GAME_HEIGHT - 30);
         }
@@ -1046,7 +1051,7 @@
             overlay(0.5);
             bigText('PAUSED', 190, 40, '#fff');
             bigText(isTouch ? 'TAP TO RESUME' : 'PRESS P TO RESUME', 230, 16, '#ccc');
-        } else if (screen === 'playing' && sim.status === 'waveclear') {
+        } else if (screen === 'playing' && sim.status === 'waveclear' && sim.mode !== 'versus') {
             overlay(Math.min(0.5, sim.statusTimer / 60));
             bigText('WAVE ' + sim.wave + ' CLEAR', 150, 40, '#ff0');
             bigText(`RESCUED ${sim.waveRescued}   LOST ${sim.waveLost}`, 195, 18, '#fff');
@@ -1071,22 +1076,29 @@
             bigText(net.status + (net.level === 'error' ? '' : (blink ? '' : ' ')), 255, 16, net.level === 'error' ? '#f66' : net.level === 'warn' ? '#fc6' : '#8f8');
             if (net.level === 'error') bigText('Open the Lobby link above to try again', 285, 13, '#ccc');
             else if (net.level !== 'ok' && net.opponent) bigText('Trying a direct connection first, then the server relay if needed', 285, 12, '#aaa');
-            bigText('First pilot to destroy the other base wins · Rescue hostages for credits', 330, 12, '#ddd');
+            bigText(match.mode === 'coop' ? 'Co-op: one base, shared lives, survive the waves together' : 'First pilot to destroy the other base wins · Rescue hostages for credits', 330, 12, '#ddd');
         } else if (screen === 'countdown') {
             overlay(0.35);
             const n = Math.ceil((180 - screenTimer) / 60);
             const o = sim.players[1 - localId];
-            bigText('VS ' + o.name.toUpperCase(), 120, 28, '#9cf');
+            bigText((sim.mode === 'coop' ? 'CO-OP WITH ' : 'VS ') + o.name.toUpperCase(), 120, 28, '#9cf');
             bigText(n > 0 ? String(n) : 'GO!', 200, 72, '#ff0');
-            bigText(localId === 0 ? 'YOUR BASE IS ON THE LEFT' : 'YOUR BASE IS ON THE RIGHT', 260, 16, '#fff');
+            bigText(sim.mode === 'coop' ? 'SHARED BASE ON THE LEFT · ' + sim.lives + ' LIVES · SURVIVE THE WAVES' : localId === 0 ? 'YOUR BASE IS ON THE LEFT' : 'YOUR BASE IS ON THE RIGHT', 260, 16, '#fff');
         } else if (screen === 'over') {
             const p = local(), o = sim.players[1 - localId];
             overlay(Math.min(0.6, screenTimer / 40));
             const won = sim.winner === localId, draw = sim.winner === null;
-            bigText(draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT', 130, 52, draw ? '#ccc' : won ? '#0f0' : '#f44');
-            bigText(sim.endReason || '', 170, 16, '#ddd');
-            bigText(`${p.name.toUpperCase()} ${p.score}   ·   ${o.name.toUpperCase()} ${o.score}`, 210, 20, '#fff');
-            bigText(`RESCUED ${p.rescued}   TIMES DOWNED ${p.deaths}`, 240, 14, '#ccc');
+            if (sim.mode === 'coop') {
+                bigText('MISSION OVER', 130, 52, '#f66');
+                bigText(sim.endReason || '', 170, 16, '#ddd');
+                bigText(`SQUAD SCORE ${p.score + o.score}   ·   WAVE ${sim.wave}`, 210, 22, '#ff0');
+                bigText(`${p.name.toUpperCase()} ${p.score}   ·   ${o.name.toUpperCase()} ${o.score}   ·   RESCUED ${p.rescued + o.rescued}`, 240, 14, '#ccc');
+            } else {
+                bigText(draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT', 130, 52, draw ? '#ccc' : won ? '#0f0' : '#f44');
+                bigText(sim.endReason || '', 170, 16, '#ddd');
+                bigText(`${p.name.toUpperCase()} ${p.score}   ·   ${o.name.toUpperCase()} ${o.score}`, 210, 20, '#fff');
+                bigText(`RESCUED ${p.rescued}   TIMES DOWNED ${p.deaths}`, 240, 14, '#ccc');
+            }
             if (screenTimer > 60 && blink) bigText(prompt + 'RETURN TO LOBBY', 300, 18, '#0f0');
         }
     }

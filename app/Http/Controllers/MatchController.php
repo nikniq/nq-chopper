@@ -34,8 +34,9 @@ class MatchController extends Controller
     public function store(Request $request): RedirectResponse
     {
         // One open lobby per host
+        $data = $request->validate(['mode' => ['sometimes', 'string', 'in:versus,coop']]);
         GameMatch::where('host_user_id', $request->user()->id)->where('status', 'waiting')->delete();
-        $match = GameMatch::createFor($request->user());
+        $match = GameMatch::createFor($request->user(), $data['mode'] ?? 'versus');
 
         return redirect()->route('game', ['code' => $match->code]);
     }
@@ -76,6 +77,7 @@ class MatchController extends Controller
         return response()->json([
             'status' => $match->status,
             'seed' => $match->seed,
+            'mode' => $match->mode,
             'host' => ['id' => $match->host->id, 'name' => $match->host->name],
             'guest' => $match->guest ? ['id' => $match->guest->id, 'name' => $match->guest->name] : null,
         ]);
@@ -155,6 +157,7 @@ class MatchController extends Controller
             'reason' => ['required', 'string', 'max:40'],
             'scores' => ['required', 'array', 'size:2'],
             'scores.*' => ['integer', 'min:0', 'max:100000000'],
+            'wave' => ['nullable', 'integer', 'min:1', 'max:1000'],
         ]);
 
         if ($match->status === 'finished') {
@@ -171,6 +174,7 @@ class MatchController extends Controller
             'winner_user_id' => $winnerId,
             'host_score' => $data['scores'][0],
             'guest_score' => $data['scores'][1],
+            'wave' => $data['wave'] ?? null,
             'reason' => $data['reason'],
             'finished_at' => now(),
         ]);

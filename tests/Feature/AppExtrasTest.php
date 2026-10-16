@@ -38,14 +38,20 @@ class AppExtrasTest extends TestCase
     {
         $a = User::factory()->create(['name' => 'Alpha']);
         $a->scores()->create(['score' => 500, 'wave' => 1, 'rescued' => 1]);
-        $this->assertSame(['Alpha'], Score::cachedLeaderboard()->pluck('user.name')->all());
-        $this->assertTrue(Cache::has('lb:solo'));
+        $this->assertSame(['Alpha'], Score::cachedLeaderboard()->pluck('name')->all());
+        $this->assertTrue(Cache::has('lb2:solo'));
+        $this->assertIsArray(Cache::get('lb2:solo')[0], 'cache holds plain arrays, never models');
 
         $b = User::factory()->create(['name' => 'Bravo']);
         $this->actingAs($b)->postJson('/scores', ['score' => 900, 'wave' => 2, 'rescued' => 3])->assertOk();
-        $this->assertFalse(Cache::has('lb:solo'), 'saving a score forgets the cached board');
-        $this->assertSame(['Bravo', 'Alpha'], Score::cachedLeaderboard()->pluck('user.name')->all());
+        $this->assertFalse(Cache::has('lb2:solo'), 'saving a score forgets the cached board');
+        $this->assertSame(['Bravo', 'Alpha'], Score::cachedLeaderboard()->pluck('name')->all());
         $this->get('/')->assertSeeInOrder(['Bravo', 'Alpha']);
+
+        // A poisoned cache entry (wrong shape) is discarded and rebuilt instead of crashing
+        Cache::put('lb2:solo', 'garbage', 120);
+        $this->assertSame(['Bravo', 'Alpha'], Score::cachedLeaderboard()->pluck('name')->all());
+        $this->get('/')->assertOk()->assertSee('Bravo');
     }
 
     public function test_admin_dashboard_is_limited_to_configured_emails(): void

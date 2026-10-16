@@ -40,8 +40,8 @@
             <thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Wave</th><th>Rescued</th></tr></thead>
             <tbody>
             @foreach ($dailyLeaders as $i => $row)
-                <tr @class(['me' => auth()->check() && $row->user_id === auth()->id()])>
-                    <td>{{ $i + 1 }}</td><td><a href="{{ route('profile', $row->user) }}">{{ $row->user->name }}</a></td><td>{{ number_format($row->score) }}</td><td>{{ $row->wave }}</td><td>{{ $row->rescued }}</td>
+                <tr @class(['me' => auth()->check() && $row['user_id'] === auth()->id()])>
+                    <td>{{ $i + 1 }}</td><td><a href="{{ route('profile', $row['user_id']) }}">{{ $row['name'] }}</a></td><td>{{ number_format($row['score']) }}</td><td>{{ $row['wave'] }}</td><td>{{ $row['rescued'] }}</td>
                 </tr>
             @endforeach
             </tbody>
@@ -58,12 +58,12 @@
             <thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Wave</th><th>Rescued</th></tr></thead>
             <tbody>
             @foreach ($leaders as $i => $row)
-                <tr @class(['me' => auth()->check() && $row->user_id === auth()->id()])>
+                <tr @class(['me' => auth()->check() && $row['user_id'] === auth()->id()])>
                     <td>{{ $i + 1 }}</td>
-                    <td><a href="{{ route('profile', $row->user) }}">{{ $row->user->name }}</a></td>
-                    <td>{{ number_format($row->score) }}</td>
-                    <td>{{ $row->wave }}</td>
-                    <td>{{ $row->rescued }}</td>
+                    <td><a href="{{ route('profile', $row['user_id']) }}">{{ $row['name'] }}</a></td>
+                    <td>{{ number_format($row['score']) }}</td>
+                    <td>{{ $row['wave'] }}</td>
+                    <td>{{ $row['rescued'] }}</td>
                 </tr>
             @endforeach
             </tbody>

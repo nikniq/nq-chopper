@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -86,18 +87,44 @@ class Score extends Model
         static::deleted(fn () => static::forgetBoards());
     }
 
-    public static function forgetBoards(): void
+    private static function boardKey(string $mode): string
     {
-        Cache::forget('lb:solo');
-        Cache::forget('lb:daily:'.static::today());
+        // v2: plain arrays only. Serialized Eloquent models in the cache failed to
+        // unserialize on the production host (__PHP_Incomplete_Class).
+        return $mode === 'daily' ? 'lb2:daily:'.static::today() : 'lb2:solo';
     }
 
-    /** Cached top-10 boards for the front page (invalidated on every new score). */
-    public static function cachedLeaderboard(string $mode = 'solo'): Collection
+    public static function forgetBoards(): void
     {
-        $key = $mode === 'daily' ? 'lb:daily:'.static::today() : 'lb:solo';
+        Cache::forget(static::boardKey('solo'));
+        Cache::forget(static::boardKey('daily'));
+    }
 
-        return Cache::remember($key, 120, fn () => static::leaderboard(10, $mode));
+    /**
+     * Cached top-10 board for the front page as plain rows:
+     * ['user_id' => int, 'name' => string, 'score' => int, 'wave' => int, 'rescued' => int].
+     * Invalidated on every saved or deleted score; never stores model objects.
+     *
+     * @return SupportCollection<int, array{user_id: int, name: string, score: int, wave: int, rescued: int}>
+     */
+    public static function cachedLeaderboard(string $mode = 'solo'): SupportCollection
+    {
+        $key = static::boardKey($mode);
+        $build = fn () => static::leaderboard(10, $mode)->map(fn (Score $s) => [
+            'user_id' => (int) $s->user_id,
+            'name' => (string) ($s->user?->name ?? 'Unknown pilot'),
+            'score' => (int) $s->score,
+            'wave' => (int) $s->wave,
+            'rescued' => (int) $s->rescued,
+        ])->values()->all();
+
+        $rows = Cache::remember($key, 120, $build);
+        if (! is_array($rows) || ($rows !== [] && ! is_array($rows[0] ?? null))) {
+            Cache::forget($key);
+            $rows = $build();
+        }
+
+        return collect($rows);
     }
 
     public function user(): BelongsTo

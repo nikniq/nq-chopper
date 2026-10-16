@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\LeaderboardController;
 use App\Http\Controllers\MatchController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ScoreController;
@@ -17,6 +18,7 @@ Route::get('/', HomeController::class)->name('home');
 Route::get('/play/{code?}', GameController::class)->name('game');
 Route::get('/pilots/{user}', ProfileController::class)->name('profile');
 Route::get('/sitemap.xml', SitemapController::class)->name('sitemap');
+Route::get('/leaderboard', LeaderboardController::class)->name('leaderboard');
 
 Route::middleware('guest')->group(function () {
     Route::get('/register', [RegisterController::class, 'create'])->name('register');

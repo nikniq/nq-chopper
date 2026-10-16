@@ -30,7 +30,7 @@
 </section>
 
 <section class="leaderboard">
-    <h2>Daily Challenge &middot; {{ $today }}</h2>
+    <h2>Daily Challenge &middot; {{ $today }} <a class="more" href="{{ route('leaderboard', ['board' => 'daily']) }}">Archive &rarr;</a></h2>
     <p class="muted">Everyone gets the same world today. One board per day, resets at midnight UTC.
         @auth @if ($dailyBest) Your best today: <strong>{{ number_format($dailyBest) }}</strong>. @endif @endauth</p>
     @if ($dailyLeaders->isEmpty())
@@ -50,7 +50,7 @@
 </section>
 
 <section class="leaderboard">
-    <h2>All-time leaderboard</h2>
+    <h2>All-time leaderboard <a class="more" href="{{ route('leaderboard') }}">Full boards: monthly, weekly, daily archive &rarr;</a></h2>
     @if ($leaders->isEmpty())
         <p class="muted">No scores yet. Be the first pilot on the board.</p>
     @else

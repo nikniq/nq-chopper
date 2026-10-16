@@ -1,6 +1,7 @@
 <nav class="nav">
     <a class="brand" href="{{ route('home') }}">NQ CHOPPER</a>
     <div class="nav-links">
+        <a href="{{ route('leaderboard') }}">Leaderboard</a>
         <a href="{{ route('game') }}" class="btn btn-play">Play</a>
         @auth
             <a href="{{ route('multiplayer') }}">Multiplayer</a>

@@ -74,3 +74,10 @@ a.pilot { text-decoration: none; }
 .badge-name { display: block; font-weight: 700; margin-top: 4px; }
 .badge-desc { display: block; color: var(--muted); font-size: 0.78rem; }
 code { background: #0005; padding: 2px 6px; border-radius: 4px; }
+/* Leaderboard page */
+h2 .more { font-size: 0.8rem; font-weight: 400; margin-left: 10px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 16px; }
+.tab { padding: 8px 14px; border-radius: 8px; background: #0004; border: 1px solid #fff2; color: #fff; text-decoration: none; }
+.tab.active { background: var(--accent); border-color: var(--accent); }
+.daynav { display: flex; justify-content: space-between; align-items: center; margin: 0 0 10px; }
+.myrank { background: #2f6f3a44; border: 1px solid #8f84; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }

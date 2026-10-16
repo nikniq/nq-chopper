@@ -27,5 +27,5 @@
         </tbody></table>
     </section>
 </div>
-<p class="muted">Maintenance: <code>php artisan matches:prune</code> runs hourly via the scheduler.</p>
+<p class="muted">Maintenance: <code>php artisan matches:prune</code> runs hourly and <code>php artisan db:backup</code> nightly via the scheduler. Health: <a href="{{ route('health') }}">/health</a>.</p>
 @endsection

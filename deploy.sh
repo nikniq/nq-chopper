@@ -36,6 +36,9 @@ if [ "${SKIP_GIT:-0}" != "1" ] && [ -d .git ]; then
     git reset --hard "origin/$BRANCH"
 fi
 
+step "Backing up the database"
+"$PHP_BIN" artisan db:backup --keep=14 || echo "  (backup skipped)"
+
 step "Installing Composer dependencies"
 "$COMPOSER_BIN" install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-progress
 

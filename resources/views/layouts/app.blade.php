@@ -10,8 +10,9 @@
     @include('partials.analytics')
 </head>
 <body class="site">
+    <a class="skip-link" href="#main">Skip to content</a>
     @include('partials.nav')
-    <main class="page">
+    <main class="page" id="main" tabindex="-1">
         @yield('content')
     </main>
     <footer class="footer">NQ Chopper &middot; <a href="{{ route('home') }}">Home</a> &middot; <a href="{{ route('game') }}">Play</a></footer>

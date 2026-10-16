@@ -1,4 +1,4 @@
-<nav class="nav">
+<nav class="nav" aria-label="Main">
     <a class="brand" href="{{ route('home') }}">NQ CHOPPER</a>
     <div class="nav-links">
         <a href="{{ route('leaderboard') }}">Leaderboard</a>

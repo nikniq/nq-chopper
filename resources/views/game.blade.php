@@ -10,6 +10,7 @@
     @include('partials.analytics')
 </head>
 <body>
+    <a class="skip-link" href="#gameCanvas">Skip to game</a>
     <div id="topbar">
         <a href="{{ route('home') }}">&larr; Home</a>
         @if (!empty($match))
@@ -32,32 +33,33 @@
     <div id="controls">
         <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>/<kbd>2</kbd> Buy troops &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
         <span id="touchHelp" style="display:none">Drag on screen to fly &nbsp;·&nbsp; Tap to shoot &nbsp;·&nbsp; Hold to bomb</span>
-        <button id="muteBtn">Sound: On</button><button id="fullscreenBtn">Fullscreen</button>
+        <button id="muteBtn" type="button" aria-pressed="false">Sound: On</button><button id="fullscreenBtn" type="button">Fullscreen</button>
     </div>
     <div id="shop">
         <span id="shopLabel">Credits <strong id="credits">$0</strong></span>
-        <button id="buySoldier" class="shop-btn" disabled>Soldier <span class="price">$50</span></button>
-        <button id="buyTank" class="shop-btn" disabled>Tank <span class="price">$200</span></button>
-        <button id="buyGun" class="shop-btn upgrade" disabled>Guns<span class="lvl"></span> <span class="price">$150</span></button>
-        <button id="buyArmor" class="shop-btn upgrade" disabled>Armor<span class="lvl"></span> <span class="price">$150</span></button>
+        <button id="buySoldier" class="shop-btn" type="button" disabled>Soldier <span class="price">$50</span></button>
+        <button id="buyTank" class="shop-btn" type="button" disabled>Tank <span class="price">$200</span></button>
+        <button id="buyGun" class="shop-btn upgrade" type="button" disabled>Guns<span class="lvl"></span> <span class="price">$150</span></button>
+        <button id="buyArmor" class="shop-btn upgrade" type="button" disabled>Armor<span class="lvl"></span> <span class="price">$150</span></button>
         <span id="shopHint">Troops deploy from BASE and march on the enemy base &middot; Upgrades last the whole game</span>
         <button id="shareBtn" class="shop-btn share" style="display:none" data-url="{{ url('/') }}">Share score</button>
     </div>
     <div id="gameWrapper">
         <div id="canvasWrapper">
-            <canvas id="gameCanvas" width="640" height="400"></canvas>
+            <canvas id="gameCanvas" width="640" height="400" role="img" aria-label="NQ Chopper game. A side-scrolling helicopter rescue game. Use arrow keys or WASD to fly, Space to shoot, B to bomb." tabindex="0"></canvas>
+            <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
         </div>
     </div>
-    <div id="touchControls" aria-hidden="false">
+    <div id="touchControls" role="group" aria-label="Touch controls">
         <div class="touch-group" id="dirGroup">
-            <button class="touch-btn" id="btnLeft">◀</button>
-            <button class="touch-btn" id="btnUp">▲</button>
-            <button class="touch-btn" id="btnDown">▼</button>
-            <button class="touch-btn" id="btnRight">▶</button>
+            <button class="touch-btn" id="btnLeft" type="button" aria-label="Fly left">◀</button>
+            <button class="touch-btn" id="btnUp" type="button" aria-label="Fly up">▲</button>
+            <button class="touch-btn" id="btnDown" type="button" aria-label="Fly down">▼</button>
+            <button class="touch-btn" id="btnRight" type="button" aria-label="Fly right">▶</button>
         </div>
         <div class="touch-group" id="actionGroup">
-            <button class="touch-btn" id="btnShoot">Shoot</button>
-            <button class="touch-btn" id="btnBomb">Bomb</button>
+            <button class="touch-btn" id="btnShoot" type="button">Shoot</button>
+            <button class="touch-btn" id="btnBomb" type="button">Bomb</button>
         </div>
     </div>
     <script>window.NQ_CONFIG = { scoreUrl: @json(auth()->check() ? route('scores.store') : null), csrf: @json(csrf_token()), match: @json($match ?? null), daily: @json($daily ?? null), pingUrl: @json(auth()->check() ? route('ping') : null) };</script>

@@ -22,6 +22,10 @@
     const touchControls = document.getElementById('touchControls');
     const creditsSpan = document.getElementById('credits');
     const shareBtn = document.getElementById('shareBtn');
+    const announcer = document.getElementById('announcer');
+    const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    let lastAnnounced = '';
+    function announce(text) { if (announcer && text !== lastAnnounced) { lastAnnounced = text; announcer.textContent = text; } }
     const shopButtons = [
         [document.getElementById('buySoldier'), 'soldier'], [document.getElementById('buyTank'), 'tank'],
         [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor']
@@ -70,7 +74,7 @@
     ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, fitCanvas));
     fullscreenBtn.addEventListener('click', () => {
         const req = canvas.requestFullscreen || canvas.webkitRequestFullscreen;
-        if (req) req.call(canvas);
+        if (req) { const r = req.call(canvas); if (r && r.then) r.then(() => { if (isTouch && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); }).catch(() => {}); }
     });
 
     // ---------------------------------------------------------------------
@@ -127,7 +131,7 @@
             get muted() { return muted; }
         };
     })();
-    function toggleMute() { muteBtn.textContent = Sound.toggleMute() ? 'Sound: Off' : 'Sound: On'; }
+    function toggleMute() { const m = Sound.toggleMute(); muteBtn.textContent = m ? 'Sound: Off' : 'Sound: On'; muteBtn.setAttribute('aria-pressed', m ? 'true' : 'false'); }
     muteBtn.addEventListener('click', toggleMute);
 
     // ---------------------------------------------------------------------
@@ -244,6 +248,7 @@
             if (r.life <= 0) rings.splice(i, 1);
         }
         if (screenFlash > 0) screenFlash = Math.max(0, screenFlash - 0.05);
+        if (reducedMotion) shake = 0;
         if (shake > 0) shake *= 0.85;
         if (shake < 0.5) shake = 0;
         if (sim) emitTrails();
@@ -443,7 +448,17 @@
             cameraX += (targetCam - cameraX) * 0.08;
             cameraX = clamp(cameraX, 0, WORLD_WIDTH - GAME_WIDTH);
         }
-        if (frame % 15 === 0) updateDomScore();
+        if (frame % 15 === 0) { updateDomScore(); announceScreen(); }
+    }
+    function announceScreen() {
+        const p = local();
+        if (screen === 'title') announce('Title screen. Press Space or tap to start.');
+        else if (screen === 'paused') announce('Paused.');
+        else if (screen === 'gameover' && p) announce(`Game over. Score ${p.score}, wave ${sim.wave}, ${p.rescued} rescued. Press R or Space to retry.`);
+        else if (screen === 'lobby') announce('Online lobby. ' + net.status.toLowerCase());
+        else if (screen === 'over' && p) announce((sim.winner === localId ? 'Victory. ' : sim.winner === null ? 'Draw. ' : 'Defeat. ') + (sim.endReason || ''));
+        else if (screen === 'playing' && sim.mode === 'solo' && sim.status === 'waveclear') announce(`Wave ${sim.wave} clear. Get ready for wave ${sim.wave + 1}.`);
+        else if (screen === 'playing' && sim.mode === 'solo' && sim.statusTimer === 0 && sim.frame < 20) announce(`Wave ${sim.wave}. Rescue the hostages.`);
     }
     function updateDomScore() {
         const p = local();
@@ -1207,7 +1222,7 @@
     // =====================================================================
     const STEP = 1000 / 60;
     let last = performance.now(), acc = 0, slowFrames = 0;
-    let lowDetail = false;
+    let lowDetail = reducedMotion;
     function loop(now) {
         const dt = Math.min(now - last, 100);
         acc += dt;

@@ -24,6 +24,7 @@
     const shareBtn = document.getElementById('shareBtn');
     const announcer = document.getElementById('announcer');
     const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    function track(name, params) { try { if (typeof window.gtag === 'function') window.gtag('event', name, params || {}); } catch (e) { /* ignore */ } }
     let lastAnnounced = '';
     function announce(text) { if (announcer && text !== lastAnnounced) { lastAnnounced = text; announcer.textContent = text; } }
     const shopButtons = [
@@ -306,6 +307,7 @@
         sim = Sim.createGame({ mode: 'solo', seed: daily ? daily.seed | 0 : (Date.now() ^ (Math.random() * 0x7fffffff)) | 0 });
         particles = []; floatTexts = []; rings = []; craters = []; screenFlash = 0; newBest = false; submitStatus = '';
         if (shareBtn) shareBtn.style.display = 'none';
+        track('game_start', { mode: daily ? 'daily' : 'solo' });
         screen = 'playing'; screenTimer = 0;
         consumeFx();
     }
@@ -333,6 +335,7 @@
             if (p.score > highScore) { highScore = p.score; newBest = true; saveHighScore(highScore); }
             submitScore(p);
             if (shareBtn) shareBtn.style.display = '';
+            track('game_over', { mode: daily ? 'daily' : 'solo', score: p.score, wave: sim.wave, rescued: p.rescued, new_best: newBest });
         }
     }
     if (cfg.pingUrl && typeof fetch === 'function') {
@@ -373,6 +376,7 @@
         particles = []; floatTexts = []; consumeFx();
         screen = 'countdown'; screenTimer = 0;
         Sound.wave();
+        track('match_start', { mode: sim.mode, role: match.role, transport: net.transport || 'unknown' });
     }
     function onNetMessage(m) {
         if (m.t === 'i') net.remoteInputs[m.f] = unpackInput(m.i);
@@ -451,6 +455,7 @@
         if (sim && mode === 'versus' && sim.status === 'over' && screen !== 'over') {
             screen = 'over'; screenTimer = 0; clearInput();
             postMatchResult();
+            track('match_end', { mode: sim.mode, result: sim.mode === 'coop' ? 'mission_over' : sim.winner === localId ? 'win' : sim.winner === null ? 'draw' : 'loss', reason: sim.endReason || '', wave: sim.wave, transport: net.transport || 'unknown' });
             setTimeout(() => net.link && net.link.close(), 1500);
         }
         if (screen !== 'playing' && screen !== 'countdown') screenTimer++;

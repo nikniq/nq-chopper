@@ -29,7 +29,8 @@
     function announce(text) { if (announcer && text !== lastAnnounced) { lastAnnounced = text; announcer.textContent = text; } }
     const shopButtons = [
         [document.getElementById('buySoldier'), 'soldier'], [document.getElementById('buyTank'), 'tank'],
-        [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor']
+        [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor'],
+        [document.getElementById('buyStrike'), 'strike'], [document.getElementById('rallyBtn'), 'rally'], [document.getElementById('troopsBtn'), 'troops']
     ];
 
     // Logical viewport: fixed height, width follows the window's aspect ratio so wide screens
@@ -498,6 +499,17 @@
             if (!btn) return;
             if (UNITS[type]) {
                 btn.disabled = !playing || p.credits < UNITS[type].cost || sim.units.filter(u => u.team === p.team).length >= MAX_ALLIES;
+            } else if (type === 'strike') {
+                const cd = p ? p.strikeCooldown : 0;
+                btn.disabled = !playing || cd > 0 || p.credits < Sim.AIRSTRIKE.cost;
+                btn.querySelector('.price').textContent = cd > 0 ? Math.ceil(cd / 60) + 's' : '$' + Sim.AIRSTRIKE.cost;
+            } else if (type === 'rally') {
+                btn.disabled = !playing;
+                btn.textContent = p && p.rally !== null ? 'Release troops' : 'Hold troops here';
+            } else if (type === 'troops') {
+                btn.disabled = !playing;
+                btn.querySelector('.price').textContent = (p ? p.troops : 0) + '/' + Sim.MAX_TROOPS;
+                const lbl = btn.querySelector('.lbl'); if (lbl) lbl.textContent = p && p.landed ? 'Load troops' : 'Drop trooper';
             } else {
                 const cost = p ? Sim.upgradeCost(p, type) : UPGRADES[type].costs[0], lvl = p ? p.upgrades[type] : 0;
                 btn.disabled = !playing || cost === null || p.credits < cost;
@@ -726,9 +738,20 @@
         sim.units.forEach(u => {
             if (!isVisible(u.x)) return;
             const c = colorsOf(u.team);
-            groundShadow(cx(u), u.type === 'tank' ? 30 : 10);
+            groundShadow(cx(u), u.type === 'tank' ? 30 : u.type === 'aa' ? 32 : 10);
             ctx.save();
-            if (u.type === 'soldier') {
+            if (u.type === 'aa') {
+                ctx.translate(u.x, u.y);
+                // Sandbag ring, base plate, twin-barrel mount
+                ctx.fillStyle = '#9a8a5a'; for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.ellipse(-2 + i * 6, 14 - (i % 2) * 3, 5, 3, 0, 0, Math.PI * 2); ctx.fill(); }
+                ctx.fillStyle = '#444'; ctx.fillRect(6, 6, 14, 8);
+                ctx.fillStyle = '#b22'; ctx.beginPath(); ctx.arc(13, 6, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.save(); ctx.translate(13, 6); ctx.rotate(u.angle);
+                ctx.fillStyle = '#777'; ctx.fillRect(0, -3.2, 16, 2.2); ctx.fillRect(0, 1, 16, 2.2); ctx.fillStyle = '#333'; ctx.fillRect(13, -3.6, 3, 7.2);
+                ctx.restore();
+                ctx.fillStyle = '#f33'; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(frame / 8); ctx.fillRect(2, 2, 2, 2); ctx.globalAlpha = 1;
+                if (u.fireTimer > Math.max(40, Sim.AA.fireRate) - 4) { ctx.fillStyle = '#ff6'; ctx.fillRect(13 + Math.cos(u.angle) * 17 - 2, 6 + Math.sin(u.angle) * 17 - 2, 4, 4); }
+            } else if (u.type === 'soldier') {
                 const bob = u.moving ? Math.abs(Math.sin(u.anim * 0.4)) * -1.2 : 0;
                 ctx.translate(cx(u), GROUND_Y + bob);
                 if (u.dir < 0) ctx.scale(-1, 1);
@@ -858,6 +881,53 @@
             else { ctx.font = 'bold 9px Arial'; ctx.textAlign = 'center'; ctx.fillText('$', k.x, y + 3.5); ctx.textAlign = 'left'; }
         });
     }
+    function drawStrikesAndParas() {
+        sim.strikes.forEach(k => {
+            if (!isVisible(k.x, 120)) return;
+            ctx.save(); ctx.translate(k.x, k.y); if (k.dir < 0) ctx.scale(-1, 1);
+            ctx.fillStyle = '#9aa3ad'; ctx.beginPath(); ctx.moveTo(-26, 0); ctx.lineTo(22, -3); ctx.lineTo(30, 0); ctx.lineTo(22, 3); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#7d868f'; ctx.beginPath(); ctx.moveTo(-6, -1); ctx.lineTo(8, -1); ctx.lineTo(2, -14); ctx.lineTo(-8, -14); ctx.closePath(); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(-6, 1); ctx.lineTo(8, 1); ctx.lineTo(2, 12); ctx.lineTo(-8, 12); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#5a636c'; ctx.beginPath(); ctx.moveTo(-26, 0); ctx.lineTo(-18, -9); ctx.lineTo(-14, 0); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#9ff'; ctx.fillRect(16, -2.5, 6, 2);
+            ctx.restore();
+            if (frame % 2 === 0 && !lowDetail) particles.push({ x: k.x - k.dir * 26, y: k.y, vx: -k.dir * 1.2, vy: 0, life: 40, maxLife: 40, color: '#eee', size: 3, gravity: 0, grow: 0.12 });
+        });
+        sim.paras.forEach(k => {
+            if (!isVisible(k.x)) return;
+            const c = colorsOf(k.team), open = k.anim >= 12, sway = Math.sin(k.anim / 14) * 3;
+            ctx.save(); ctx.translate(k.x + sway, k.y);
+            if (open) {
+                ctx.fillStyle = k.team === 0 ? '#e8e8e8' : '#cfe3ff'; ctx.beginPath(); ctx.arc(0, -26, 16, Math.PI, 0); ctx.closePath(); ctx.fill();
+                ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1; for (let i = -12; i <= 12; i += 8) { ctx.beginPath(); ctx.moveTo(i, -26); ctx.lineTo(0, -8); ctx.stroke(); }
+                ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.beginPath(); ctx.arc(0, -26, 16, Math.PI, 0); ctx.closePath(); ctx.fill();
+            }
+            ctx.fillStyle = c.cloth; ctx.fillRect(-3, -8, 6, 10);
+            ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, -11, 3.2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = c.unitDark; ctx.beginPath(); ctx.arc(0, -12, 3.8, Math.PI, 0); ctx.fill();
+            ctx.strokeStyle = c.unitDark; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-2, 2); ctx.lineTo(-3, 9); ctx.moveTo(2, 2); ctx.lineTo(3, 9); ctx.stroke();
+            ctx.restore();
+        });
+        sim.balloons.forEach(b => {
+            if (!isVisible(b.x)) return;
+            const hostileToMe = sim.mode === 'versus' ? b.team !== localId : b.team === AI;
+            // Tether to the roof
+            ctx.strokeStyle = 'rgba(40,40,40,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(b.hut.x + b.hut.w / 2 + 10, GROUND_Y - b.hut.h - 18); ctx.lineTo(b.x, b.y + 11); ctx.stroke();
+            // Envelope with a team stripe and a small instrument box
+            ctx.fillStyle = '#e6e6e6'; ctx.beginPath(); ctx.arc(b.x, b.y, 11, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = hostileToMe ? '#d33' : '#39f'; ctx.beginPath(); ctx.arc(b.x, b.y, 11, 0.25, Math.PI - 0.25); ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.arc(b.x - 4, b.y - 4, 3.5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#333'; ctx.fillRect(b.x - 2, b.y + 11, 4, 4);
+            if (hostileToMe) { ctx.fillStyle = 'rgba(255,60,60,0.25)'; ctx.beginPath(); ctx.arc(b.x, b.y, 15 + Math.sin(frame / 8) * 2, 0, Math.PI * 2); ctx.fill(); }
+        });
+        sim.players.forEach(p => {
+            if (p.rally === null || !isVisible(p.rally)) return;
+            const c = colorsOf(p.team), x = p.rally;
+            ctx.strokeStyle = c.ui; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(x, GROUND_Y); ctx.lineTo(x, GROUND_Y - 60); ctx.stroke(); ctx.setLineDash([]);
+            ctx.fillStyle = c.body; ctx.beginPath(); ctx.moveTo(x, GROUND_Y - 60); ctx.lineTo(x + 16, GROUND_Y - 55 + Math.sin(frame / 10) * 2); ctx.lineTo(x, GROUND_Y - 50); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 9px Arial'; ctx.textAlign = 'center'; ctx.fillText('HOLD', x, GROUND_Y - 64); ctx.textAlign = 'left';
+        });
+    }
     function drawChoppers() {
         if (sim.mode === 'solo' && sim.ai.alive) {
             const a = sim.ai, c = colorsOf(AI);
@@ -970,6 +1040,11 @@
             ctx.fillStyle = i < p.carrying ? '#fd4' : '#444';
             ctx.beginPath(); ctx.arc(80 + i * 15, 56, 3, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(77 + i * 15, 59, 6, 7);
         }
+        // Troop bay (paratroopers) next to the hostage seats
+        for (let i = 0; i < Sim.MAX_TROOPS; i++) {
+            ctx.fillStyle = i < p.troops ? '#9cf' : '#444';
+            ctx.beginPath(); ctx.arc(112 + i * 11, 56, 2.6, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(109.5 + i * 11, 59, 5, 6);
+        }
         // Right block: score, credits, troops
         const myUnits = sim.units.filter(u => u.team === p.team).length;
         ctx.textAlign = 'right';
@@ -983,7 +1058,7 @@
         ctx.fillStyle = '#8f8'; ctx.font = 'bold 18px Arial'; ctx.fillText('$' + p.credits, GAME_WIDTH - 14, 84);
         ctx.textAlign = 'left'; ctx.font = 'bold 11px Arial';
         ctx.fillText('CREDITS', GAME_WIDTH - 152, 84);
-        ctx.fillStyle = '#ccc'; ctx.fillText('TROOPS ' + myUnits + '/' + MAX_ALLIES, GAME_WIDTH - 152, 97);
+        ctx.fillStyle = '#ccc'; ctx.fillText('TROOPS ' + myUnits + '/' + MAX_ALLIES + (sim.mode !== 'versus' ? '   ENEMY $' + Math.floor(sim.aiCredits) : ''), GAME_WIDTH - 152, 97);
         // Radar strip
         const rx = 170, ry = 10, rw = GAME_WIDTH - 340, rh = 12;
         ctx.fillStyle = 'rgba(8,12,20,0.7)'; rrect(rx - 2, ry - 2, rw + 4, rh + 4, 4); ctx.fill();
@@ -997,6 +1072,8 @@
         sim.units.forEach(u => { ctx.fillStyle = u.team === p.team ? '#8f8' : (sim.mode === 'coop' && u.team !== AI) ? '#9cf' : '#f33'; ctx.fillRect(mx(u.x), ry + 4, u.type === 'tank' ? 3 : 2, 4); });
         if (sim.mode === 'solo' && sim.ai.alive) { ctx.fillStyle = sim.ai.boss ? '#f44' : '#f0f'; ctx.fillRect(mx(sim.ai.x), ry + 2, sim.ai.boss ? 6 : 4, 4); }
         sim.pickups.forEach(k => { ctx.fillStyle = Sim.PICKUPS[k.type].color; ctx.fillRect(mx(k.x), ry + 9, 2, 2); });
+        sim.paras.forEach(k => { ctx.fillStyle = '#9cf'; ctx.fillRect(mx(k.x), ry + 1, 2, 3); });
+        sim.balloons.forEach(b => { ctx.fillStyle = (sim.mode === 'versus' ? b.team !== localId : b.team === AI) ? '#f66' : '#9cf'; ctx.beginPath(); ctx.arc(mx(b.x) + 1, ry + 3, 1.6, 0, Math.PI * 2); ctx.fill(); });
         sim.players.forEach(o => { if (o.alive && o.id !== localId) { ctx.fillStyle = sim.mode === 'coop' ? '#9cf' : '#f0f'; ctx.fillRect(mx(o.x), ry + 2, 4, 4); } });
         ctx.fillStyle = '#0f0'; ctx.fillRect(mx(p.x), ry + 2, 4, 8);
         ctx.strokeStyle = '#fff6'; ctx.lineWidth = 1; ctx.strokeRect(mx(cameraX), ry, (GAME_WIDTH / WORLD_WIDTH) * rw, rh);
@@ -1020,7 +1097,8 @@
         }
         const gc = Sim.upgradeCost(p, 'gun'), ac = Sim.upgradeCost(p, 'armor');
         ctx.fillStyle = '#8f8';
-        ctx.fillText(isTouch ? 'BUY TROOPS AND UPGRADES BELOW' : `[1] SOLDIER $${UNITS.soldier.cost}  [2] TANK $${UNITS.tank.cost}  [3] GUNS ${gc === null ? 'MAX' : '$' + gc}  [4] ARMOR ${ac === null ? 'MAX' : '$' + ac}`, GAME_WIDTH / 2, 52);
+        const cd = p.strikeCooldown > 0 ? Math.ceil(p.strikeCooldown / 60) + 'S' : '$' + Sim.AIRSTRIKE.cost;
+        ctx.fillText(isTouch ? 'BUY TROOPS, UPGRADES AND ABILITIES BELOW' : `[1] SOLDIER $${UNITS.soldier.cost}  [2] TANK $${UNITS.tank.cost}  [3] GUNS ${gc === null ? 'MAX' : '$' + gc}  [4] ARMOR ${ac === null ? 'MAX' : '$' + ac}  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] ${p.landed ? 'LOAD' : 'DROP'} ${p.troops}/${Sim.MAX_TROOPS}`, GAME_WIDTH / 2, 52);
         if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 66); }
         if (comboText(p)) { ctx.fillStyle = '#ff0'; ctx.font = 'bold 16px Arial'; ctx.fillText(comboText(p), GAME_WIDTH / 2, 100); }
         if (screen === 'playing' && p.alive && pct < 0.3 && Math.floor(frame / 15) % 2 === 0) {
@@ -1063,7 +1141,7 @@
             bigText('Bombs hit ground targets · Bullets for the enemy chopper · Base repairs and rearms', 220, 12, '#ddd');
             bigText('Watch out: tanks crush hostages running in the open, and so do your bombs', 240, 12, '#f99');
             bigText((isTouch ? 'Buy ' : 'Press 1 / 2 to buy ') + 'Soldiers ($' + UNITS.soldier.cost + ') and Tanks ($' + UNITS.tank.cost + ') · They march on the enemy base', 262, 12, '#8f8');
-            bigText((isTouch ? 'Upgrade ' : 'Press 3 / 4 to upgrade ') + 'Guns and Armor · Soldiers garrison huts and can only be cleared by enemy infantry', 278, 12, '#8f8');
+            bigText((isTouch ? 'Upgrade ' : 'Press 3 / 4 to upgrade ') + 'Guns and Armor · 5 Airstrike · 6 Hold troops · 7 Load and paradrop soldiers', 278, 12, '#8f8');
             if (blink) bigText(prompt + 'START', 310, 20, '#0f0');
             if (highScore > 0) bigText('BEST ' + highScore, 345, 14, '#ccc');
         } else if (screen === 'paused') {
@@ -1144,6 +1222,7 @@
             drawHostages();
             drawUnits();
             drawPickups();
+            drawStrikesAndParas();
             drawChoppers();
             drawProjectiles();
             drawParticles();
@@ -1163,7 +1242,8 @@
     // Input
     // =====================================================================
     const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire' };
-    const BUYKEYS = { Digit1: 'soldier', Numpad1: 'soldier', Digit2: 'tank', Numpad2: 'tank', Digit3: 'gun', Numpad3: 'gun', Digit4: 'armor', Numpad4: 'armor' };
+    const BUYKEYS = { Digit1: 'soldier', Numpad1: 'soldier', Digit2: 'tank', Numpad2: 'tank', Digit3: 'gun', Numpad3: 'gun', Digit4: 'armor', Numpad4: 'armor',
+        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops' };
     const inPlay = () => screen === 'playing';
     document.addEventListener('keydown', e => {
         Sound.unlock();

@@ -44,7 +44,7 @@ p.x = hut.x + 70; p.y = Sim.GROUND_Y - p.height; p.invuln = 1e9;
 for (let f = 0; f < 400; f++) Sim.step(eco, [inp({})]);
 assert.ok(p.carrying > 0, 'hostages board a landed chopper: ' + p.carrying);
 const carried = p.carrying;
-p.x = 40; p.landed = true;
+p.x = 40; p.y = Sim.GROUND_Y - p.height; p.vy = 0; p.landed = true;
 Sim.step(eco, [inp({})]);
 assert.strictEqual(p.rescued, carried, 'unloading at base rescues them');
 assert.strictEqual(p.credits, 100 + carried * 40, 'rescue pays $40 each');
@@ -121,9 +121,10 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
 // Solo: enemy infantry appears from wave 2 and marches toward huts
 {
     const w2 = Sim.createGame({ mode: 'solo', seed: 21 });
-    w2.wave = 2; w2.players[0].invuln = 1e9;
-    for (let f = 0; f < 1500; f++) Sim.step(w2, [inp({})]);
+    w2.wave = 2; w2.players[0].invuln = 1e9; w2.aiCredits = 400;
+    for (let f = 0; f < 2500; f++) Sim.step(w2, [inp({})]);
     assert.ok(w2.units.some(u => u.ai && u.type === 'soldier') || w2.huts.some(h => h.garrison && h.garrison.team === Sim.AI), 'AI soldiers spawn in wave 2');
+    assert.ok(w2.aiSpent >= 200, 'the computer spends its war chest: $' + w2.aiSpent);
 }
 // Pickups: destroyed enemies drop crates the chopper can collect
 {
@@ -198,5 +199,100 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
     const hp = b.health;
     for (let f = 0; f < 30; f++) Sim.step(v, [inp({ f: 1 }), inp({})]);
     assert.ok(b.health < hp, 'versus opponents still take damage');
+}
+// Anti-air emplacements appear from wave 2, resist bullets, and shoot at the chopper
+{
+    const w = Sim.createGame({ mode: 'solo', seed: 71 });
+    assert.ok(!w.units.some(u => u.type === 'aa'), 'no AA on wave 1');
+    w.wave = 1; w.status = 'waveclear'; w.statusTimer = 179; Sim.step(w, [inp({})]);
+    const aa = w.units.find(u => u.type === 'aa');
+    assert.ok(aa && w.wave === 2, 'an AA emplacement guards wave 2');
+    const p = w.players[0]; p.invuln = 0; p.health = 1000; p.maxHealth = 1000; p.x = aa.x - 150; p.y = aa.y - 120; p.dir = 1;
+    const hpBefore = p.health; let flak = 0;
+    for (let f = 0; f < 240; f++) { p.y = aa.y - 120; p.vy = 0; Sim.step(w, [inp({})]); flak += w.shells.filter(sh => sh.team === Sim.AI && sh.kind === 'aa' && sh.life === 139).length; }
+    assert.ok(flak > 0, 'AA fires flak at the chopper: ' + flak);
+    const aaHp = aa.health; p.x = aa.x - 100; p.y = aa.y - 4; p.dir = 1;
+    Sim.step(w, [inp({ f: 1 })]); for (let f = 0; f < 12; f++) Sim.step(w, [inp({})]);
+    assert.ok(aa.health < aaHp && aa.health > 0 && w.units.includes(aa), 'bullets only chip the armoured AA');
+    w.bombs.push({ team: 0, x: aa.x + aa.width / 2, y: aa.y - 20, vx: 0, vy: 3 });
+    for (let f = 0; f < 20 && w.units.includes(aa); f++) Sim.step(w, [inp({})]);
+    assert.ok(!w.units.includes(aa) && w.pickups.some(k => k.type === 'bombs'), 'a bomb destroys it and it drops a bomb crate');
+}
+// Airstrike: costs credits, has a cooldown, and carpets the area in front of the chopper
+{
+    const a = Sim.createGame({ mode: 'solo', seed: 72 });
+    const p = a.players[0]; p.invuln = 1e9; p.x = 900; p.y = 150; p.landed = false; p.dir = 1;
+    Sim.step(a, [inp({ buy: 'strike' })]);
+    assert.strictEqual(a.strikes.length, 0, 'cannot afford an airstrike at $100');
+    p.credits = 500; Sim.step(a, [inp({ buy: 'strike' })]);
+    assert.ok(a.strikes.length === 1 && p.credits === 250 && p.strikeCooldown > 0, 'airstrike bought');
+    Sim.step(a, [inp({ buy: 'strike' })]);
+    assert.strictEqual(a.strikes.length, 1, 'second call refused during cooldown');
+    let dropped = 0;
+    for (let f = 0; f < 700; f++) { const before = a.bombs.length; Sim.step(a, [inp({})]); if (a.bombs.length > before) dropped++; }
+    assert.strictEqual(dropped, Sim.AIRSTRIKE.bombs, 'bomber drops its full load: ' + dropped);
+    assert.strictEqual(a.strikes.length, 0, 'bomber leaves the map');
+}
+// Rally point holds troops at a line; releasing lets them advance
+{
+    const r = Sim.createGame({ mode: 'solo', seed: 73 });
+    const p = r.players[0]; p.invuln = 1e9; p.credits = 1000;
+    Sim.step(r, [inp({ buy: 'tank' })]);
+    const t = r.units.find(u => u.team === 0);
+    p.x = 400; p.y = 100; p.landed = false; Sim.step(r, [inp({ buy: 'rally' })]);
+    assert.ok(p.rally !== null && Math.abs(p.rally - 430) < 1, 'rally set at chopper position');
+    for (let f = 0; f < 900; f++) Sim.step(r, [inp({})]);
+    assert.ok(r.units.includes(t) && t.x + t.width / 2 <= p.rally + 1 && t.x > 380, 'tank holds at the rally line: ' + t.x);
+    Sim.step(r, [inp({ buy: 'rally' })]);
+    for (let f = 0; f < 200; f++) Sim.step(r, [inp({})]);
+    assert.ok(!r.units.includes(t) || t.x > p.rally === null ? true : t.x > 430, 'tank advances once released');
+}
+// Paradrops: load soldiers when landed beside them, drop them from the air, they land and march
+{
+    const d = Sim.createGame({ mode: 'solo', seed: 74 });
+    const p = d.players[0]; p.invuln = 1e9; p.credits = 1000;
+    Sim.step(d, [inp({ buy: 'troops' })]);
+    assert.strictEqual(p.troops, 0, 'nothing to load at an empty base');
+    for (let k = 0; k < 5; k++) Sim.step(d, [inp({ buy: 'soldier' })]);
+    d.units.filter(u => u.team === 0).forEach(u => { u.x = 300; });
+    p.x = 300 - p.width / 2; p.y = Sim.GROUND_Y - p.height; p.landed = true;
+    Sim.step(d, [inp({ buy: 'troops' })]);
+    assert.strictEqual(p.troops, Sim.MAX_TROOPS, 'loads up to the bay limit: ' + p.troops);
+    assert.strictEqual(d.units.filter(u => u.team === 0).length, 1, 'the fifth soldier stays on the ground');
+    p.x = 1000; p.y = 120; p.landed = false;
+    Sim.step(d, [inp({ buy: 'troops' })]);
+    assert.ok(d.paras.length === 1 && p.troops === 3, 'one paratrooper dropped');
+    for (let f = 0; f < 400 && d.paras.length; f++) Sim.step(d, [inp({})]);
+    const landed = d.units.find(u => u.team === 0 && u.type === 'soldier' && Math.abs(u.x - 1030) < 60);
+    assert.ok(landed, 'paratrooper lands near the drop point as a soldier');
+    const lx = landed.x; for (let f = 0; f < 60; f++) Sim.step(d, [inp({})]);
+    assert.ok(!d.units.includes(landed) || landed.x >= lx, 'landed soldier marches on');
+}
+// Balloons: a garrisoned hut raises one; enemy choppers that hit it are damaged, bullets pop it
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 81 });
+    const hut = g.huts[0]; hut.garrison = { team: Sim.AI, count: 2 };
+    for (let f = 0; f < 5; f++) Sim.step(g, [inp({})]);
+    const bl = g.balloons.find(b => b.hut === hut);
+    assert.ok(bl, 'enemy-held hut raised a balloon');
+    for (let f = 0; f < 400; f++) Sim.step(g, [inp({})]);
+    assert.ok(bl.y <= bl.targetY + 1 && bl.y < Sim.GROUND_Y - 100, 'balloon climbs to altitude: ' + bl.y);
+    const p = g.players[0]; p.invuln = 0; p.health = 100; p.x = bl.x - p.width / 2; p.y = bl.y - p.height / 2; p.landed = false; p.vy = 0;
+    Sim.step(g, [inp({})]);
+    assert.ok(p.health <= 30 && !g.balloons.includes(bl), 'hitting the tether costs 70 hull and bursts the balloon: ' + p.health);
+    assert.ok(hut.balloonTimer > 0 && !g.balloons.some(b => b.hut === hut), 'hut waits before raising another');
+    p.x = bl.x - 300; p.y = Sim.GROUND_Y - p.height; p.vy = 0; p.vx = 0; // clear of the tether before it goes up again
+    hut.balloonTimer = 0; Sim.step(g, [inp({})]);
+    const bl2 = g.balloons.find(b => b.hut === hut); assert.ok(bl2, 'second balloon raised');
+    for (let f = 0; f < 400; f++) Sim.step(g, [inp({})]);
+    p.invuln = 1e9; p.x = bl2.x - 120; p.y = bl2.y - p.height / 2 + 1; p.dir = 1; const sc = p.score;
+    for (let f = 0; f < 40 && g.balloons.includes(bl2); f++) Sim.step(g, [inp({ f: 1 })]);
+    assert.ok(!g.balloons.includes(bl2) && p.score > sc, 'bullets pop it for points');
+    hut.garrison = { team: 0, count: 1 }; hut.balloonTimer = 0; Sim.step(g, [inp({})]);
+    const mine = g.balloons.find(b => b.hut === hut);
+    for (let f = 0; f < 400; f++) Sim.step(g, [inp({})]);
+    p.x = mine.x - p.width / 2; p.y = mine.y - p.height / 2; p.invuln = 0; const hp = p.health;
+    Sim.step(g, [inp({})]);
+    assert.ok(p.health === hp && g.balloons.includes(mine), 'your own balloons are harmless to you');
 }
 console.log('all sim tests passed');

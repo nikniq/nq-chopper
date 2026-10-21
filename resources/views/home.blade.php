@@ -80,6 +80,9 @@
         <li><kbd>Arrows</kbd> / <kbd>WASD</kbd> fly &middot; <kbd>Space</kbd> shoot &middot; <kbd>B</kbd> bomb</li>
         <li><kbd>1</kbd> buy a soldier ($50) &middot; <kbd>2</kbd> buy a tank ($200) &middot; <kbd>3</kbd> upgrade guns &middot; <kbd>4</kbd> upgrade armour</li>
         <li>Chain kills quickly for a combo multiplier of up to 3&times; points.</li>
+        <li><kbd>5</kbd> call an airstrike ($250) &middot; <kbd>6</kbd> hold or release your troops at your position &middot; <kbd>7</kbd> load soldiers when landed beside them, drop them by parachute in the air.</li>
+        <li>From wave 2, anti-air emplacements guard the enemy approach. Bullets barely scratch them: bomb them, airstrike them, or send troops.</li>
+        <li>Garrisoned huts raise a tethered weather balloon. Fly an enemy chopper into it and the tether tears you up; shoot it to pop it. Your own held huts do the same to the enemy gunship.</li>
         <li>Soldiers who reach a hut move in and hold it. Garrisoned soldiers fire from the windows and cannot be bombed or shot; only enemy infantry storming the hut can remove them, one for one. Hostages at a hut the enemy holds will not board your chopper.</li>
         <li><kbd>P</kbd> pause &middot; <kbd>M</kbd> mute &middot; <kbd>R</kbd> restart</li>
         <li>On touch screens: drag to fly, tap to shoot, hold to bomb, and use the on-screen buttons.</li>

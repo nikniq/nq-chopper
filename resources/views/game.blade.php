@@ -31,7 +31,7 @@
     </div>
     <div id="score">Score: 0 | Rescued: 0</div>
     <div id="controls">
-        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>/<kbd>2</kbd> Buy troops &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
+        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>-<kbd>4</kbd> Buy &nbsp;·&nbsp; <kbd>5</kbd> Airstrike &nbsp;·&nbsp; <kbd>6</kbd> Hold/advance &nbsp;·&nbsp; <kbd>7</kbd> Load/drop troops &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
         <span id="touchHelp" style="display:none">Drag on screen to fly &nbsp;·&nbsp; Tap to shoot &nbsp;·&nbsp; Hold to bomb</span>
         <button id="muteBtn" type="button" aria-pressed="false">Sound: On</button><button id="fullscreenBtn" type="button">Fullscreen</button>
     </div>
@@ -41,6 +41,9 @@
         <button id="buyTank" class="shop-btn" type="button" disabled>Tank <span class="price">$200</span></button>
         <button id="buyGun" class="shop-btn upgrade" type="button" disabled>Guns<span class="lvl"></span> <span class="price">$150</span></button>
         <button id="buyArmor" class="shop-btn upgrade" type="button" disabled>Armor<span class="lvl"></span> <span class="price">$150</span></button>
+        <button id="buyStrike" class="shop-btn ability" type="button" disabled>Airstrike <span class="price">$250</span></button>
+        <button id="rallyBtn" class="shop-btn ability" type="button" disabled>Hold troops</button>
+        <button id="troopsBtn" class="shop-btn ability" type="button" disabled><span class="lbl">Load / drop troops</span> <span class="price">0/4</span></button>
         <span id="shopHint">Troops deploy from BASE and march on the enemy base &middot; Upgrades last the whole game</span>
         <button id="shareBtn" class="shop-btn share" style="display:none" data-url="{{ url('/') }}">Share score</button>
     </div>

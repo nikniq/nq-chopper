@@ -1,5 +1,6 @@
 <nav class="nav" aria-label="Main">
     <a class="brand" href="{{ route('home') }}">NQ CHOPPER</a>
+    <a class="parent-site" href="https://nikniq.com" title="Back to nikniq.com">&larr; nikniq.com</a>
     <div class="nav-links">
         <a href="{{ route('leaderboard') }}">Leaderboard</a>
         <a href="{{ route('game') }}" class="btn btn-play">Play</a>

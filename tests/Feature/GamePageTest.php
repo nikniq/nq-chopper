@@ -13,7 +13,8 @@ class GamePageTest extends TestCase
         $response->assertOk()
             ->assertSee('<canvas id="gameCanvas"', false)
             ->assertSee('css/game.css')
-            ->assertSee('js/game.js');
+            ->assertSee('js/game.js')
+            ->assertSee('href="https://nikniq.com"', false);
     }
 
     public function test_analytics_tag_renders_configured_id_on_all_pages(): void

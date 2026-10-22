@@ -12,7 +12,8 @@
 <body>
     <a class="skip-link" href="#gameCanvas">Skip to game</a>
     <div id="topbar">
-        <a href="{{ route('home') }}">&larr; Home</a>
+        <a href="https://nikniq.com" title="Back to nikniq.com">&larr; nikniq.com</a>
+        <a href="{{ route('home') }}">Home</a>
         <a href="{{ route('leaderboard') }}">Leaderboard</a>
         @if (!empty($match))
             <span>Online match <strong>{{ $match['code'] }}</strong> &middot; <a href="{{ route('multiplayer') }}">Lobby</a>

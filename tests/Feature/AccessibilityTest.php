@@ -12,7 +12,8 @@ class AccessibilityTest extends TestCase
     public function test_pages_expose_landmarks_labels_and_live_region(): void
     {
         $this->get('/')->assertOk()
-            ->assertSee('class="skip-link"', false)->assertSee('id="main"', false)->assertSee('aria-label="Main"', false);
+            ->assertSee('class="skip-link"', false)->assertSee('id="main"', false)->assertSee('aria-label="Main"', false)
+            ->assertSee('href="https://nikniq.com"', false);
 
         $this->get('/play')->assertOk()
             ->assertSee('role="img"', false)

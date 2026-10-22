@@ -93,3 +93,6 @@ h2 .more { font-size: 0.8rem; font-weight: 400; margin-left: 10px; }
 .btn-google { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; background: #fff; color: #222 !important; font-weight: 600; margin-top: 8px; }
 .btn-google:hover { background: #f1f3f4; }
 .or { text-align: center; margin: 10px 0 0; }
+.parent-site { color: var(--muted) !important; font-size: 0.85rem; text-decoration: none; margin-left: 10px; }
+.parent-site:hover { color: #fff !important; }
+@media (max-width: 600px) { .parent-site { display: none; } }

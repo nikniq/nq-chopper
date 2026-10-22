@@ -15,6 +15,6 @@
     <main class="page" id="main" tabindex="-1">
         @yield('content')
     </main>
-    <footer class="footer">NQ Chopper &middot; <a href="{{ route('home') }}">Home</a> &middot; <a href="{{ route('game') }}">Play</a></footer>
+    <footer class="footer">NQ Chopper &middot; <a href="{{ route('home') }}">Home</a> &middot; <a href="{{ route('game') }}">Play</a> &middot; <a href="https://nikniq.com">Back to nikniq.com</a></footer>
 </body>
 </html>

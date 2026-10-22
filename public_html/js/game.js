@@ -71,13 +71,27 @@
     const P2P_DELAY = 5, RELAY_DELAY = 18, MIN_DELAY = 3, MAX_DELAY = 30;
     let INPUT_DELAY = P2P_DELAY;
 
-    const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    const forceTouch = !!(window.location && /[?&]touch=1\b/.test(window.location.search || ''));
+    const isTouch = forceTouch || window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    const playArea = document.getElementById('playArea') || canvasWrapper;
+    const shopEl = document.getElementById('shop');
     if (isTouch) {
         document.body.classList.add('touch');
-        touchControls.style.display = 'flex';
+        touchControls.style.display = 'block';
         document.getElementById('keyHelp').style.display = 'none';
         document.getElementById('touchHelp').style.display = '';
+        // The shop becomes a pop-up drawer inside the play area so it survives fullscreen
+        if (shopEl && canvasWrapper.appendChild) { canvasWrapper.appendChild(shopEl); shopEl.classList.add('drawer'); }
+        // Sound, fullscreen and share move into the overlay too, so they stay reachable in fullscreen
+        const sys = document.getElementById('sysGroup');
+        if (sys && sys.appendChild) ['muteBtn', 'fullscreenBtn', 'shareBtn'].forEach(id => { const el = document.getElementById(id); if (el) sys.appendChild(el); });
+        muteBtn.textContent = '🔊'; muteBtn.setAttribute('aria-label', 'Sound');
+        fullscreenBtn.textContent = '⛶'; fullscreenBtn.setAttribute('aria-label', 'Fullscreen');
     }
+    // Analog thumbstick state (touch only). x/y in [-1, 1]; accumulators turn it into on/off ticks.
+    const stick = { enabled: isTouch, active: false, x: 0, y: 0, accU: 0, accX: 0, lastKey: 0 };
+    let autoFire = false;
+    function buzz(pattern) { try { if (isTouch && !Sound.muted && navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* ignore */ } }
 
     // ---------------------------------------------------------------------
     // Presentation: fit to window, fullscreen (letterboxed logical view)
@@ -89,12 +103,12 @@
         let cssW, cssH;
         if (isFullscreen()) {
             cssW = window.innerWidth; cssH = window.innerHeight;
-            canvasWrapper.style.width = ''; canvasWrapper.style.height = '';
+            canvasWrapper.style.width = cssW + 'px'; canvasWrapper.style.height = cssH + 'px';
         } else {
             // Measure the page chrome above the canvas rather than guessing its height
             const wrapper = document.getElementById('gameWrapper');
             const above = wrapper && wrapper.getBoundingClientRect ? wrapper.getBoundingClientRect().top + (window.scrollY || 0) : 150;
-            const below = (isTouch ? 100 : 0) + 16;
+            const below = 16;
             const maxW = Math.max(320, window.innerWidth - 24);
             const maxH = Math.max(200, window.innerHeight - above - below);
             cssH = Math.min(maxH, maxW / (MIN_GAME_WIDTH / GAME_HEIGHT));
@@ -111,14 +125,25 @@
         view.scale = Math.min(canvas.width / GAME_WIDTH, canvas.height / GAME_HEIGHT);
         view.ox = (canvas.width - GAME_WIDTH * view.scale) / 2;
         view.oy = (canvas.height - GAME_HEIGHT * view.scale) / 2;
+        // Turned to portrait mid-run on a phone: pause until it comes back to landscape
+        if (isTouch && window.innerHeight > window.innerWidth && typeof screen === 'string' && mode === 'solo' && screen === 'playing') togglePause();
     }
     window.addEventListener('resize', fitCanvas);
     window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 200));
     ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, fitCanvas));
-    fullscreenBtn.addEventListener('click', () => {
-        const req = canvas.requestFullscreen || canvas.webkitRequestFullscreen;
-        if (req) { const r = req.call(canvas); if (r && r.then) r.then(() => { if (isTouch && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); }).catch(() => {}); }
-    });
+    // Fullscreen the whole play area (canvas + touch controls + shop drawer), then lock landscape on phones.
+    // Note: `screen` is shadowed by the game-state variable below, so use window.screen explicitly.
+    function goFullscreen() {
+        if (isFullscreen()) return;
+        const req = playArea.requestFullscreen || playArea.webkitRequestFullscreen;
+        if (!req) return;
+        try {
+            const r = req.call(playArea, { navigationUI: 'hide' });
+            const lock = () => { const o = window.screen && window.screen.orientation; if (isTouch && o && o.lock) o.lock('landscape').catch(() => {}); };
+            if (r && r.then) r.then(lock).catch(() => {}); else lock();
+        } catch (e) { /* ignore */ }
+    }
+    fullscreenBtn.addEventListener('click', goFullscreen);
 
     // ---------------------------------------------------------------------
     // Sound (synthesised, no assets)
@@ -174,7 +199,7 @@
             get muted() { return muted; }
         };
     })();
-    function toggleMute() { const m = Sound.toggleMute(); muteBtn.textContent = m ? 'Sound: Off' : 'Sound: On'; muteBtn.setAttribute('aria-pressed', m ? 'true' : 'false'); }
+    function toggleMute() { const m = Sound.toggleMute(); muteBtn.textContent = document.body.classList.contains('touch') ? (m ? '🔇' : '🔊') : (m ? 'Sound: Off' : 'Sound: On'); muteBtn.setAttribute('aria-pressed', m ? 'true' : 'false'); }
     muteBtn.addEventListener('click', toggleMute);
 
     // ---------------------------------------------------------------------
@@ -267,11 +292,11 @@
         sim.bullets.forEach(b => { if (b.life === 60) spawnMuzzleFlash(b.x + (b.vx > 0 ? 6 : 2), b.y + 1, b.vx > 0 ? 1 : -1); });
         sim.shells.forEach(b => { if (b.kind === 'rifle' && b.life === 40) spawnMuzzleFlash(b.x, b.y, b.vx > 0 ? 1 : -1); if (b.kind === 'shell' && b.life === 90) spawnMuzzleFlash(b.x, b.y, b.vx > 0 ? 1 : -1); });
         for (const ev of sim.fx) {
-            if (ev.t === 'snd') { if (Sound[ev.name]) Sound[ev.name](); }
+            if (ev.t === 'snd') { if (Sound[ev.name]) Sound[ev.name](); if (ev.name === 'die' && local() && !local().alive) buzz([80, 40, 160]); }
             else if (ev.t === 'txt') addText(ev.x, ev.y, ev.msg, ev.color, ev.big);
             else if (ev.t === 'p') spawnParticles(ev.x, ev.y, ev.n, ev.o);
-            else if (ev.t === 'x') { if (near(ev.x)) explosionFx(ev.x, ev.y, ev.big); }
-            else if (ev.t === 'shake') { if (ev.team === undefined || ev.team === localId) shake = Math.max(shake, ev.v); }
+            else if (ev.t === 'x') { if (near(ev.x)) { explosionFx(ev.x, ev.y, ev.big); if (ev.big && Math.abs(ev.x - (cameraX + GAME_WIDTH / 2)) < 400) buzz(40); } }
+            else if (ev.t === 'shake') { if (ev.team === undefined || ev.team === localId) { shake = Math.max(shake, ev.v); if (ev.team === localId) buzz(25); } }
         }
     }
     function updateEffects() {
@@ -331,8 +356,22 @@
     // Input capture -> sim input struct
     // =====================================================================
     function captureInput() {
-        const o = { l: input.left ? 1 : 0, r: input.right ? 1 : 0, u: input.up ? 1 : 0, d: input.down ? 1 : 0, f: input.fire ? 1 : 0, b: bombQueued ? 1 : 0, bo: input.boost ? 1 : 0, buy: buyQueued };
+        const o = { l: input.left ? 1 : 0, r: input.right ? 1 : 0, u: input.up ? 1 : 0, d: input.down ? 1 : 0, f: (input.fire || autoFire) ? 1 : 0, b: bombQueued ? 1 : 0, bo: input.boost ? 1 : 0, buy: buyQueued };
         bombQueued = false; buyQueued = null;
+        // Touch thumbstick (unless the keyboard was used recently): pulse the digital inputs so the
+        // stick behaves analog. Vertical: centre = hover, up = climb, down = descend; letting go
+        // hovers in the air but stays put once landed. Horizontal speed scales with stick distance.
+        if (stick.enabled && Date.now() - stick.lastKey > 8000) {
+            const p = local();
+            const duty = stick.active ? clamp(0.5 - stick.y * 0.55, 0, 1) : (p && p.landed ? 0 : 0.5);
+            stick.accU += duty;
+            o.u = stick.accU >= 1 ? 1 : 0; if (o.u) stick.accU -= 1;
+            o.d = stick.active && stick.y > 0.75 ? 1 : 0;
+            const hx = stick.active ? clamp((Math.abs(stick.x) - 0.18) / 0.7, 0, 1) : 0;
+            stick.accX += hx;
+            const pulse = stick.accX >= 1 ? 1 : 0; if (pulse) stick.accX -= 1;
+            o.l = stick.x < 0 && pulse ? 1 : 0; o.r = stick.x > 0 && pulse ? 1 : 0;
+        }
         return o;
     }
     const packInput = i => [(i.l ? 1 : 0) | (i.r ? 2 : 0) | (i.u ? 4 : 0) | (i.d ? 8 : 0) | (i.f ? 16 : 0) | (i.b ? 32 : 0) | (i.bo ? 64 : 0), i.buy || 0];
@@ -356,6 +395,7 @@
         else if (screen === 'paused') screen = 'playing';
     }
     function primaryAction() {
+        if (isTouch && (screen === 'title' || screen === 'lobby')) goFullscreen();
         if (mode === 'solo') {
             if (screen === 'title') startSolo();
             else if (screen === 'gameover') { if (screenTimer > 30) startSolo(); }
@@ -533,6 +573,11 @@
             scoreDiv.textContent = `${p.name} ${p.score} | ${o.name} ${o.score} | Credits: $${p.credits} | Rescued: ${p.rescued}`;
         }
         if (creditsSpan) creditsSpan.textContent = '$' + (p ? p.credits : 0);
+        if (isTouch) {
+            const sb = document.getElementById('btnShop'), tb = document.getElementById('btnTroops');
+            if (sb) sb.textContent = p ? '$' + p.credits : 'Shop';
+            if (tb) tb.textContent = p ? (p.landed ? 'Load ' : 'Drop ') + p.troops : 'Troops';
+        }
         const playing = screen === 'playing' && p && p.alive;
         shopButtons.forEach(([btn, type]) => {
             if (!btn) return;
@@ -1195,7 +1240,7 @@
         const gc = Sim.upgradeCost(p, 'gun'), ac = Sim.upgradeCost(p, 'armor');
         ctx.fillStyle = '#8f8';
         const cd = p.strikeCooldown > 0 ? Math.ceil(p.strikeCooldown / 60) + 'S' : '$' + Sim.AIRSTRIKE.cost;
-        ctx.fillText(isTouch ? 'BUY TROOPS, UPGRADES AND ABILITIES BELOW' : `[1] SOLDIER $${UNITS.soldier.cost}  [2] TANK $${UNITS.tank.cost}  [3] GUNS ${gc === null ? 'MAX' : '$' + gc}  [4] ARMOR ${ac === null ? 'MAX' : '$' + ac}  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] ${p.landed ? 'LOAD' : 'DROP'} ${p.troops}/${Sim.MAX_TROOPS}`, GAME_WIDTH / 2, 52);
+        ctx.fillText(isTouch ? 'TAP $ FOR TROOPS, UPGRADES AND AIRSTRIKES · AUTO = HANDS-FREE FIRE' : `[1] SOLDIER $${UNITS.soldier.cost}  [2] TANK $${UNITS.tank.cost}  [3] GUNS ${gc === null ? 'MAX' : '$' + gc}  [4] ARMOR ${ac === null ? 'MAX' : '$' + ac}  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] ${p.landed ? 'LOAD' : 'DROP'} ${p.troops}/${Sim.MAX_TROOPS}`, GAME_WIDTH / 2, 52);
         if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 66); }
         if (comboText(p)) { ctx.fillStyle = '#ff0'; ctx.font = 'bold 16px Arial'; ctx.fillText(comboText(p), GAME_WIDTH / 2, 100); }
         if (screen === 'playing' && p.alive && pct < 0.3 && Math.floor(frame / 15) % 2 === 0) {
@@ -1237,11 +1282,16 @@
             bigText('Land near hostages so they can run aboard · 4 seats · Return to BASE to unload', 200, 12, '#ddd');
             bigText('Bombs hit ground targets · Bullets for the enemy chopper · Base repairs and rearms', 220, 12, '#ddd');
             bigText('Watch out: tanks crush hostages running in the open, and so do your bombs', 240, 12, '#f99');
-            bigText((isTouch ? 'Buy ' : 'Press 1 / 2 to buy ') + 'Soldiers ($' + UNITS.soldier.cost + ') and Tanks ($' + UNITS.tank.cost + ') · They march on the enemy base', 262, 12, '#8f8');
-            bigText((isTouch ? 'Upgrade ' : 'Press 3 / 4 to upgrade ') + 'Guns and Armor · 5 Airstrike · 6 Hold troops · 7 Load and paradrop soldiers', 278, 12, '#8f8');
+            if (isTouch) {
+                bigText('Left thumb steers · let go to hover, pull down to land', 262, 12, '#8f8');
+                bigText('Right thumb: FIRE, BOMB, BOOST · AUTO fires for you · $ opens the shop', 278, 12, '#8f8');
+            } else {
+                bigText('Press 1 / 2 to buy Soldiers ($' + UNITS.soldier.cost + ') and Tanks ($' + UNITS.tank.cost + ') · They march on the enemy base', 262, 12, '#8f8');
+                bigText('Press 3 / 4 to upgrade Guns and Armor · 5 Airstrike · 6 Hold troops · 7 Load and paradrop soldiers', 278, 12, '#8f8');
+            }
             if (blink) bigText(prompt + 'START', 310, 20, '#0f0');
             if (highScore > 0) bigText('BEST ' + highScore, 345, 14, '#ccc');
-            bigText('Hold SHIFT (or BOOST) while flying to engage the jet booster', 362, 11, '#9cf');
+            bigText(isTouch ? 'Hold BOOST while flying for the jet booster · tap to go fullscreen' : 'Hold SHIFT while flying to engage the jet booster', 362, 11, '#9cf');
             loadBoard(); drawBoardPanel(GAME_WIDTH - 200, 8, daily ? 'TODAY\'S TOP PILOTS' : 'TOP PILOTS');
         } else if (screen === 'paused') {
             overlay(0.5);
@@ -1351,6 +1401,7 @@
     const inPlay = () => screen === 'playing';
     document.addEventListener('keydown', e => {
         Sound.unlock();
+        stick.lastKey = Date.now();
         const k = KEYMAP[e.code];
         if (k) { e.preventDefault(); if (inPlay()) input[k] = true; }
         if (e.repeat) return;
@@ -1375,13 +1426,57 @@
         el.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
         el.addEventListener('contextmenu', e => e.preventDefault());
     }
-    bindControl(document.getElementById('btnLeft'), () => input.left = true, () => input.left = false);
-    bindControl(document.getElementById('btnRight'), () => input.right = true, () => input.right = false);
-    bindControl(document.getElementById('btnUp'), () => input.up = true, () => input.up = false);
-    bindControl(document.getElementById('btnDown'), () => input.down = true, () => input.down = false);
-    bindControl(document.getElementById('btnShoot'), () => { if (!inPlay()) primaryAction(); input.fire = true; }, () => input.fire = false);
-    bindControl(document.getElementById('btnBomb'), () => { if (inPlay()) bombQueued = true; }, () => {});
-    bindControl(document.getElementById('btnBoost'), () => input.boost = true, () => input.boost = false);
+    const press = (id, on) => { const el = document.getElementById(id); if (el && el.classList) el.classList.toggle('active', on); };
+    bindControl(document.getElementById('btnShoot'), () => { if (!inPlay()) primaryAction(); input.fire = true; press('btnShoot', true); }, () => { input.fire = false; press('btnShoot', false); });
+    bindControl(document.getElementById('btnBomb'), () => { if (inPlay()) { bombQueued = true; buzz(15); } press('btnBomb', true); }, () => press('btnBomb', false));
+    bindControl(document.getElementById('btnBoost'), () => { input.boost = true; press('btnBoost', true); }, () => { input.boost = false; press('btnBoost', false); });
+    bindControl(document.getElementById('btnTroops'), () => { if (inPlay()) buyQueued = 'troops'; }, () => {});
+    bindControl(document.getElementById('btnAuto'), () => {
+        autoFire = !autoFire;
+        const b = document.getElementById('btnAuto'); if (b && b.setAttribute) b.setAttribute('aria-pressed', autoFire ? 'true' : 'false');
+    }, () => {});
+    bindControl(document.getElementById('btnShop'), () => {
+        if (!shopEl || !shopEl.classList) return;
+        const open = !shopEl.classList.contains('open');
+        shopEl.classList.toggle('open', open);
+        const b = document.getElementById('btnShop'); if (b && b.setAttribute) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }, () => {});
+    // Floating thumbstick: appears where the left thumb lands, steers while dragged
+    (function () {
+        const zone = document.getElementById('stickZone'), base = document.getElementById('stickBase'), knob = document.getElementById('stickKnob');
+        if (!isTouch || !zone || !base || !knob || !zone.getBoundingClientRect) return;
+        const R = 46;
+        let pid = null, ox = 0, oy = 0, st = 0, moved = false;
+        const setKnob = (dx, dy) => { knob.style.transform = `translate(${dx}px, ${dy}px)`; };
+        zone.addEventListener('pointerdown', e => {
+            e.preventDefault(); Sound.unlock();
+            if (pid !== null) return;
+            pid = e.pointerId; ox = e.clientX; oy = e.clientY; st = Date.now(); moved = false;
+            const r = zone.getBoundingClientRect();
+            base.classList.remove('idle'); base.style.left = (e.clientX - r.left) + 'px'; base.style.top = (e.clientY - r.top) + 'px';
+            setKnob(0, 0); stick.active = true; stick.x = 0; stick.y = 0;
+            try { zone.setPointerCapture(pid); } catch (err) { /* ignore */ }
+        });
+        zone.addEventListener('pointermove', e => {
+            if (e.pointerId !== pid) return;
+            e.preventDefault();
+            let dx = e.clientX - ox, dy = e.clientY - oy;
+            const d = Math.hypot(dx, dy);
+            if (d > 8) moved = true;
+            if (d > R) { dx = dx / d * R; dy = dy / d * R; }
+            setKnob(dx, dy); stick.x = dx / R; stick.y = dy / R;
+        });
+        const end = e => {
+            if (e.pointerId !== pid) return;
+            e.preventDefault(); pid = null;
+            stick.active = false; stick.x = 0; stick.y = 0;
+            setKnob(0, 0); base.classList.add('idle'); base.style.left = ''; base.style.top = '';
+            if (!moved && Date.now() - st < 300 && !inPlay()) primaryAction();
+        };
+        zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
+        zone.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+        zone.addEventListener('contextmenu', e => e.preventDefault());
+    })();
     shopButtons.forEach(([btn, type]) => {
         if (!btn) return;
         btn.addEventListener('click', () => { Sound.unlock(); if (inPlay()) buyQueued = type; btn.blur(); });
@@ -1412,7 +1507,7 @@
             e.preventDefault();
             const dx = e.clientX - sx, dy = e.clientY - sy;
             if (Math.abs(dx) > MOVE || Math.abs(dy) > MOVE) { moved = true; if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } }
-            if (inPlay()) { input.left = dx < -MOVE; input.right = dx > MOVE; input.up = dy < -MOVE; input.down = dy > MOVE; }
+            if (inPlay() && !isTouch) { input.left = dx < -MOVE; input.right = dx > MOVE; input.up = dy < -MOVE; input.down = dy > MOVE; }
         }
         function up(e) {
             if (e.pointerId !== pid) return;
@@ -1420,7 +1515,7 @@
             const dt = Date.now() - st, d = Math.hypot(e.clientX - sx, e.clientY - sy);
             if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
             if (!moved && dt < TAP_TIME && d < TAP_DIST) { if (inPlay()) input.fire = true; else primaryAction(); }
-            input.left = input.right = input.up = input.down = false;
+            if (!isTouch) input.left = input.right = input.up = input.down = false;
             setTimeout(() => { input.fire = false; }, 50);
             pid = null;
         }
@@ -1466,6 +1561,7 @@
             setTimeout(() => { input.up = false; input.fire = true; }, 1500);
             const wm = /wave=(\d+)/.exec(hash); // screenshot helper: jump straight to a given wave
             if (wm && mode === 'solo') { sim.wave = Math.max(0, parseInt(wm[1], 10) - 1); sim.status = 'waveclear'; sim.statusTimer = 179; }
+            if (hash.indexOf('shop') > 0 && shopEl && shopEl.classList) shopEl.classList.add('open');
             if (hash.indexOf('#autostart-demo') === 0) { // screenshot/demo helper: show troops near base
                 sim.players[0].credits = 1000; input.right = false;
                 setTimeout(() => { buyQueued = 'tank'; }, 300); setTimeout(() => { buyQueued = 'soldier'; }, 600); setTimeout(() => { buyQueued = 'soldier'; }, 900);

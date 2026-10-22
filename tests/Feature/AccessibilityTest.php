@@ -18,7 +18,9 @@ class AccessibilityTest extends TestCase
         $this->get('/play')->assertOk()
             ->assertSee('role="img"', false)
             ->assertSee('aria-live="polite"', false)
-            ->assertSee('aria-label="Fly left"', false)
+            ->assertSee('id="stickZone"', false)
+            ->assertSee('aria-label="Auto-fire"', false)
+            ->assertSee('id="playArea"', false)
             ->assertSee('aria-pressed="false"', false)
             ->assertSee('Skip to game');
     }

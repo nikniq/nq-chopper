@@ -34,7 +34,7 @@
     <div id="score">Score: 0 | Rescued: 0</div>
     <div id="controls">
         <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>Shift</kbd> Boost &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>-<kbd>4</kbd> Buy &nbsp;·&nbsp; <kbd>5</kbd> Airstrike &nbsp;·&nbsp; <kbd>6</kbd> Hold/advance &nbsp;·&nbsp; <kbd>7</kbd> Load/drop troops &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
-        <span id="touchHelp" style="display:none">Drag on screen to fly &nbsp;·&nbsp; Tap to shoot &nbsp;·&nbsp; Hold to bomb &nbsp;·&nbsp; Boost button to sprint</span>
+        <span id="touchHelp" style="display:none">Left thumb steers (let go to hover) &nbsp;·&nbsp; Right thumb: Fire, Bomb, Boost &nbsp;·&nbsp; Shop for troops</span>
         <button id="muteBtn" type="button" aria-pressed="false">Sound: On</button><button id="fullscreenBtn" type="button">Fullscreen</button>
     </div>
     <div id="shop">
@@ -49,24 +49,28 @@
         <span id="shopHint">Troops deploy from BASE and march on the enemy base &middot; Upgrades last the whole game</span>
         <button id="shareBtn" class="shop-btn share" style="display:none" data-url="{{ url('/') }}">Share score</button>
     </div>
+    <div id="playArea">
     <div id="gameWrapper">
         <div id="canvasWrapper">
             <canvas id="gameCanvas" width="640" height="400" role="img" aria-label="NQ Chopper game. A side-scrolling helicopter rescue game. Use arrow keys or WASD to fly, Space to shoot, B to bomb." tabindex="0"></canvas>
             <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+            <div id="touchControls" role="group" aria-label="Touch controls">
+                <div id="stickZone" role="application" aria-label="Steer: drag with your left thumb. Let go to hover.">
+                    <div id="stickBase" class="idle"><div id="stickKnob"></div></div>
+                </div>
+                <div id="sysGroup"></div>
+                <div id="actionGroup">
+                    <button class="touch-btn small" id="btnShop" type="button" aria-expanded="false" aria-controls="shop">Shop</button>
+                    <button class="touch-btn small" id="btnTroops" type="button" aria-label="Load or drop troops">Troops</button>
+                    <button class="touch-btn small" id="btnAuto" type="button" aria-pressed="false" aria-label="Auto-fire">Auto</button>
+                    <button class="touch-btn" id="btnBomb" type="button">Bomb</button>
+                    <button class="touch-btn" id="btnBoost" type="button" aria-label="Jet booster">Boost</button>
+                    <button class="touch-btn big" id="btnShoot" type="button">Fire</button>
+                </div>
+            </div>
         </div>
     </div>
-    <div id="touchControls" role="group" aria-label="Touch controls">
-        <div class="touch-group" id="dirGroup">
-            <button class="touch-btn" id="btnLeft" type="button" aria-label="Fly left">◀</button>
-            <button class="touch-btn" id="btnUp" type="button" aria-label="Fly up">▲</button>
-            <button class="touch-btn" id="btnDown" type="button" aria-label="Fly down">▼</button>
-            <button class="touch-btn" id="btnRight" type="button" aria-label="Fly right">▶</button>
-        </div>
-        <div class="touch-group" id="actionGroup">
-            <button class="touch-btn" id="btnShoot" type="button">Shoot</button>
-            <button class="touch-btn" id="btnBomb" type="button">Bomb</button>
-            <button class="touch-btn" id="btnBoost" type="button" aria-label="Jet booster">Boost</button>
-        </div>
+    <div id="rotateHint" aria-hidden="true"><div><div class="rot-icon">📱↻</div>Rotate your phone to landscape to fly</div></div>
     </div>
     <script>window.NQ_CONFIG = { scoreUrl: @json(auth()->check() ? route('scores.store') : null), csrf: @json(csrf_token()), match: @json($match ?? null), daily: @json($daily ?? null), pingUrl: @json(auth()->check() ? route('ping') : null), boardUrl: @json(route('scores.board')) };</script>
     <script>

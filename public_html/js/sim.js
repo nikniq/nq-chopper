@@ -19,6 +19,7 @@
     const WORLD_WIDTH = 3600, GROUND_Y = 380, MAX_CARRY = 4, MAX_BOMBS = 5, GRAVITY = 0.25;
     const MAX_ALLIES = 12;
     const GARRISON_CAP = { player: 3, ai: 2 };
+    const aiGarrisonCap = s => s.wave >= 6 ? 3 : GARRISON_CAP.ai;
     const GARRISON_RANGE = 170;
     const PICKUPS = { health: { amount: 35, color: '#f55' }, bombs: { amount: MAX_BOMBS, color: '#f90' }, credits: { amount: 60, color: '#8f8' } };
     const BOSS_EVERY = 3;
@@ -35,6 +36,9 @@
         armor: { name: 'ARMOR', costs: [150, 250, 400], bonus: 40 }
     };
     const AI = -1; // team id of the computer opponent in solo mode
+    const BOOST = { max: 100, drain: 1.1, regen: 0.3, regenDelay: 45, speedMul: 2.1 };
+    // Threat multiplier: waves get tougher on a curve, not just by adding a tank
+    const threat = s => 1 + Math.max(0, s.wave - 1) * 0.18 + Math.max(0, s.wave - 5) * 0.07;
 
     // ---------------------------------------------------------------------
     // Deterministic helpers
@@ -76,11 +80,11 @@
         return { id, team: id, side, name: name || ('P' + (id + 1)), x: 60, y: 200, width: 60, height: 24, vx: 0, vy: 0, dir: side,
             speed: 3.4, carrying: 0, maxHealth: 100, health: 100, bombs: MAX_BOMBS, invuln: 0, landed: false, fireCooldown: 0, tilt: 0, spin: 0,
             alive: true, respawn: 0, deaths: 0, score: 0, credits: 0, rescued: 0, lost: 0,
-            upgrades: { gun: 0, armor: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0 };
+            upgrades: { gun: 0, armor: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0, boost: BOOST.max, boosting: false, boostIdle: 0 };
     }
     function makeTank(s, team, x, vx) {
         const def = UNITS.tank;
-        const hp = team === AI ? 30 + s.wave * 6 : def.health;
+        const hp = team === AI ? Math.round((30 + s.wave * 6) * threat(s)) : def.health;
         return { team, type: 'tank', x, y: GROUND_Y - def.height, width: def.width, height: def.height, vx: vx || 0, dir: vx ? sign(vx) : 1,
             speed: def.speed, health: hp, maxHealth: hp, range: def.range, fireTimer: rand(s, 60, 160), angle: -Math.PI / 2, anim: 0, moving: true, ai: team === AI };
     }
@@ -146,8 +150,8 @@
         const a = s.ai, base = s.bases[1];
         a.boss = s.wave % BOSS_EVERY === 0;
         a.x = base.x - 80; a.y = 110; a.vx = -a.speed; a.dir = -1; a.shootCooldown = 90; a.burst = 0;
-        a.maxHealth = (150 + (s.wave - 1) * 40) * (a.boss ? 3 : 1); a.health = a.maxHealth;
-        a.speed = 2 + (s.wave - 1) * 0.25 + (a.boss ? 0.4 : 0); a.alive = true; a.respawn = 0;
+        a.maxHealth = Math.round((150 + (s.wave - 1) * 40) * (a.boss ? 3 : 1) * threat(s)); a.health = a.maxHealth;
+        a.speed = Math.min(4.2, 2 + (s.wave - 1) * 0.25 + (a.boss ? 0.4 : 0)); a.alive = true; a.respawn = 0;
         a.width = a.boss ? 78 : 60; a.height = a.boss ? 30 : 24;
         if (a.boss) { text(s, a.x, a.y - 30, 'GUNSHIP INBOUND', '#f66', true); snd(s, 'die'); }
     }
@@ -158,7 +162,7 @@
         s.tankSpawnTimer = 0;
         s.balloons = [];
         // War chest: the computer gets a lump sum per wave and a steady income to spend on troops
-        s.aiCredits += 150 + n * 120;
+        s.aiCredits += Math.round((150 + n * 120) * threat(s));
         const eb = s.bases[1];
         eb.maxHealth = 400 + (n - 1) * 150; eb.health = eb.maxHealth; eb.destroyed = false;
         s.players.forEach(p => { if (p.alive || s.mode === 'solo') resetPlayer(s, p); });
@@ -404,9 +408,16 @@
     }
     function updatePlayer(s, p, inp) {
         if (!p.alive) { if (s.mode !== 'solo') updateDyingPlayer(s, p); return; }
-        const targetVx = inp.l ? -p.speed : inp.r ? p.speed : 0;
+        // Jet booster: hold to sprint across the map while the meter lasts; it recharges after a pause
+        const wantBoost = !!inp.bo && (inp.l || inp.r) && p.boost > 0 && !p.landed;
+        if (wantBoost) { p.boost = Math.max(0, p.boost - BOOST.drain); p.boostIdle = 0; }
+        else if (++p.boostIdle > BOOST.regenDelay && p.boost < BOOST.max) p.boost = Math.min(BOOST.max, p.boost + BOOST.regen);
+        if (wantBoost && !p.boosting) snd(s, 'wave');
+        p.boosting = wantBoost;
+        const sp = p.speed * (wantBoost ? BOOST.speedMul : 1);
+        const targetVx = inp.l ? -sp : inp.r ? sp : 0;
         if (inp.l) p.dir = -1; else if (inp.r) p.dir = 1;
-        p.vx += (targetVx - p.vx) * 0.12;
+        p.vx += (targetVx - p.vx) * (wantBoost ? 0.2 : 0.12);
         if (inp.u) p.vy -= 0.5;
         p.vy += GRAVITY;
         if (inp.d) p.vy += 0.3;
@@ -418,7 +429,7 @@
             if (p.vy >= 4.9 && !p.landed) damagePlayer(s, p, 10, 'HARD LANDING');
             p.y = GROUND_Y - p.height; p.vy = 0; p.vx *= 0.8; p.landed = true;
         } else p.landed = false;
-        p.tilt += ((p.vx / p.speed) * 0.2 - p.tilt) * 0.1;
+        p.tilt += ((p.vx / p.speed) * (p.boosting ? 0.14 : 0.2) - p.tilt) * 0.1;
         if (p.invuln > 0) p.invuln--;
         if (p.fireCooldown > 0) p.fireCooldown--;
         if (p.comboTimer > 0 && --p.comboTimer === 0) p.combo = 0;
@@ -537,7 +548,7 @@
             snd(s, 'rifle');
         } else if (target.kind === 'heli') {
             const oy = u.y, dx = target.x - ux, dy = target.y - oy;
-            let vx = 0, vy = -5, dmg = u.type === 'aa' ? AA.dmg : u.ai ? 12 : 20;
+            let vx = 0, vy = -5, dmg = u.type === 'aa' ? Math.round(AA.dmg * threat(s)) : u.ai ? Math.round(12 * threat(s)) : 20;
             if (!u.ai || s.wave >= 2 || u.type === 'aa') {
                 const mag = dist(dx, dy) || 1, sp = u.type === 'aa' ? 5.5 : u.ai ? 3.5 + s.wave * 0.3 : 5;
                 vx = dx / mag * sp; vy = dy / mag * sp;
@@ -546,7 +557,7 @@
             snd(s, 'enemyShoot');
         } else {
             const dir = target.x < ux ? -1 : 1;
-            s.shells.push({ team: u.team, x: ux + dir * 16, y: u.y + 6, vx: dir * 4.5, vy: 0, width: 6, height: 6, dmg: u.ai ? 14 : def.dmg, life: 90, kind: 'shell' });
+            s.shells.push({ team: u.team, x: ux + dir * 16, y: u.y + 6, vx: dir * 4.5, vy: 0, width: 6, height: 6, dmg: u.ai ? Math.round(14 * threat(s)) : def.dmg, life: 90, kind: 'shell' });
             snd(s, u.ai ? 'enemyShoot' : 'shell');
         }
     }
@@ -612,12 +623,12 @@
     function updateAiEconomy(s) {
         const eb = s.bases[1];
         if (eb.destroyed) return;
-        s.aiCredits += (0.09 + s.wave * 0.035) * (s.mode === 'coop' ? 1.35 : 1);
+        s.aiCredits += (0.09 + s.wave * 0.035) * threat(s) * (s.mode === 'coop' ? 1.35 : 1);
         if (++s.aiThink < 45) return;
         s.aiThink = 0;
         const tanks = s.units.filter(u => u.ai && u.type === 'tank').length;
         const soldiers = s.units.filter(u => u.ai && u.type === 'soldier').length;
-        const tankCap = 3 + s.wave * 2, soldierCap = s.wave >= 2 ? Math.min(6, 1 + s.wave) : 0;
+        const tankCap = Math.round((3 + s.wave * 2) * Math.min(1.6, threat(s))), soldierCap = s.wave >= 2 ? Math.min(8, 1 + s.wave) : 0;
         const wantSoldier = soldierCap > soldiers && (tanks >= tankCap || rnd(s) < 0.35);
         if (wantSoldier && s.aiCredits >= UNITS.soldier.cost) {
             s.aiCredits -= UNITS.soldier.cost; s.aiSpent += UNITS.soldier.cost;
@@ -678,7 +689,7 @@
                 text(s, hutDoor(h), GROUND_Y - h.h - 30, 'HUT SECURED', u.ai ? '#f66' : '#8f8');
                 snd(s, 'pickup');
             } else if (!hostile(s, g.team, u.team)) {
-                if (g.count >= (u.ai ? GARRISON_CAP.ai : GARRISON_CAP.player)) return false; // full: march on
+                if (g.count >= (u.ai ? aiGarrisonCap(s) : GARRISON_CAP.player)) return false; // full: march on
                 g.count++;
             } else {
                 g.count--;
@@ -806,7 +817,7 @@
                 snd(s, 'bomb');
             } else {
                 const sp = 6;
-                s.shells.push({ team: AI, x: sx, y: sy, vx: (tx - sx) / mag * sp, vy: (ty - sy) / mag * sp, width: 7, height: 7, dmg: 18, life: 200, kind: 'heli' });
+                s.shells.push({ team: AI, x: sx, y: sy, vx: (tx - sx) / mag * sp, vy: (ty - sy) / mag * sp, width: 7, height: 7, dmg: Math.round(18 * threat(s)), life: 200, kind: 'heli' });
                 a.shootCooldown = Math.max(35, 75 - s.wave * 5);
                 if (a.boss && rnd(s) < 0.5) { a.burst = 3; a.shootCooldown = 20; }
                 snd(s, 'enemyShoot');
@@ -971,7 +982,7 @@
     // ---------------------------------------------------------------------
     // Step
     // ---------------------------------------------------------------------
-    const EMPTY = { l: 0, r: 0, u: 0, d: 0, f: 0, b: 0, buy: null };
+    const EMPTY = { l: 0, r: 0, u: 0, d: 0, f: 0, b: 0, bo: 0, buy: null };
     function step(s, inputs) {
         s.fx = [];
         s.frame++;
@@ -1009,11 +1020,11 @@
         s.bases.forEach(b => mix(b.health));
         s.units.forEach(u => { mix(u.x); mix(u.health); });
         mix(s.hostages.length); mix(s.bullets.length); mix(s.shells.length); mix(s.pickups.length); mix(s.lives); mix(s.strikes.length); mix(s.aiCredits); mix(s.balloons.length);
-        s.players.forEach(p => { mix(p.rally === null ? -1 : p.rally); mix(p.strikeCooldown); mix(p.troops); });
+        s.players.forEach(p => { mix(p.rally === null ? -1 : p.rally); mix(p.strikeCooldown); mix(p.troops); mix(p.boost); });
         mix(s.paras.length);
         s.huts.forEach(h => mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5));
         return h >>> 0;
     }
 
-    return { createGame, step, hash, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, AIRSTRIKE, AA, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, AIRSTRIKE, AA, BOOST, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
 });

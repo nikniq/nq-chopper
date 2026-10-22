@@ -151,7 +151,7 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
     assert.ok(!b.ai.boss, 'wave 1 is a normal enemy chopper');
     b.wave = 2; b.status = 'waveclear'; b.statusTimer = 179; Sim.step(b, [inp({})]);
     assert.strictEqual(b.wave, 3);
-    assert.ok(b.ai.boss && b.ai.maxHealth === (150 + 2 * 40) * 3, 'wave 3 spawns a gunship with triple hull');
+    assert.ok(b.ai.boss && b.ai.maxHealth === Math.round((150 + 2 * 40) * 3 * Sim.threat(b)), 'wave 3 spawns a gunship with triple hull (scaled by threat)');
     const p = b.players[0]; p.invuln = 1e9; p.x = b.ai.x - 200; p.y = b.ai.y;
     let rockets = 0;
     for (let f = 0; f < 900; f++) { Sim.step(b, [inp({})]); rockets += b.shells.filter(s => s.kind === 'rocket' && s.life === 159).length; }
@@ -294,5 +294,24 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
     p.x = mine.x - p.width / 2; p.y = mine.y - p.height / 2; p.invuln = 0; const hp = p.health;
     Sim.step(g, [inp({})]);
     assert.ok(p.health === hp && g.balloons.includes(mine), 'your own balloons are harmless to you');
+}
+// Jet booster: faster while held, drains, recharges after a pause; threat climbs per wave
+{
+    const b = Sim.createGame({ mode: 'solo', seed: 91 });
+    const p = b.players[0]; p.invuln = 1e9; p.x = 600; p.y = 150; p.landed = false;
+    for (let f = 0; f < 60; f++) Sim.step(b, [inp({ r: 1, u: 1 })]);
+    const plain = p.vx;
+    for (let f = 0; f < 60; f++) Sim.step(b, [inp({ r: 1, u: 1, bo: 1 })]);
+    assert.ok(p.boosting && p.vx > plain * 1.6, 'booster roughly doubles speed: ' + p.vx.toFixed(2) + ' vs ' + plain.toFixed(2));
+    assert.ok(p.boost < Sim.BOOST.max, 'meter drains');
+    for (let f = 0; f < 200; f++) Sim.step(b, [inp({ r: 1, u: 1, bo: 1 })]);
+    assert.ok(p.boost === 0 && !p.boosting, 'empty meter ends the boost');
+    for (let f = 0; f < 400; f++) Sim.step(b, [inp({})]);
+    assert.ok(p.boost > 50, 'meter recharges while idle: ' + p.boost.toFixed(0));
+    assert.ok(Sim.threat({ wave: 1 }) === 1 && Sim.threat({ wave: 4 }) > 1.5 && Sim.threat({ wave: 8 }) > Sim.threat({ wave: 4 }), 'threat climbs with the wave');
+    const w1 = Sim.createGame({ mode: 'solo', seed: 92 }), hp1 = w1.units.find(u => u.ai && u.type === 'tank').maxHealth;
+    const w4 = Sim.createGame({ mode: 'solo', seed: 92 }); w4.wave = 3; w4.status = 'waveclear'; w4.statusTimer = 179; Sim.step(w4, [inp({})]);
+    const hp4 = w4.units.find(u => u.ai && u.type === 'tank').maxHealth;
+    assert.ok(hp4 > hp1 * 1.5 && w4.aiCredits > w1.aiCredits, 'wave 4 tanks are much tougher and the enemy richer: ' + hp1 + ' -> ' + hp4);
 }
 console.log('all sim tests passed');

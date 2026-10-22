@@ -56,6 +56,19 @@ class ScoreTest extends TestCase
         $this->actingAs($b)->get('/')->assertOk()->assertSeeInOrder(['Daily Challenge', 'Bravo', 'Alpha', 'All-time leaderboard', 'Alpha']);
     }
 
+    public function test_in_game_board_endpoint_marks_the_viewer(): void
+    {
+        $a = User::factory()->create(['name' => 'Alpha']);
+        $b = User::factory()->create(['name' => 'Bravo']);
+        $a->scores()->create(['score' => 800, 'wave' => 2, 'rescued' => 4]);
+        $b->scores()->create(['score' => 500, 'wave' => 1, 'rescued' => 2]);
+
+        $this->getJson('/api/leaderboard')->assertOk()->assertJsonPath('rows.0.name', 'Alpha')->assertJsonPath('rows.0.me', false);
+        $this->actingAs($b)->getJson('/api/leaderboard?mode=solo')->assertJsonPath('rows.1.name', 'Bravo')->assertJsonPath('rows.1.me', true);
+        $this->getJson('/api/leaderboard?mode=daily')->assertOk()->assertJsonPath('mode', 'daily')->assertJsonCount(0, 'rows');
+        $this->get('/play')->assertSee('boardUrl: '.json_encode(route('scores.board')), false)->assertSee('id="btnBoost"', false);
+    }
+
     public function test_score_validation(): void
     {
         $this->actingAs(User::factory()->create())

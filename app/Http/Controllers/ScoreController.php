@@ -4,10 +4,23 @@ namespace App\Http\Controllers;
 
 use App\Models\Score;
 use Illuminate\Http\JsonResponse;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class ScoreController extends Controller
 {
+    /** Top pilots for the in-game panel (cached board; marks the viewer's own row). */
+    public function board(Request $request): JsonResponse
+    {
+        $mode = $request->query('mode') === 'daily' ? 'daily' : 'solo';
+        $me = $request->user()?->id;
+        $rows = Score::cachedLeaderboard($mode)->take(5)->map(fn ($r) => [
+            'name' => $r['name'], 'score' => $r['score'], 'wave' => $r['wave'], 'me' => $me !== null && $r['user_id'] === $me,
+        ])->values();
+
+        return response()->json(['mode' => $mode, 'rows' => $rows])->header('Cache-Control', 'public, max-age=30');
+    }
+
     /**
      * Record a finished game for the signed-in player.
      */

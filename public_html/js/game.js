@@ -25,6 +25,33 @@
     const announcer = document.getElementById('announcer');
     const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     function track(name, params) { try { if (typeof window.gtag === 'function') window.gtag('event', name, params || {}); } catch (e) { /* ignore */ } }
+    // Top pilots fetched for the title and game-over screens
+    let board = { rows: null, mode: null, fetchedAt: 0 };
+    function loadBoard() {
+        if (!cfg.boardUrl || typeof fetch !== 'function') return;
+        const m = daily ? 'daily' : 'solo';
+        if (board.mode === m && Date.now() - board.fetchedAt < 30000) return;
+        board.mode = m; board.fetchedAt = Date.now();
+        fetch(cfg.boardUrl + '?mode=' + m, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => { board.rows = d.rows || []; }).catch(() => { board.rows = board.rows || []; });
+    }
+    function drawBoardPanel(x, y, title) {
+        if (!cfg.boardUrl) return;
+        const rows = board.rows;
+        ctx.save();
+        panel(x, y, 190, 20 + 15 * 5 + 18);
+        ctx.fillStyle = '#ff0'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'left'; ctx.fillText(title, x + 8, y + 14);
+        ctx.font = 'bold 10px Arial';
+        if (!rows) { ctx.fillStyle = '#aaa'; ctx.fillText('loading...', x + 8, y + 32); }
+        else if (!rows.length) { ctx.fillStyle = '#aaa'; ctx.fillText('No scores yet. Be the first!', x + 8, y + 32); }
+        else rows.slice(0, 5).forEach((r, i) => {
+            ctx.fillStyle = r.me ? '#8f8' : '#fff';
+            ctx.textAlign = 'left'; ctx.fillText((i + 1) + '. ' + String(r.name).slice(0, 14), x + 8, y + 32 + i * 15);
+            ctx.textAlign = 'right'; ctx.fillText(String(r.score), x + 182, y + 32 + i * 15);
+        });
+        ctx.fillStyle = '#9cf'; ctx.textAlign = 'left'; ctx.font = '9px Arial'; ctx.fillText(cfg.scoreUrl ? 'Full board: Leaderboard link above' : 'Log in to save your score', x + 8, y + 20 + 15 * 5 + 10);
+        ctx.restore();
+    }
     let lastAnnounced = '';
     function announce(text) { if (announcer && text !== lastAnnounced) { lastAnnounced = text; announcer.textContent = text; } }
     const shopButtons = [
@@ -174,7 +201,7 @@
     let highScore = loadHighScore(), newBest = false, submitStatus = '';
     let localId = match && match.role === 'guest' ? 1 : 0;
     let cameraX = 0, shake = 0, particles = [], floatTexts = [];
-    const input = { left: false, right: false, up: false, down: false, fire: false };
+    const input = { left: false, right: false, up: false, down: false, fire: false, boost: false };
     let bombQueued = false, buyQueued = null;
     const local = () => sim ? sim.players[localId] : null;
 
@@ -282,6 +309,7 @@
                 particles.push({ x: cx(p) + side * rand(10, 30), y: GROUND_Y - 1, vx: side * rand(0.8, 2.2) * k, vy: -rand(0.2, 0.9) * k, life: 28, maxLife: 28, color: pick(['#c9a874', '#b89a68', '#d8c090']), size: 3 + k * 3, gravity: 0.01, grow: 0.1 });
             }
         });
+        sim.players.forEach(p => { if (p.alive && p.boosting && isVisible(p.x)) for (let i = 0; i < 2; i++) particles.push({ x: cx(p) - p.dir * (28 + i * 6), y: p.y + 6 + rand(-2, 2), vx: -p.dir * rand(3, 5), vy: rand(-0.4, 0.4), life: 14, maxLife: 14, color: pick(['#ff9a3c', '#ffd27a', '#fff3c4']), size: 4 - i, gravity: 0 }); });
         sim.players.forEach(p => { if (p.alive && Math.abs(p.vx) > 2.2 && isVisible(p.x)) particles.push({ x: cx(p) - p.dir * 26, y: p.y + 8, vx: -p.dir * 0.6, vy: -0.5, life: 20, maxLife: 20, color: '#8899aa', size: 3, gravity: -0.02, grow: 0.1 }); });
     }
     function spawnMuzzleFlash(x, y, dir) {
@@ -293,12 +321,12 @@
     // Input capture -> sim input struct
     // =====================================================================
     function captureInput() {
-        const o = { l: input.left ? 1 : 0, r: input.right ? 1 : 0, u: input.up ? 1 : 0, d: input.down ? 1 : 0, f: input.fire ? 1 : 0, b: bombQueued ? 1 : 0, buy: buyQueued };
+        const o = { l: input.left ? 1 : 0, r: input.right ? 1 : 0, u: input.up ? 1 : 0, d: input.down ? 1 : 0, f: input.fire ? 1 : 0, b: bombQueued ? 1 : 0, bo: input.boost ? 1 : 0, buy: buyQueued };
         bombQueued = false; buyQueued = null;
         return o;
     }
-    const packInput = i => [(i.l ? 1 : 0) | (i.r ? 2 : 0) | (i.u ? 4 : 0) | (i.d ? 8 : 0) | (i.f ? 16 : 0) | (i.b ? 32 : 0), i.buy || 0];
-    const unpackInput = a => ({ l: a[0] & 1, r: a[0] & 2, u: a[0] & 4, d: a[0] & 8, f: a[0] & 16, b: a[0] & 32, buy: a[1] || null });
+    const packInput = i => [(i.l ? 1 : 0) | (i.r ? 2 : 0) | (i.u ? 4 : 0) | (i.d ? 8 : 0) | (i.f ? 16 : 0) | (i.b ? 32 : 0) | (i.bo ? 64 : 0), i.buy || 0];
+    const unpackInput = a => ({ l: a[0] & 1, r: a[0] & 2, u: a[0] & 4, d: a[0] & 8, f: a[0] & 16, b: a[0] & 32, bo: a[0] & 64, buy: a[1] || null });
     const clearInput = () => { Object.keys(input).forEach(k => input[k] = false); bombQueued = false; buyQueued = null; };
 
     // =====================================================================
@@ -337,6 +365,7 @@
             submitScore(p);
             if (shareBtn) shareBtn.style.display = '';
             track('game_over', { mode: daily ? 'daily' : 'solo', score: p.score, wave: sim.wave, rescued: p.rescued, new_best: newBest });
+            setTimeout(() => { board.fetchedAt = 0; }, 1500);
         }
     }
     if (cfg.pingUrl && typeof fetch === 'function') {
@@ -1033,6 +1062,11 @@
         ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; if (pct > 0) { rrect(56, 12, Math.max(6, Math.round(96 * pct)), 10, 3); ctx.fill(); }
         ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(57, 13, Math.max(0, Math.round(96 * pct) - 2), 3);
         if (p.upgrades.armor) { ctx.fillStyle = '#8f8'; ctx.font = 'bold 9px Arial'; ctx.fillText('+' + p.upgrades.armor, 154, 21); ctx.font = 'bold 13px Arial'; }
+        // Booster meter just under the hull bar
+        const bpct = clamp(p.boost / Sim.BOOST.max, 0, 1);
+        ctx.fillStyle = '#222'; ctx.fillRect(56, 24, 96, 4);
+        ctx.fillStyle = p.boosting ? '#ffb347' : bpct >= 1 ? '#6cf' : '#48a'; ctx.fillRect(56, 24, Math.round(96 * bpct), 4);
+        ctx.fillStyle = '#9cf'; ctx.font = 'bold 8px Arial'; ctx.fillText('JET', 36, 29); ctx.font = 'bold 13px Arial';
         ctx.fillStyle = '#fff'; ctx.fillText('BOMBS', 14, 42);
         for (let i = 0; i < MAX_BOMBS; i++) { ctx.fillStyle = i < p.bombs ? '#f90' : '#444'; ctx.beginPath(); ctx.arc(70 + i * 15, 38, 5, 0, Math.PI * 2); ctx.fill(); }
         ctx.fillStyle = '#fff'; ctx.fillText('ABOARD', 14, 62);
@@ -1052,7 +1086,7 @@
         ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
         ctx.fillText(String(p.score).padStart(6, '0'), GAME_WIDTH - 14, 26);
         ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#ccc';
-        if (sim.mode === 'solo') { ctx.fillText('BEST ' + highScore, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave, GAME_WIDTH - 14, 62); }
+        if (sim.mode === 'solo') { ctx.fillText('BEST ' + highScore, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + '   THREAT x' + Sim.threat(sim).toFixed(1), GAME_WIDTH - 14, 62); }
         else if (sim.mode === 'coop') { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + '   LIVES ' + sim.lives, GAME_WIDTH - 14, 62); }
         else { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('DOWNED ' + p.deaths + ' / ' + o.deaths, GAME_WIDTH - 14, 62); }
         ctx.fillStyle = '#8f8'; ctx.font = 'bold 18px Arial'; ctx.fillText('$' + p.credits, GAME_WIDTH - 14, 84);
@@ -1144,6 +1178,8 @@
             bigText((isTouch ? 'Upgrade ' : 'Press 3 / 4 to upgrade ') + 'Guns and Armor · 5 Airstrike · 6 Hold troops · 7 Load and paradrop soldiers', 278, 12, '#8f8');
             if (blink) bigText(prompt + 'START', 310, 20, '#0f0');
             if (highScore > 0) bigText('BEST ' + highScore, 345, 14, '#ccc');
+            bigText('Hold SHIFT (or BOOST) while flying to engage the jet booster', 362, 11, '#9cf');
+            loadBoard(); drawBoardPanel(GAME_WIDTH - 200, 8, daily ? 'TODAY\'S TOP PILOTS' : 'TOP PILOTS');
         } else if (screen === 'paused') {
             overlay(0.5);
             bigText('PAUSED', 190, 40, '#fff');
@@ -1154,6 +1190,7 @@
             bigText(`RESCUED ${sim.waveRescued}   LOST ${sim.waveLost}`, 195, 18, '#fff');
             bigText('BONUS +' + sim.waveBonus + (sim.waveLost === 0 ? '  PERFECT!' : ''), 225, 18, sim.waveLost === 0 ? '#0f0' : '#ff0');
             bigText('GET READY FOR WAVE ' + (sim.wave + 1) + ((sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '  ·  GUNSHIP WAVE' : ''), 280, 16, (sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '#f66' : '#ccc');
+            bigText('THREAT RISES TO x' + Sim.threat({ wave: sim.wave + 1 }).toFixed(1) + ' · tougher armour, harder hits, richer enemy', 302, 12, '#fc6');
         } else if (screen === 'gameover') {
             const p = local();
             overlay(Math.min(0.55, screenTimer / 40));
@@ -1163,6 +1200,7 @@
             if (newBest) bigText('NEW BEST SCORE!', 255, 20, '#ff0'); else bigText('BEST ' + highScore, 255, 16, '#ccc');
             if (submitStatus) bigText(submitStatus, 285, 13, '#8f8');
             if (screenTimer > 30 && blink) bigText(isTouch ? 'TAP TO RETRY' : 'PRESS R OR SPACE TO RETRY', 310, 18, '#0f0');
+            loadBoard(); drawBoardPanel(GAME_WIDTH - 200, 8, daily ? 'TODAY\'S TOP PILOTS' : 'TOP PILOTS');
         } else if (screen === 'lobby') {
             overlay(0.55);
             bigText('ONLINE MATCH', 90, 36, '#ff0');
@@ -1241,7 +1279,7 @@
     // =====================================================================
     // Input
     // =====================================================================
-    const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire' };
+    const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire', ShiftLeft: 'boost', ShiftRight: 'boost' };
     const BUYKEYS = { Digit1: 'soldier', Numpad1: 'soldier', Digit2: 'tank', Numpad2: 'tank', Digit3: 'gun', Numpad3: 'gun', Digit4: 'armor', Numpad4: 'armor',
         Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops' };
     const inPlay = () => screen === 'playing';
@@ -1277,6 +1315,7 @@
     bindControl(document.getElementById('btnDown'), () => input.down = true, () => input.down = false);
     bindControl(document.getElementById('btnShoot'), () => { if (!inPlay()) primaryAction(); input.fire = true; }, () => input.fire = false);
     bindControl(document.getElementById('btnBomb'), () => { if (inPlay()) bombQueued = true; }, () => {});
+    bindControl(document.getElementById('btnBoost'), () => input.boost = true, () => input.boost = false);
     shopButtons.forEach(([btn, type]) => {
         if (!btn) return;
         btn.addEventListener('click', () => { Sound.unlock(); if (inPlay()) buyQueued = type; btn.blur(); });

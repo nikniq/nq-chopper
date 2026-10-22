@@ -22,6 +22,7 @@ Route::get('/pilots/{user}', ProfileController::class)->name('profile');
 Route::get('/sitemap.xml', SitemapController::class)->name('sitemap');
 Route::get('/leaderboard', LeaderboardController::class)->name('leaderboard');
 Route::get('/health', HealthController::class)->name('health');
+Route::get('/api/leaderboard', [ScoreController::class, 'board'])->middleware('throttle:60,1')->name('scores.board');
 
 Route::middleware('guest')->group(function () {
     Route::get('/register', [RegisterController::class, 'create'])->name('register');

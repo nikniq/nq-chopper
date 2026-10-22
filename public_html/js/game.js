@@ -294,7 +294,17 @@
         if (reducedMotion) shake = 0;
         if (shake > 0) shake *= 0.85;
         if (shake < 0.5) shake = 0;
-        if (sim) emitTrails();
+        if (sim) { emitTrails(); emitWeather(); }
+    }
+    // Ambient weather per biome: blowing sand, snowfall, rising embers
+    function emitWeather() {
+        if (!sim || lowDetail || particles.length > MAX_PARTICLES - 40) return;
+        const w = biome().weather;
+        if (!w || frame % (w === 'snow' ? 1 : 2)) return;
+        const x = cameraX + rand(-40, GAME_WIDTH + 40);
+        if (w === 'sand') particles.push({ x, y: rand(GROUND_Y - 70, GROUND_Y), vx: rand(2, 4), vy: rand(-0.3, 0.1), life: 50, maxLife: 50, color: 'rgba(230,200,140,0.6)', size: rand(1.5, 3), gravity: 0 });
+        else if (w === 'snow') particles.push({ x, y: -5, vx: rand(-0.4, 0.4), vy: rand(0.6, 1.3), life: 400, maxLife: 400, color: 'rgba(255,255,255,0.9)', size: rand(1.5, 3), gravity: 0, grow: 0 });
+        else if (w === 'ember') particles.push({ x, y: GROUND_Y + 2, vx: rand(-0.3, 0.3), vy: -rand(0.6, 1.4), life: 90, maxLife: 90, color: pick(['#ff7a2a', '#ffb347', '#ff4a1a']), size: rand(1.5, 2.5), gravity: -0.005 });
     }
     // Smoke trails behind shells and bombs, exhaust behind fast choppers
     function emitTrails() {
@@ -507,7 +517,7 @@
         else if (screen === 'lobby') announce('Online lobby. ' + net.status.toLowerCase());
         else if (screen === 'over' && p) announce((sim.mode === 'coop' ? 'Mission over. ' : sim.winner === localId ? 'Victory. ' : sim.winner === null ? 'Draw. ' : 'Defeat. ') + (sim.endReason || ''));
         else if (screen === 'playing' && sim.mode === 'solo' && sim.status === 'waveclear') announce(`Wave ${sim.wave} clear. Get ready for wave ${sim.wave + 1}.`);
-        else if (screen === 'playing' && sim.mode === 'solo' && sim.statusTimer === 0 && sim.frame < 20) announce(`Wave ${sim.wave}. Rescue the hostages.`);
+        else if (screen === 'playing' && sim.mode === 'solo' && sim.statusTimer === 0 && sim.frame < 20) announce(`Wave ${sim.wave}, ${biome().name.toLowerCase()} terrain. Rescue the hostages.`);
     }
     function updateDomScore() {
         const p = local();
@@ -551,16 +561,34 @@
     // =====================================================================
     // Rendering
     // =====================================================================
-    // Time of day drifts with the wave in solo (day -> dusk -> night -> dawn); versus is golden hour
-    function dayPhase() { return sim && sim.mode === 'solo' ? ((sim.wave - 1) % 4) / 4 : 0.2; }
+    // Terrain changes every wave (jungle, desert, arctic, volcanic); time of day steps every four waves.
+    // Versus matches pick a biome from the shared seed so both players see the same world.
+    const BIOMES = [
+        { key: 'jungle', name: 'JUNGLE', sky: ['#1b4f9c', '#5fb8f0', '#a8e0ff'], far: 'rgba(90,120,170,0.55)', mtn: '#3c5a86', hills: '#2f7a4a', haze: 'rgba(220,235,255,0.35)',
+          grass: ['#3fa63f', '#5ac25a', '#2f8a2f'], soil: ['#6b4a2b', '#3e2a16'], strata: '#5a3d22', rock: '#7a6a5a', trees: ['palm', 'leafy'], density: 1, weather: null },
+        { key: 'desert', name: 'DESERT', sky: ['#2a6fb8', '#8fd0f5', '#f6e3b4'], far: 'rgba(200,160,110,0.5)', mtn: '#b98a5a', hills: '#d9b276', haze: 'rgba(255,235,200,0.45)',
+          grass: ['#d9b276', '#eacc90', '#b8925c'], soil: ['#c9a06a', '#8a6a3c'], strata: '#a8824e', rock: '#9a8468', trees: ['cactus', 'shrub'], density: 0.55, weather: 'sand' },
+        { key: 'arctic', name: 'ARCTIC', sky: ['#5a7fb0', '#b8d4ee', '#eef5ff'], far: 'rgba(170,190,220,0.6)', mtn: '#8fa4c4', hills: '#dbe6f2', haze: 'rgba(255,255,255,0.5)',
+          grass: ['#e8f0f8', '#ffffff', '#c7d6e6'], soil: ['#8fa0b4', '#5a6a80'], strata: '#7a8aa0', rock: '#9fb0c4', trees: ['pine', 'pine'], density: 0.8, weather: 'snow' },
+        { key: 'volcanic', name: 'VOLCANIC', sky: ['#1a0a10', '#5a1a1a', '#b84a2a'], far: 'rgba(80,40,40,0.7)', mtn: '#3a2424', hills: '#4a2a22', haze: 'rgba(255,120,60,0.18)',
+          grass: ['#4a3a34', '#5a4a44', '#3a2a24'], soil: ['#2a1a16', '#120a08'], strata: '#3a2420', rock: '#2a2020', trees: ['dead', 'spire'], density: 0.5, weather: 'ember' }
+    ];
+    function biome() {
+        if (!sim) return BIOMES[0];
+        if (sim.mode === 'versus') return BIOMES[Math.abs(sim.seed) % BIOMES.length];
+        return BIOMES[(sim.wave - 1) % BIOMES.length];
+    }
+    function dayPhase() { return sim && sim.mode !== 'versus' ? (Math.floor((sim.wave - 1) / 4) % 4) / 4 : 0.2; }
     const SKIES = [
         ['#1b4f9c', '#5fb8f0', '#a8e0ff'], ['#2a2a6a', '#e07a4a', '#ffd38a'],
         ['#05081c', '#141a3c', '#2b3560'], ['#3a2a5a', '#d87a8a', '#ffd6c2']
     ];
     function drawSky() {
-        const ph = dayPhase(), idx = Math.round(ph * 4) % 4, sky = SKIES[idx];
-        ctx.fillStyle = cached('sky' + idx, () => { const g = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT); g.addColorStop(0, sky[0]); g.addColorStop(0.65, sky[1]); g.addColorStop(1, sky[2]); return g; });
+        const ph = dayPhase(), idx = Math.round(ph * 4) % 4, bm = biome();
+        const sky = idx === 0 ? bm.sky : SKIES[idx];
+        ctx.fillStyle = cached('sky' + idx + bm.key, () => { const g = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT); g.addColorStop(0, sky[0]); g.addColorStop(0.65, sky[1]); g.addColorStop(1, sky[2]); return g; });
         ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        if (bm.key === 'volcanic') { ctx.fillStyle = cached('volglow', () => { const g = ctx.createLinearGradient(0, GROUND_Y - 160, 0, GROUND_Y); g.addColorStop(0, 'rgba(255,90,30,0)'); g.addColorStop(1, 'rgba(255,90,30,0.35)'); return g; }); ctx.fillRect(0, GROUND_Y - 160, GAME_WIDTH, 160); }
         const night = ph >= 0.45 && ph < 0.8;
         if (night) {
             stars.forEach(st => { ctx.globalAlpha = 0.5 + 0.5 * Math.abs(Math.sin(frame / 40 + st.tw)); ctx.fillStyle = '#fff'; ctx.fillRect(st.x, st.y, st.r, st.r); });
@@ -592,6 +620,19 @@
             ctx.fill();
         });
     }
+    // Snow caps or lava tips on the mountain peaks
+    function drawCaps(items, factor, color) {
+        const off = (cameraX * factor) % mountainPeriod;
+        ctx.fillStyle = color;
+        for (let k = -1; k <= Math.ceil(GAME_WIDTH / mountainPeriod) + 1; k++) {
+            const sx = k * mountainPeriod - off;
+            items.forEach(m => {
+                const capH = m.h * 0.28, capW = m.w * 0.28;
+                ctx.beginPath(); ctx.moveTo(sx + m.x - capW / 2, GROUND_Y - m.h + capH); ctx.lineTo(sx + m.x, GROUND_Y - m.h); ctx.lineTo(sx + m.x + capW / 2, GROUND_Y - m.h + capH);
+                ctx.lineTo(sx + m.x + capW / 4, GROUND_Y - m.h + capH * 0.8); ctx.lineTo(sx + m.x, GROUND_Y - m.h + capH * 1.1); ctx.lineTo(sx + m.x - capW / 4, GROUND_Y - m.h + capH * 0.8); ctx.closePath(); ctx.fill();
+            });
+        }
+    }
     function drawLayer(items, factor, color, baseY) {
         const off = (cameraX * factor) % mountainPeriod;
         ctx.fillStyle = color;
@@ -605,8 +646,27 @@
         }
     }
     function drawTree(t) {
+        const bm = biome(), kind = bm.trees[t.palm ? 0 : 1];
         ctx.save(); ctx.translate(t.x, GROUND_Y); ctx.rotate(t.lean);
-        if (t.palm) {
+        if (kind === 'cactus') {
+            ctx.fillStyle = '#4f8a3a'; rrect(-3, -t.h, 6, t.h, 3); ctx.fill();
+            rrect(-12, -t.h * 0.6, 5, t.h * 0.35, 2.5); ctx.fill(); ctx.fillRect(-12, -t.h * 0.6, 10, 4);
+            rrect(7, -t.h * 0.75, 5, t.h * 0.45, 2.5); ctx.fill(); ctx.fillRect(2, -t.h * 0.75 + t.h * 0.45 - 4, 10, 4);
+            ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, -t.h + 3); ctx.lineTo(0, -2); ctx.stroke();
+        } else if (kind === 'shrub') {
+            ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 1.5;
+            for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + (i - 2) * 0.35; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * t.h * 0.4, Math.sin(a) * t.h * 0.4); ctx.stroke(); }
+        } else if (kind === 'pine') {
+            ctx.fillStyle = '#4a3a2a'; ctx.fillRect(-2, -t.h * 0.35, 4, t.h * 0.35);
+            for (let i = 0; i < 3; i++) { const yy = -t.h * (0.3 + i * 0.22), w = t.h * (0.5 - i * 0.12); ctx.fillStyle = '#2d5a3a'; ctx.beginPath(); ctx.moveTo(-w / 2, yy); ctx.lineTo(0, yy - t.h * 0.3); ctx.lineTo(w / 2, yy); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = '#eef6ff'; ctx.beginPath(); ctx.moveTo(-w / 2 + 2, yy); ctx.lineTo(0, yy - t.h * 0.12); ctx.lineTo(w / 2 - 2, yy); ctx.closePath(); ctx.fill(); }
+        } else if (kind === 'dead') {
+            ctx.strokeStyle = '#1e1414'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -t.h); ctx.moveTo(0, -t.h * 0.55); ctx.lineTo(-t.h * 0.3, -t.h * 0.8); ctx.moveTo(0, -t.h * 0.7); ctx.lineTo(t.h * 0.25, -t.h * 0.95); ctx.stroke();
+        } else if (kind === 'spire') {
+            ctx.fillStyle = '#241818'; ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(-1, -t.h * 1.2); ctx.lineTo(1, -t.h * 1.2); ctx.lineTo(7, 0); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = 'rgba(255,100,40,' + (0.4 + 0.4 * Math.abs(Math.sin(frame / 30 + t.x))) + ')'; ctx.fillRect(-1, -t.h * 1.2, 2, 4);
+        } else if (kind === 'palm') {
             ctx.strokeStyle = '#7a5a30'; ctx.lineWidth = 4; ctx.lineCap = 'round';
             ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(6, -t.h * 0.6, 2, -t.h); ctx.stroke();
             ctx.strokeStyle = '#2f8a3f'; ctx.lineWidth = 3;
@@ -619,26 +679,28 @@
         ctx.restore();
     }
     function drawGround() {
+        const bm = biome();
         const left = cameraX - 40, right = cameraX + GAME_WIDTH + 40;
-        trees.forEach(t => { if (t.x > left && t.x < right) drawTree(t); });
+        trees.forEach((t, i) => { if (t.x > left && t.x < right && ((i * 7919) % 100) / 100 < bm.density) drawTree(t); });
         const startX = Math.floor(cameraX / 40) * 40 - 40;
-        ctx.fillStyle = cached('soil', () => { const g = ctx.createLinearGradient(0, GROUND_Y + 8, 0, GAME_HEIGHT); g.addColorStop(0, '#6b4a2b'); g.addColorStop(1, '#3e2a16'); return g; });
+        ctx.fillStyle = cached('soil' + bm.key, () => { const g = ctx.createLinearGradient(0, GROUND_Y + 8, 0, GAME_HEIGHT); g.addColorStop(0, bm.soil[0]); g.addColorStop(1, bm.soil[1]); return g; });
         ctx.fillRect(left, GROUND_Y + 8, GAME_WIDTH + 80, GAME_HEIGHT - GROUND_Y);
-        ctx.fillStyle = '#3fa63f'; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 8);
-        ctx.fillStyle = '#5ac25a'; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 2);
-        ctx.fillStyle = '#5a3d22';
+        ctx.fillStyle = bm.grass[0]; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 8);
+        ctx.fillStyle = bm.grass[1]; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 2);
+        ctx.fillStyle = bm.strata;
         for (let x = startX; x < right; x += 40) { ctx.fillRect(x + ((x / 40) % 2) * 12, GROUND_Y + 12, 16, 3); ctx.fillRect(x + 6, GROUND_Y + 17, 8, 2); }
+        if (bm.key === 'volcanic') { ctx.fillStyle = 'rgba(255,110,40,' + (0.5 + 0.3 * Math.sin(frame / 20)) + ')'; for (let x = startX; x < right; x += 80) ctx.fillRect(x + 30, GROUND_Y + 10, 20, 1.5); }
         craters.forEach(c => {
             if (!isVisible(c.x)) return;
             ctx.fillStyle = 'rgba(20,12,6,0.55)'; ctx.beginPath(); ctx.ellipse(c.x, GROUND_Y + 2, c.w / 2, 4, 0, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = '#3a2a16'; ctx.beginPath(); ctx.ellipse(c.x, GROUND_Y + 3, c.w / 2 - 4, 2.5, 0, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(c.x, GROUND_Y + 1, c.w / 2 + 6, 2, 0, 0, Math.PI * 2); ctx.fill();
         });
-        ctx.fillStyle = '#7a6a5a';
+        ctx.fillStyle = bm.rock;
         rocks.forEach(r => { if (r.x > left && r.x < right) { ctx.beginPath(); ctx.ellipse(r.x, GROUND_Y + 1, r.w / 2, r.h, 0, Math.PI, 0); ctx.fill(); } });
-        ctx.strokeStyle = '#2f8a2f'; ctx.lineWidth = 1.5;
+        ctx.strokeStyle = bm.grass[2]; ctx.lineWidth = 1.5;
         ctx.beginPath();
-        if (!lowDetail) grass.forEach(gb => { if (gb.x > left && gb.x < right) { const sway = Math.sin(frame / 25 + gb.ph) * 1.5; ctx.moveTo(gb.x, GROUND_Y + 1); ctx.lineTo(gb.x + sway, GROUND_Y - gb.h); ctx.moveTo(gb.x + 3, GROUND_Y + 1); ctx.lineTo(gb.x + 3 + sway, GROUND_Y - gb.h * 0.7); } });
+        if (!lowDetail && bm.key !== 'arctic') grass.forEach(gb => { if (gb.x > left && gb.x < right) { const sway = Math.sin(frame / 25 + gb.ph) * 1.5; ctx.moveTo(gb.x, GROUND_Y + 1); ctx.lineTo(gb.x + sway, GROUND_Y - gb.h); ctx.moveTo(gb.x + 3, GROUND_Y + 1); ctx.lineTo(gb.x + 3 + sway, GROUND_Y - gb.h * 0.7); } });
         ctx.stroke();
     }
     function drawRubble(b) {
@@ -1082,17 +1144,18 @@
         // Right block: score, credits, troops
         const myUnits = sim.units.filter(u => u.team === p.team).length;
         ctx.textAlign = 'right';
-        panel(GAME_WIDTH - 158, 8, 150, 92);
+        panel(GAME_WIDTH - 158, 8, 150, sim.mode === 'versus' ? 92 : 108);
         ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
         ctx.fillText(String(p.score).padStart(6, '0'), GAME_WIDTH - 14, 26);
         ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#ccc';
-        if (sim.mode === 'solo') { ctx.fillText('BEST ' + highScore, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + '   THREAT x' + Sim.threat(sim).toFixed(1), GAME_WIDTH - 14, 62); }
-        else if (sim.mode === 'coop') { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + '   LIVES ' + sim.lives, GAME_WIDTH - 14, 62); }
+        if (sim.mode === 'solo') { ctx.fillText('BEST ' + highScore, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + ' · ' + biome().name, GAME_WIDTH - 14, 62); }
+        else if (sim.mode === 'coop') { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + ' · ' + biome().name + '  LIVES ' + sim.lives, GAME_WIDTH - 14, 62); }
         else { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('DOWNED ' + p.deaths + ' / ' + o.deaths, GAME_WIDTH - 14, 62); }
         ctx.fillStyle = '#8f8'; ctx.font = 'bold 18px Arial'; ctx.fillText('$' + p.credits, GAME_WIDTH - 14, 84);
         ctx.textAlign = 'left'; ctx.font = 'bold 11px Arial';
         ctx.fillText('CREDITS', GAME_WIDTH - 152, 84);
         ctx.fillStyle = '#ccc'; ctx.fillText('TROOPS ' + myUnits + '/' + MAX_ALLIES + (sim.mode !== 'versus' ? '   ENEMY $' + Math.floor(sim.aiCredits) : ''), GAME_WIDTH - 152, 97);
+        if (sim.mode !== 'versus') { ctx.fillStyle = '#fc6'; ctx.fillText('THREAT x' + Sim.threat(sim).toFixed(1), GAME_WIDTH - 152, 110); }
         // Radar strip
         const rx = 170, ry = 10, rw = GAME_WIDTH - 340, rh = 12;
         ctx.fillStyle = 'rgba(8,12,20,0.7)'; rrect(rx - 2, ry - 2, rw + 4, rh + 4, 4); ctx.fill();
@@ -1191,6 +1254,7 @@
             bigText('BONUS +' + sim.waveBonus + (sim.waveLost === 0 ? '  PERFECT!' : ''), 225, 18, sim.waveLost === 0 ? '#0f0' : '#ff0');
             bigText('GET READY FOR WAVE ' + (sim.wave + 1) + ((sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '  ·  GUNSHIP WAVE' : ''), 280, 16, (sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '#f66' : '#ccc');
             bigText('THREAT RISES TO x' + Sim.threat({ wave: sim.wave + 1 }).toFixed(1) + ' · tougher armour, harder hits, richer enemy', 302, 12, '#fc6');
+            bigText('NEXT TERRAIN: ' + BIOMES[sim.wave % BIOMES.length].name, 322, 13, '#9cf');
         } else if (screen === 'gameover') {
             const p = local();
             overlay(Math.min(0.55, screenTimer / 40));
@@ -1244,12 +1308,14 @@
         ctx.save();
         ctx.beginPath(); ctx.rect(0, 0, GAME_WIDTH, GAME_HEIGHT); ctx.clip();
         drawSky();
-        drawLayer(farMountains, 0.12, 'rgba(90,120,170,0.55)', GROUND_Y - 10);
-        drawLayer(mountains, 0.25, '#3c5a86', GROUND_Y);
+        const bm = biome();
+        drawLayer(farMountains, 0.12, bm.far, GROUND_Y - 10);
+        drawLayer(mountains, 0.25, bm.mtn, GROUND_Y);
+        if (bm.key === 'arctic' || bm.key === 'volcanic') drawCaps(mountains, 0.25, bm.key === 'arctic' ? '#ffffff' : '#ff6a2a');
         // Haze band between layers
-        ctx.fillStyle = cached('haze', () => { const h = ctx.createLinearGradient(0, GROUND_Y - 120, 0, GROUND_Y); h.addColorStop(0, 'rgba(255,255,255,0)'); h.addColorStop(1, 'rgba(220,235,255,0.35)'); return h; });
+        ctx.fillStyle = cached('haze' + bm.key, () => { const h = ctx.createLinearGradient(0, GROUND_Y - 120, 0, GROUND_Y); h.addColorStop(0, 'rgba(255,255,255,0)'); h.addColorStop(1, bm.haze); return h; });
         ctx.fillRect(0, GROUND_Y - 120, GAME_WIDTH, 120);
-        drawLayer(hills, 0.5, '#2f7a4a', GROUND_Y);
+        drawLayer(hills, 0.5, bm.hills, GROUND_Y);
         if (sim) {
             const sx = shake > 0 ? (Math.random() - 0.5) * shake : 0, sy = shake > 0 ? (Math.random() - 0.5) * shake : 0;
             ctx.save();
@@ -1398,7 +1464,9 @@
         if (hash.indexOf('#autostart') === 0) {
             startSolo(); input.up = true; input.right = true;
             setTimeout(() => { input.up = false; input.fire = true; }, 1500);
-            if (hash === '#autostart-demo') { // screenshot/demo helper: show troops near base
+            const wm = /wave=(\d+)/.exec(hash); // screenshot helper: jump straight to a given wave
+            if (wm && mode === 'solo') { sim.wave = Math.max(0, parseInt(wm[1], 10) - 1); sim.status = 'waveclear'; sim.statusTimer = 179; }
+            if (hash.indexOf('#autostart-demo') === 0) { // screenshot/demo helper: show troops near base
                 sim.players[0].credits = 1000; input.right = false;
                 setTimeout(() => { buyQueued = 'tank'; }, 300); setTimeout(() => { buyQueued = 'soldier'; }, 600); setTimeout(() => { buyQueued = 'soldier'; }, 900);
             }

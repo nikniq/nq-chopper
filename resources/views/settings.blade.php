@@ -30,6 +30,13 @@
     </section>
 </div>
 
+@if (auth()->user()->google_id)
+<section class="card" style="max-width:none">
+    <h2>Google</h2>
+    <p class="muted">This account is linked to Google{{ auth()->user()->email ? ' ('.auth()->user()->email.')' : '' }}. You can sign in with Google or with your password. If you never set a password, use "Forgot password" to create one.</p>
+</section>
+@endif
+
 <section class="card danger">
     <h2>Delete account</h2>
     <p class="muted">Removes your account, scores and match history permanently.</p>

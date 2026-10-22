@@ -90,3 +90,6 @@ h2 .more { font-size: 0.8rem; font-weight: 400; margin-left: 10px; }
 .modes { border: 1px solid #fff2; border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
 .mode { display: block; font-weight: 400; margin: 6px 0; cursor: pointer; }
 .mode span { display: block; font-size: 0.85rem; margin-left: 22px; }
+.btn-google { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; background: #fff; color: #222 !important; font-weight: 600; margin-top: 8px; }
+.btn-google:hover { background: #f1f3f4; }
+.or { text-align: center; margin: 10px 0 0; }

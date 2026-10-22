@@ -39,6 +39,13 @@ return [
         'id' => env('GOOGLE_ANALYTICS_ID'),
     ],
 
+    // Sign in with Google (Laravel Socialite). Leave empty to hide the button.
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', '/auth/google/callback'),
+    ],
+
     // Optional TURN relay for online matches (comma-separated urls). Without TURN,
     // players behind symmetric/carrier NAT fall back to relaying inputs via this server.
     'turn' => [

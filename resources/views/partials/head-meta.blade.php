@@ -7,6 +7,10 @@
 <meta property="og:image" content="{{ asset('icon.svg') }}">
 <link rel="icon" href="{{ asset('favicon.ico') }}" sizes="any">
 <link rel="icon" href="{{ asset('icon.svg') }}" type="image/svg+xml">
-<link rel="apple-touch-icon" href="{{ asset('icon.svg') }}">
+<link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NQ Chopper">
 <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
 <script>if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); }); }</script>

@@ -6,14 +6,20 @@ const simSrc = fs.readFileSync('public_html/js/sim.js', 'utf8');
 const gameSrc = fs.readFileSync('public_html/js/game.js', 'utf8');
 const noop = () => {};
 
-function makeClient(config, fakeNet) {
+function makeClient(config, fakeNet, opts = {}) {
     const ctxProxy = new Proxy({}, { get: (t, k) => (k === 'createLinearGradient' || k === 'createRadialGradient') ? () => ({ addColorStop: noop }) : noop, set: () => true });
-    const mkEl = () => ({ style: {}, classList: { add: noop }, addEventListener: noop, getContext: () => ctxProxy, textContent: '', disabled: false, blur: noop, width: 640, height: 400, querySelector: () => ({ textContent: '' }) });
+    const mkEl = () => {
+        const cls = new Set(), attrs = {};
+        return { style: {}, dataset: {}, firstChild: null, attrs,
+            classList: { add: c => cls.add(c), remove: c => cls.delete(c), contains: c => cls.has(c), toggle: (c, on) => { const v = on === undefined ? !cls.has(c) : !!on; if (v) cls.add(c); else cls.delete(c); return v; } },
+            setAttribute: (k, v) => { attrs[k] = String(v); }, getAttribute: k => attrs[k], appendChild: noop, insertBefore: noop, remove: noop,
+            addEventListener: noop, getContext: () => ctxProxy, textContent: '', disabled: false, blur: noop, width: 640, height: 400, querySelector: () => ({ textContent: '' }) };
+    };
     const els = {}, docHandlers = {}, fetches = [];
     let rafCb = null;
     const win = {
         NQ_CONFIG: config, matchMedia: () => ({ matches: false }), addEventListener: noop, innerWidth: 1280, innerHeight: 800,
-        requestAnimationFrame: cb => { rafCb = cb; }, setTimeout: (fn) => { fn(); return 0; }, clearTimeout: noop, location: { href: '' },
+        requestAnimationFrame: cb => { rafCb = cb; }, setTimeout: (fn) => { fn(); return 0; }, clearTimeout: noop, location: { href: '', search: opts.search || '', hash: '' },
         fetch: (url, o) => { fetches.push({ url, body: o && JSON.parse(o.body) }); return Promise.resolve({ ok: true, json: () => Promise.resolve({ rank: 1, best: 1 }) }); }
     };
     win.window = win; win.self = win; win.globalThis = win;
@@ -102,6 +108,42 @@ assert.strictEqual(host.nq.screen, 'over', 'host sees match over'); assert.stric
 assert.strictEqual(sa.winner, 0, 'host wins'); assert.strictEqual(sb.winner, 0, 'guest agrees host won');
 assert.ok(host.fetches.some(f => f.url === '/result' && f.body.winner === 0), 'result posted');
 console.log('lockstep client ok');
+
+// ---- Touch flight controller (?touch=1): parked thumb stays landed, soft landings, altitude hold ----
+{
+    const tc = makeClient({ scoreUrl: null, csrf: 'x', match: null }, null, { search: '?touch=1' });
+    const nq = tc.nq;
+    assert.strictEqual(nq.autoFire, true, 'auto-fire defaults on for touch');
+    nq.startSolo(); tc.frames(2);
+    const s = nq.sim, p = s.players[0];
+    const calm = () => { s.units = []; s.shells = []; s.ai.alive = false; s.ai.respawn = 0; };
+    calm();
+    assert.ok(p.landed, 'starts parked on the pad');
+    // Thumb resting on the stick, centred: the chopper must stay on the ground
+    nq.stick.active = true; nq.stick.x = 0; nq.stick.y = 0;
+    let landedFrames = 0;
+    for (let i = 0; i < 300; i++) { calm(); tc.frames(1); if (p.landed) landedFrames++; }
+    assert.strictEqual(landedFrames, 300, 'a centred resting thumb keeps the chopper parked: ' + landedFrames);
+    // A slight upward wobble does not lift off either; a clear push does
+    nq.stick.y = -0.2; for (let i = 0; i < 60; i++) { calm(); tc.frames(1); }
+    assert.ok(p.landed, 'small upward wobble stays parked');
+    nq.stick.y = -1; for (let i = 0; i < 90; i++) { calm(); tc.frames(1); }
+    assert.ok(!p.landed && p.y < 200, 'full up climbs: y=' + p.y.toFixed(1));
+    // Release: holds altitude instead of falling or rocketing
+    nq.stick.active = false; nq.stick.y = 0;
+    for (let i = 0; i < 90; i++) { calm(); tc.frames(1); }
+    const y0 = p.y; for (let i = 0; i < 180; i++) { calm(); tc.frames(1); }
+    assert.ok(Math.abs(p.y - y0) < 3, 'released stick holds altitude, drift ' + (p.y - y0).toFixed(2));
+    // Pull fully down from altitude: touches down softly, no HARD LANDING damage
+    const hp = p.health;
+    nq.stick.active = true; nq.stick.y = 1;
+    let frames = 0; while (!p.landed && frames < 600) { calm(); tc.frames(1); frames++; }
+    assert.ok(p.landed && p.health === hp, `full-down touchdown is soft (landed=${p.landed}, health ${hp} -> ${p.health}, ${frames} frames)`);
+    // Keyboard use takes priority over the stick
+    tc.key('ArrowUp'); for (let i = 0; i < 30; i++) { calm(); tc.frames(1); } tc.key('ArrowUp', true);
+    assert.ok(!p.landed, 'keyboard input overrides the stick');
+    console.log('touch flight ok');
+}
 
 // ---- Co-op: same harness, allied pilots vs the AI, must stay in sync and share lives ----
 {

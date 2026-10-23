@@ -35,21 +35,28 @@
         fetch(cfg.boardUrl + '?mode=' + m, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
             .then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => { board.rows = d.rows || []; }).catch(() => { board.rows = board.rows || []; });
     }
+    // On phones the canvas is scaled down; never let HUD text drop below ~10.5 real CSS pixels
+    const MIN_CSS_PX = 10.5;
+    function hudSize(px) { return isTouch ? Math.max(px, Math.ceil(MIN_CSS_PX / (view.cssPerUnit || 1))) : px; }
+    function hudFont(px, bold) { return (bold === false ? '' : 'bold ') + hudSize(px) + 'px Arial'; }
     function drawBoardPanel(x, y, title) {
         if (!cfg.boardUrl) return;
         const rows = board.rows;
+        const n = hudSize(10), pitch = n + 5, w = isTouch ? 210 : 190;
+        x = Math.min(x, GAME_WIDTH - w - 8);
         ctx.save();
-        panel(x, y, 190, 20 + 15 * 5 + 18);
-        ctx.fillStyle = '#ff0'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'left'; ctx.fillText(title, x + 8, y + 14);
-        ctx.font = 'bold 10px Arial';
-        if (!rows) { ctx.fillStyle = '#aaa'; ctx.fillText('loading...', x + 8, y + 32); }
-        else if (!rows.length) { ctx.fillStyle = '#aaa'; ctx.fillText('No scores yet. Be the first!', x + 8, y + 32); }
+        panel(x, y, w, 22 + pitch * 5 + n + 8);
+        ctx.fillStyle = '#ff0'; ctx.font = hudFont(11); ctx.textAlign = 'left'; ctx.fillText(title, x + 8, y + 15);
+        ctx.font = hudFont(10);
+        const top = y + 20 + n;
+        if (!rows) { ctx.fillStyle = '#aaa'; ctx.fillText('loading...', x + 8, top); }
+        else if (!rows.length) { ctx.fillStyle = '#aaa'; ctx.fillText('No scores yet. Be the first!', x + 8, top); }
         else rows.slice(0, 5).forEach((r, i) => {
             ctx.fillStyle = r.me ? '#8f8' : '#fff';
-            ctx.textAlign = 'left'; ctx.fillText((i + 1) + '. ' + String(r.name).slice(0, 14), x + 8, y + 32 + i * 15);
-            ctx.textAlign = 'right'; ctx.fillText(String(r.score), x + 182, y + 32 + i * 15);
+            ctx.textAlign = 'left'; ctx.fillText((i + 1) + '. ' + String(r.name).slice(0, 14), x + 8, top + i * pitch, w - 70);
+            ctx.textAlign = 'right'; ctx.fillText(String(r.score), x + w - 8, top + i * pitch);
         });
-        ctx.fillStyle = '#9cf'; ctx.textAlign = 'left'; ctx.font = '9px Arial'; ctx.fillText(cfg.scoreUrl ? 'Full board: Leaderboard link above' : 'Log in to save your score', x + 8, y + 20 + 15 * 5 + 10);
+        ctx.fillStyle = '#9cf'; ctx.textAlign = 'left'; ctx.font = hudFont(9, false); ctx.fillText(cfg.scoreUrl ? 'Full board: Leaderboard link above' : 'Log in to save your score', x + 8, top + pitch * 5, w - 16);
         ctx.restore();
     }
     let lastAnnounced = '';
@@ -75,6 +82,17 @@
     const isTouch = forceTouch || window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     const playArea = document.getElementById('playArea') || canvasWrapper;
     const shopEl = document.getElementById('shop');
+    const nav = window.navigator || {};
+    const canFS = !!(playArea.requestFullscreen || playArea.webkitRequestFullscreen) && document.fullscreenEnabled !== false && document.webkitFullscreenEnabled !== false;
+    const isIOS = /iP(hone|od)/.test(nav.userAgent || '') || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
+    const standalone = nav.standalone === true || !!(window.matchMedia && window.matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches);
+    const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
+    const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } };
+    function toast(msg, ms) {
+        if (!document.createElement || !canvasWrapper.appendChild) return;
+        const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+        canvasWrapper.appendChild(t); setTimeout(() => { if (t.remove) t.remove(); }, ms || 4000);
+    }
     if (isTouch) {
         document.body.classList.add('touch');
         touchControls.style.display = 'block';
@@ -87,29 +105,62 @@
         if (sys && sys.appendChild) ['muteBtn', 'fullscreenBtn', 'shareBtn'].forEach(id => { const el = document.getElementById(id); if (el) sys.appendChild(el); });
         muteBtn.textContent = '🔊'; muteBtn.setAttribute('aria-label', 'Sound');
         fullscreenBtn.textContent = '⛶'; fullscreenBtn.setAttribute('aria-label', 'Fullscreen');
+        // iPhone Safari cannot fullscreen a page element: offer Add to Home Screen instead
+        if (!canFS) {
+            if (standalone) fullscreenBtn.style.display = 'none';
+            else if (isIOS) {
+                fullscreenBtn.addEventListener('click', () => toast('For full screen: tap Share, then Add to Home Screen'));
+                if (lsGet('nqA2hs', '0') !== '1') { lsSet('nqA2hs', '1'); setTimeout(() => toast('Tip: Share → Add to Home Screen plays full screen', 5000), 1500); }
+            } else fullscreenBtn.style.display = 'none';
+        }
+        // Pause button and pause menu (solo): Resume / Restart / Menu
+        if (document.createElement && sys && sys.insertBefore) {
+            const pb = document.createElement('button'); pb.id = 'pauseBtn'; pb.type = 'button'; pb.textContent = '⏸';
+            if (pb.setAttribute) pb.setAttribute('aria-label', 'Pause');
+            sys.insertBefore(pb, sys.firstChild);
+            const pm = document.createElement('div'); pm.id = 'pauseMenu';
+            pm.innerHTML = '<button type="button" class="pm-btn pm-solo" id="pmResume">Resume</button><button type="button" class="pm-btn pm-solo" id="pmRestart">Restart</button><button type="button" class="pm-btn" id="pmMenu">Menu</button>';
+            canvasWrapper.appendChild(pm);
+        }
     }
-    // Analog thumbstick state (touch only). x/y in [-1, 1]; accumulators turn it into on/off ticks.
-    const stick = { enabled: isTouch, active: false, x: 0, y: 0, accU: 0, accX: 0, lastKey: 0 };
-    let autoFire = false;
+    // Analog thumbstick state (touch only). x/y in [-1, 1]. Vertical input goes through a predictive
+    // speed controller (touchVertical); horizontal speed is pulse-width modulated via accX.
+    const stick = { enabled: isTouch, active: false, x: 0, y: 0, accX: 0, lastKey: 0, holdY: null, wasLocked: false, tie: 0, reset: null };
+    // Auto-fire is on by default on touch (frees the right thumb for bombs and boost); remembered per device
+    let autoFire = isTouch ? lsGet('nqAuto', '1') === '1' : false;
+    let tapFireFrames = 0;
+    // First-run touch coach: which lessons the player has already completed (bitmask, per device)
+    const COACH_BOARD = 1, COACH_HOME = 2, COACH_PAD = 4, COACH_SHOP = 8;
+    let coachBits = parseInt(lsGet('nqCoach', '0'), 10) || 0;
+    function coachSet(bit) { if (!(coachBits & bit)) { coachBits |= bit; lsSet('nqCoach', String(coachBits)); } }
     function buzz(pattern) { try { if (isTouch && !Sound.muted && navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* ignore */ } }
 
     // ---------------------------------------------------------------------
     // Presentation: fit to window, fullscreen (letterboxed logical view)
     // ---------------------------------------------------------------------
-    const view = { scale: 1, ox: 0, oy: 0 };
+    const view = { scale: 1, ox: 0, oy: 0, dpr: 1, cssPerUnit: 1 };
+    let needsRender = true;
     function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+    let lastFitKey = '';
     function fitCanvas() {
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const wrapper = document.getElementById('gameWrapper');
+        // On touch the wrapper padding carries the safe-area insets; read it instead of guessing
+        let padX = 24, padTop = 0, padBottom = 16;
+        if (isTouch && wrapper && window.getComputedStyle) {
+            const cs = window.getComputedStyle(wrapper);
+            padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+            padTop = parseFloat(cs.paddingTop) || 0; padBottom = parseFloat(cs.paddingBottom) || 0;
+        }
         let cssW, cssH;
         if (isFullscreen()) {
-            cssW = window.innerWidth; cssH = window.innerHeight;
+            cssW = window.innerWidth - (isTouch ? padX : 0); cssH = window.innerHeight - (isTouch ? padTop + padBottom : 0);
             canvasWrapper.style.width = cssW + 'px'; canvasWrapper.style.height = cssH + 'px';
         } else {
             // Measure the page chrome above the canvas rather than guessing its height
-            const wrapper = document.getElementById('gameWrapper');
-            const above = wrapper && wrapper.getBoundingClientRect ? wrapper.getBoundingClientRect().top + (window.scrollY || 0) : 150;
-            const below = 16;
-            const maxW = Math.max(320, window.innerWidth - 24);
+            const above = wrapper && wrapper.getBoundingClientRect ? wrapper.getBoundingClientRect().top + (window.scrollY || 0) + padTop : 150;
+            const below = padBottom;
+            const maxW = Math.max(320, window.innerWidth - padX);
             const maxH = Math.max(200, window.innerHeight - above - below);
             cssH = Math.min(maxH, maxW / (MIN_GAME_WIDTH / GAME_HEIGHT));
             cssW = Math.min(maxW, cssH * (MAX_GAME_WIDTH / GAME_HEIGHT));
@@ -119,12 +170,18 @@
             cssW = Math.round(cssH * GAME_WIDTH / GAME_HEIGHT); // exact aspect: no letterbox in the page
             canvasWrapper.style.width = cssW + 'px'; canvasWrapper.style.height = Math.round(cssH) + 'px';
         }
-        canvas.style.transform = 'none';
-        canvas.style.width = cssW + 'px'; canvas.style.height = Math.round(cssH) + 'px';
-        canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr);
-        view.scale = Math.min(canvas.width / GAME_WIDTH, canvas.height / GAME_HEIGHT);
-        view.ox = (canvas.width - GAME_WIDTH * view.scale) / 2;
-        view.oy = (canvas.height - GAME_HEIGHT * view.scale) / 2;
+        const key = [Math.round(cssW), Math.round(cssH), dpr, GAME_WIDTH, isFullscreen()].join();
+        if (key !== lastFitKey) {
+            lastFitKey = key;
+            canvas.style.transform = 'none';
+            canvas.style.width = cssW + 'px'; canvas.style.height = Math.round(cssH) + 'px';
+            canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr);
+            view.scale = Math.min(canvas.width / GAME_WIDTH, canvas.height / GAME_HEIGHT);
+            view.ox = (canvas.width - GAME_WIDTH * view.scale) / 2;
+            view.oy = (canvas.height - GAME_HEIGHT * view.scale) / 2;
+            view.dpr = dpr; view.cssPerUnit = view.scale / dpr;
+            needsRender = true;
+        }
         // Turned to portrait mid-run on a phone: pause until it comes back to landscape
         if (isTouch && window.innerHeight > window.innerWidth && typeof screen === 'string' && mode === 'solo' && screen === 'playing') togglePause();
     }
@@ -134,7 +191,7 @@
     // Fullscreen the whole play area (canvas + touch controls + shop drawer), then lock landscape on phones.
     // Note: `screen` is shadowed by the game-state variable below, so use window.screen explicitly.
     function goFullscreen() {
-        if (isFullscreen()) return;
+        if (!canFS || isFullscreen()) return;
         const req = playArea.requestFullscreen || playArea.webkitRequestFullscreen;
         if (!req) return;
         try {
@@ -149,11 +206,20 @@
     // Sound (synthesised, no assets)
     // ---------------------------------------------------------------------
     const Sound = (() => {
-        let ac = null, muted = false;
+        let ac = null, muted = false, primed = false, lastResume = 0;
         function get() {
             if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ac = null; } }
-            if (ac && ac.state === 'suspended') ac.resume();
+            if (ac && ac.state !== 'running' && ac.state !== 'closed') {
+                const now = performance.now();
+                if (now - lastResume > 500) { lastResume = now; try { const r = ac.resume(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* ignore */ } }
+            }
             return ac;
+        }
+        // Called from user gestures: resume, and play one silent buffer so iOS unlocks output
+        function unlock() {
+            const a = get(); if (!a) return;
+            if (a.state !== 'running') { try { const r = a.resume(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* ignore */ } }
+            if (!primed) { try { const b = a.createBuffer(1, 1, 22050), src = a.createBufferSource(); src.buffer = b; src.connect(a.destination); src.start(0); primed = true; } catch (e) { /* ignore */ } }
         }
         function tone(type, f0, f1, dur, vol, delay) {
             const a = get(); if (!a || muted) return;
@@ -180,7 +246,8 @@
             src.start();
         }
         return {
-            unlock: get,
+            unlock,
+            resumeQuiet() { if (ac && ac.state !== 'running' && ac.state !== 'closed') { try { const r = ac.resume(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* ignore */ } } },
             shoot() { tone('square', 900, 250, 0.07, 0.06); },
             enemyShoot() { tone('square', 400, 150, 0.08, 0.03); },
             bomb() { tone('sine', 300, 80, 0.3, 0.1); },
@@ -201,6 +268,9 @@
     })();
     function toggleMute() { const m = Sound.toggleMute(); muteBtn.textContent = document.body.classList.contains('touch') ? (m ? '🔇' : '🔊') : (m ? 'Sound: Off' : 'Sound: On'); muteBtn.setAttribute('aria-pressed', m ? 'true' : 'false'); }
     muteBtn.addEventListener('click', toggleMute);
+    // Unlock audio on every kind of activation gesture (iOS needs touchend/pointerup, not pointerdown)
+    ['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, () => Sound.unlock(), { capture: true, passive: true }));
+    try { if (nav.audioSession) nav.audioSession.type = 'playback'; } catch (e) { /* ignore */ }
 
     // ---------------------------------------------------------------------
     // Helpers
@@ -286,7 +356,17 @@
         if (Math.abs(x - (cameraX + GAME_WIDTH / 2)) < 500) { shake = Math.max(shake, big ? 14 : 6); if (big) screenFlash = Math.max(screenFlash, 0.5); }
         Sound.explode(big);
     }
-    function addText(x, y, text, color, big) { floatTexts.push({ x, y, text, color: color || '#fff', life: 70, big: !!big }); }
+    function addText(x, y, text, color, big) {
+        ctx.font = (big ? 'bold 18px' : 'bold 12px') + ' Arial';
+        const m = ctx.measureText && ctx.measureText(text), w = (m && m.width) || text.length * (big ? 10 : 7), gap = big ? 22 : 16;
+        // Don't stack texts on top of each other: nudge the new one up past any overlapping live text
+        for (let k = 0; k < 6; k++) {
+            const hit = floatTexts.some(o => o.life > 20 && Math.abs(o.y - y) < gap && Math.abs(o.x - x) < (o.w + w) / 2);
+            if (!hit) break;
+            y -= gap;
+        }
+        floatTexts.push({ x, y, text, color: color || '#fff', life: 70, big: !!big, w });
+    }
     function consumeFx() {
         const near = x => x === undefined || Math.abs(x - (cameraX + GAME_WIDTH / 2)) < 760;
         sim.bullets.forEach(b => { if (b.life === 60) spawnMuzzleFlash(b.x + (b.vx > 0 ? 6 : 2), b.y + 1, b.vx > 0 ? 1 : -1); });
@@ -355,28 +435,66 @@
     // =====================================================================
     // Input capture -> sim input struct
     // =====================================================================
+    // ---- Touch flight controller -----------------------------------------------------------
+    // Client-side input shaping only: it chooses the same u/d/l/r bits a keyboard could send, so the
+    // simulation and online lockstep are untouched. The stick sets a target climb/sink RATE instead
+    // of raw thrust: centre/release holds altitude, pushing sets a speed, descent is capped near the
+    // ground so touchdowns are soft, and a landed chopper stays parked until a clear upward push.
+    const VDZ = 0.15, DOWN_MAX = 3.6, UP_MAX = 4.5, HOLD_GAIN = 0.06, HOLD_MAX = 1.5, TAKEOFF = -0.25, TAKEOFF_LOCKED = -0.35;
+    // Mirrors the vertical rules of updatePlayer() in sim.js (u -0.5, gravity +0.25, d +0.3, clamp, ceiling, ground).
+    function vstep(st, u, d, h) {
+        let vy = clamp(st.vy - (u ? 0.5 : 0) + 0.25 + (d ? 0.3 : 0), -4.5, 5), y = st.y + vy, landed = false;
+        if (y < 26) { y = 26; vy = Math.max(0, vy); }
+        if (y + h >= GROUND_Y) { y = GROUND_Y - h; vy = 0; landed = true; }
+        return { y, vy, landed };
+    }
+    // Online, our inputs apply INPUT_DELAY frames late: predict where the chopper will be by then
+    function predictLocal(p) {
+        let st = { y: p.y, vy: p.vy, landed: p.landed };
+        if (mode !== 'solo' && sim) for (let g = sim.frame; g < sim.frame + INPUT_DELAY; g++) { const q = net.localInputs[g]; if (!q) break; st = vstep(st, q.u, q.d, p.height); }
+        return st;
+    }
+    function touchVertical(stk, pr, h) {
+        const ay = Math.abs(stk.y);
+        const yy = stk.active && ay > VDZ ? Math.sign(stk.y) * (ay - VDZ) / (1 - VDZ) : 0;
+        if (pr.landed && !(stk.active && stk.y < (stk.wasLocked ? TAKEOFF_LOCKED : TAKEOFF))) { stk.wasLocked = true; stk.holdY = null; return { u: 0, d: 0 }; }
+        stk.wasLocked = false;
+        let target;
+        if (stk.active && yy !== 0) { target = yy > 0 ? yy * DOWN_MAX : yy * UP_MAX; stk.holdY = null; }
+        else if (stk.holdY === null) { target = 0; if (Math.abs(pr.vy) <= 0.5) stk.holdY = pr.y; }
+        else target = clamp((stk.holdY - pr.y) * HOLD_GAIN, -HOLD_MAX, HOLD_MAX);
+        const alt = GROUND_Y - (pr.y + h);
+        target = Math.min(target, 1.2 + 0.04 * alt, 4.0);
+        let best = { u: 0, d: 0 }, bestErr = Infinity;
+        for (const c of [[0, 0], [1, 0], [0, 1]]) {
+            const err = Math.abs(clamp(pr.vy - 0.5 * c[0] + 0.25 + 0.3 * c[1], -4.5, 5) - target);
+            if (err < bestErr - 1e-9) { best = { u: c[0], d: c[1] }; bestErr = err; }
+            else if (Math.abs(err - bestErr) <= 1e-9 && c[0] === 1 && best.u === 0 && best.d === 0) { stk.tie ^= 1; if (stk.tie) best = { u: 1, d: 0 }; }
+        }
+        return best;
+    }
     function captureInput() {
-        const o = { l: input.left ? 1 : 0, r: input.right ? 1 : 0, u: input.up ? 1 : 0, d: input.down ? 1 : 0, f: (input.fire || autoFire) ? 1 : 0, b: bombQueued ? 1 : 0, bo: input.boost ? 1 : 0, buy: buyQueued };
+        const o = { l: input.left ? 1 : 0, r: input.right ? 1 : 0, u: input.up ? 1 : 0, d: input.down ? 1 : 0, f: (input.fire || autoFire || tapFireFrames > 0) ? 1 : 0, b: bombQueued ? 1 : 0, bo: input.boost ? 1 : 0, buy: buyQueued };
         bombQueued = false; buyQueued = null;
-        // Touch thumbstick (unless the keyboard was used recently): pulse the digital inputs so the
-        // stick behaves analog. Vertical: centre = hover, up = climb, down = descend; letting go
-        // hovers in the air but stays put once landed. Horizontal speed scales with stick distance.
+        if (tapFireFrames > 0) tapFireFrames--;
+        // Touch thumbstick, unless the keyboard was used in the last 8 s
         if (stick.enabled && Date.now() - stick.lastKey > 8000) {
             const p = local();
-            const duty = stick.active ? clamp(0.5 - stick.y * 0.55, 0, 1) : (p && p.landed ? 0 : 0.5);
-            stick.accU += duty;
-            o.u = stick.accU >= 1 ? 1 : 0; if (o.u) stick.accU -= 1;
-            o.d = stick.active && stick.y > 0.75 ? 1 : 0;
-            const hx = stick.active ? clamp((Math.abs(stick.x) - 0.18) / 0.7, 0, 1) : 0;
+            if (p && p.alive) { const v = touchVertical(stick, predictLocal(p), p.height); o.u = v.u; o.d = v.d; }
+            else { stick.holdY = null; o.u = o.d = 0; }
+            let hx = stick.active ? clamp((Math.abs(stick.x) - 0.18) / 0.7, 0, 1) : 0;
+            if (input.boost && hx > 0 && p && !p.landed) { hx = 1; stick.accX = 0; } // boosting means full speed
             stick.accX += hx;
             const pulse = stick.accX >= 1 ? 1 : 0; if (pulse) stick.accX -= 1;
             o.l = stick.x < 0 && pulse ? 1 : 0; o.r = stick.x > 0 && pulse ? 1 : 0;
+            // Boost with the stick centred: sprint the way the chopper is facing
+            if (input.boost && hx === 0 && p && !p.landed) { if (p.dir < 0) o.l = 1; else o.r = 1; }
         }
         return o;
     }
     const packInput = i => [(i.l ? 1 : 0) | (i.r ? 2 : 0) | (i.u ? 4 : 0) | (i.d ? 8 : 0) | (i.f ? 16 : 0) | (i.b ? 32 : 0) | (i.bo ? 64 : 0), i.buy || 0];
     const unpackInput = a => ({ l: a[0] & 1, r: a[0] & 2, u: a[0] & 4, d: a[0] & 8, f: a[0] & 16, b: a[0] & 32, bo: a[0] & 64, buy: a[1] || null });
-    const clearInput = () => { Object.keys(input).forEach(k => input[k] = false); bombQueued = false; buyQueued = null; };
+    const clearInput = () => { Object.keys(input).forEach(k => input[k] = false); bombQueued = false; buyQueued = null; tapFireFrames = 0; };
 
     // =====================================================================
     // Solo mode
@@ -391,8 +509,18 @@
     }
     function togglePause() {
         if (mode !== 'solo') return;
-        if (screen === 'playing') { screen = 'paused'; clearInput(); }
+        if (screen === 'playing') { screen = 'paused'; clearInput(); closeShop(); resetTouch(); }
         else if (screen === 'paused') screen = 'playing';
+        needsRender = true;
+    }
+    // Back to the title screen (touch pause menu / game over menu)
+    function quitToMenu() {
+        closeShop(); resetTouch(); clearInput();
+        sim = Sim.createGame({ mode: 'solo', seed: 1 }); sim.fx = [];
+        screen = 'title'; screenTimer = 0; particles = []; floatTexts = []; rings = []; craters = [];
+        try { const ex = document.exitFullscreen || document.webkitExitFullscreen; if (isFullscreen() && ex) { const r = ex.call(document); if (r && r.catch) r.catch(() => {}); } } catch (e) { /* ignore */ }
+        try { const o = window.screen && window.screen.orientation; if (o && o.unlock) o.unlock(); } catch (e) { /* ignore */ }
+        needsRender = true;
     }
     function primaryAction() {
         if (isTouch && (screen === 'title' || screen === 'lobby')) goFullscreen();
@@ -529,9 +657,13 @@
     // =====================================================================
     // Main update (fixed 60 Hz)
     // =====================================================================
+    let lastScreenAttr = null, shopWave = 0;
     function update() {
         frame++;
-        if (mode === 'solo') soloTick(); else versusTick();
+        // Shopping on a phone: solo time runs at half speed while the drawer is open
+        if (mode === 'solo') { if (!(isTouch && shopOpen() && screen === 'playing' && (frame & 1))) soloTick(); }
+        else versusTick();
+        if (shopOpen() && (screen !== 'playing' || (sim && sim.wave !== shopWave))) closeShop();
         if (sim && mode === 'versus' && sim.status === 'over' && screen !== 'over') {
             screen = 'over'; screenTimer = 0; clearInput();
             postMatchResult();
@@ -546,8 +678,25 @@
             const targetCam = cx(p) - GAME_WIDTH / 2 + p.dir * 110;
             cameraX += (targetCam - cameraX) * 0.08;
             cameraX = clamp(cameraX, 0, WORLD_WIDTH - GAME_WIDTH);
+            if (isTouch) feelTick(p);
         }
         if (frame % 15 === 0) { updateDomScore(); announceScreen(); }
+        if (screen !== lastScreenAttr) {
+            lastScreenAttr = screen;
+            const b = document.body; if (b && b.dataset) { b.dataset.screen = screen; b.dataset.mode = mode; }
+        }
+        syncWakeLock();
+    }
+    // Keep the screen awake while playing, counting down or waiting in a lobby
+    let wakeLock = null, wakePending = false;
+    function syncWakeLock() {
+        const wl = nav.wakeLock;
+        if (!wl || !wl.request) return;
+        const want = !document.hidden && (screen === 'playing' || screen === 'countdown' || screen === 'lobby');
+        if (want && !wakeLock && !wakePending) {
+            wakePending = true;
+            wl.request('screen').then(l => { wakePending = false; wakeLock = l; if (l.addEventListener) l.addEventListener('release', () => { if (wakeLock === l) wakeLock = null; }); }).catch(() => { wakePending = false; });
+        } else if (!want && wakeLock) { const l = wakeLock; wakeLock = null; try { const r = l.release(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* ignore */ } }
     }
     function announceScreen() {
         const p = local();
@@ -574,9 +723,16 @@
         }
         if (creditsSpan) creditsSpan.textContent = '$' + (p ? p.credits : 0);
         if (isTouch) {
+            const live = p && (screen === 'playing' || screen === 'paused');
             const sb = document.getElementById('btnShop'), tb = document.getElementById('btnTroops');
-            if (sb) sb.textContent = p ? '$' + p.credits : 'Shop';
-            if (tb) tb.textContent = p ? (p.landed ? 'Load ' : 'Drop ') + p.troops : 'Troops';
+            if (sb) sb.textContent = live ? '$' + p.credits : 'Shop';
+            if (tb) {
+                const near = live && p.landed && p.troops < Sim.MAX_TROOPS && sim.units.some(u => u.team === p.team && u.type === 'soldier' && Math.abs(cx(u) - cx(p)) < Sim.LOAD_RANGE);
+                const can = live && (p.landed ? near : p.troops > 0);
+                tb.textContent = !live ? 'Troops' : p.landed ? 'Load ' + p.troops + '/' + Sim.MAX_TROOPS : 'Para ' + p.troops;
+                if (tb.classList && tb.classList.toggle) tb.classList.toggle('ctx-off', !can);
+                if (tb.setAttribute) tb.setAttribute('aria-disabled', can ? 'false' : 'true');
+            }
         }
         const playing = screen === 'playing' && p && p.alive;
         shopButtons.forEach(([btn, type]) => {
@@ -991,9 +1147,37 @@
     }
     function drawShadow(h) {
         ctx.save();
-        ctx.globalAlpha = 0.2 * clamp(1 - (GROUND_Y - (h.y + h.height)) / 400, 0.3, 1);
-        ctx.fillStyle = '#000';
-        ctx.beginPath(); ctx.ellipse(cx(h), GROUND_Y + 3, h.width / 2, 4, 0, 0, Math.PI * 2); ctx.fill();
+        const warn = sinkWarn && sim && h === local();
+        ctx.globalAlpha = warn ? 0.45 + 0.35 * Math.abs(Math.sin(frame / 4)) : 0.2 * clamp(1 - (GROUND_Y - (h.y + h.height)) / 400, 0.3, 1);
+        ctx.fillStyle = warn ? '#f22' : '#000';
+        ctx.beginPath(); ctx.ellipse(cx(h), GROUND_Y + 3, h.width / 2 + (warn ? 6 : 0), warn ? 6 : 4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    }
+    // Client-side feel state for the local pilot: sink-rate warning and touchdown feedback
+    let sinkWarn = false, wasLanded = true, coachPrev = { carrying: 0, rescued: 0 };
+    function feelTick(p) {
+        if (!p || !p.alive || screen !== 'playing') { sinkWarn = false; return; }
+        const alt = GROUND_Y - (p.y + p.height);
+        const danger = !p.landed && p.vy >= 4.5 && alt / Math.max(p.vy, 0.1) < 30;
+        if (danger && !sinkWarn) buzz([10, 30, 10]);
+        if (danger) sinkWarn = true; else if (p.vy < 3 || p.landed) sinkWarn = false;
+        if (p.landed && !wasLanded) buzz(8);
+        wasLanded = p.landed;
+        // Coach progress: first boarding, first rescue
+        if (p.carrying > coachPrev.carrying) coachSet(COACH_BOARD);
+        if (p.rescued > coachPrev.rescued) { coachSet(COACH_HOME); coachSet(COACH_PAD); }
+        coachPrev = { carrying: p.carrying, rescued: p.rescued };
+    }
+    // Where a bomb dropped now would land (mirrors dropBomb/bomb physics in sim.js), touch only
+    function drawBombMarker(p) {
+        let x = cx(p), y = p.y + p.height + 4, vx = p.vx * 0.8, vy = 1, t = 0;
+        while (y < GROUND_Y - 4 && t < 240) { vy += 0.28; x += vx; y += vy; t++; }
+        const tooLow = Math.hypot(cx(p) + p.vx * t * 0.6 - x, cy(p) - (GROUND_Y - 4)) < 45;
+        ctx.save();
+        ctx.strokeStyle = tooLow ? 'rgba(255,60,60,0.8)' : 'rgba(255,200,80,0.55)'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 5]);
+        ctx.beginPath(); ctx.moveTo(cx(p), p.y + p.height + 4); ctx.quadraticCurveTo(cx(p) + (x - cx(p)) * 0.5, p.y + p.height + 4, x, GROUND_Y - 4); ctx.stroke();
+        ctx.setLineDash([]); ctx.beginPath(); ctx.ellipse(x, GROUND_Y - 2, 10, 3, 0, 0, Math.PI * 2); ctx.stroke();
+        if (tooLow) { ctx.fillStyle = '#f66'; ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillText('TOO LOW', x, GROUND_Y - 12); }
         ctx.restore();
     }
     function drawHealthBar(h, w) {
@@ -1151,12 +1335,83 @@
         floatTexts.forEach(t => {
             ctx.globalAlpha = clamp(t.life / 30, 0, 1);
             ctx.font = (t.big ? 'bold 18px' : 'bold 12px') + ' Arial';
-            ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText(t.text, t.x, t.y);
-            ctx.fillStyle = t.color; ctx.fillText(t.text, t.x, t.y);
+            // Keep the whole text on screen, and on touch out from under the resting thumbstick
+            // Texts anchored well off-screen are not shown (pinning them to the edge was misleading)
+            if (t.x < cameraX - 80 || t.x > cameraX + GAME_WIDTH + 80) return;
+            const hw = (t.w || 0) / 2 + 8;
+            const sx = clamp(t.x, cameraX + hw, cameraX + GAME_WIDTH - hw);
+            // On touch, lift low texts out from under the thumbstick and the button cluster (keeping their spacing)
+            const underControls = isTouch && t.y > 260 && ((sx - cameraX) < 190 || (sx - cameraX) > GAME_WIDTH - 230);
+            const sy = underControls ? t.y - 90 : t.y;
+            ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText(t.text, sx, sy);
+            ctx.fillStyle = t.color; ctx.fillText(t.text, sx, sy);
         });
         ctx.globalAlpha = 1; ctx.textAlign = 'left';
     }
     function comboText(p) { return p.combo > 1 ? 'COMBO x' + Math.min(3, 1 + (p.combo - 1) * 0.25) : ''; }
+    function ownBaseOf(p) { return sim.bases.find(b => b.team === p.team) || (sim.mode === 'coop' ? sim.bases[0] : null); }
+    // Chevrons at the screen edge for things that matter but are off-screen: hostages, home, the enemy chopper
+    function drawEdgeIndicators() {
+        const p = local();
+        if (!p || !p.alive || screen !== 'playing') return;
+        const marks = [];
+        if (p.carrying < MAX_CARRY && sim.mode !== 'versus' || sim.mode === 'versus') {
+            let best = null, bd = Infinity, count = 0;
+            sim.hostages.forEach(h => { if (h.state === 'waiting' || h.state === 'running') { const d = Math.abs(h.x - cx(p)); if (d < bd) { bd = d; best = h; } } });
+            if (best && p.carrying < MAX_CARRY) {
+                count = sim.hostages.filter(h => (h.state === 'waiting' || h.state === 'running') && Math.abs(h.x - best.x) < 120).length;
+                marks.push({ x: best.x, y: GROUND_Y - 30, color: '#fd4', label: count + '' });
+            }
+        }
+        const home = ownBaseOf(p);
+        if (home && !home.destroyed && (p.carrying > 0 || p.health / p.maxHealth < 0.3)) marks.push({ x: cx(home), y: GROUND_Y - 40, color: '#8f8', label: 'BASE' });
+        const foe = sim.mode === 'versus' ? sim.players.find(o => o.id !== localId && o.alive) : (sim.ai.alive ? sim.ai : null);
+        if (foe && Math.abs(cx(foe) - cx(p)) < GAME_WIDTH * 1.5) marks.push({ x: cx(foe), y: cy(foe), color: '#f55', label: sim.ai && foe === sim.ai && sim.ai.boss ? 'GUNSHIP' : '!', pulse: true });
+        const used = { l: 0, r: 0 };
+        ctx.save();
+        marks.forEach(m => {
+            if (m.x >= cameraX && m.x <= cameraX + GAME_WIDTH) return;
+            const left = m.x < cameraX, side = left ? 'l' : 'r';
+            // On touch keep arrows above the thumbstick and the button cluster
+            const y = clamp(m.y, 130, GAME_HEIGHT - (isTouch ? 190 : 150)) + used[side]++ * 34;
+            const x = left ? 8 : GAME_WIDTH - 8, dx = Math.abs(m.x - (cameraX + GAME_WIDTH / 2));
+            ctx.globalAlpha = m.pulse ? 0.55 + 0.45 * Math.abs(Math.sin(frame / 8)) : 0.9;
+            ctx.fillStyle = m.color; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+            ctx.beginPath();
+            if (left) { ctx.moveTo(x, y); ctx.lineTo(x + 16, y - 12); ctx.lineTo(x + 16, y + 12); }
+            else { ctx.moveTo(x, y); ctx.lineTo(x - 16, y - 12); ctx.lineTo(x - 16, y + 12); }
+            ctx.closePath(); ctx.stroke(); ctx.fill();
+            ctx.globalAlpha = 1; ctx.font = hudFont(10); ctx.textAlign = left ? 'left' : 'right';
+            const tx = left ? x + 20 : x - 20;
+            ctx.lineWidth = 3; ctx.strokeText(m.label + ' ' + (dx / GAME_WIDTH).toFixed(1) + 'x', tx, y + 4);
+            ctx.fillText(m.label + ' ' + (dx / GAME_WIDTH).toFixed(1) + 'x', tx, y + 4);
+        });
+        ctx.restore();
+    }
+    // First-run touch coach: one short contextual tip at a time until the rescue loop is learned
+    function drawCoach() {
+        const p = local();
+        const sb = document.getElementById('btnShop');
+        let tip = null, shopPulse = false;
+        if (isTouch && p && p.alive && screen === 'playing' && !shopOpen() && sim.status !== 'waveclear' && sim.mode !== 'versus') {
+            let nearest = Infinity;
+            sim.hostages.forEach(h => { if (h.state === 'waiting' || h.state === 'running') nearest = Math.min(nearest, Math.abs(h.x - cx(p))); });
+            const home = ownBaseOf(p), padDist = home ? Math.abs(cx(home) - cx(p)) : Infinity;
+            if (!(coachBits & COACH_BOARD)) {
+                if (nearest === Infinity) tip = null;
+                else if (p.landed && nearest < 300) tip = 'Hold still - they are running aboard';
+                else if (nearest < 300) tip = 'Pull the stick down to land beside the hut';
+                else tip = 'Fly to the hostages (follow the yellow arrow)';
+            } else if (p.carrying > 0 && !(coachBits & COACH_PAD)) {
+                if (padDist < 200) tip = 'Land on the pad - unloads and repairs';
+                else if (p.carrying === MAX_CARRY || nearest > 300) tip = 'Take them home: return to BASE';
+            } else if (!(coachBits & COACH_SHOP) && p.credits >= UNITS.soldier.cost && (coachBits & COACH_PAD)) {
+                tip = 'Tap $ to buy troops and upgrades'; shopPulse = true;
+            }
+        }
+        if (sb && sb.classList && sb.classList.toggle) sb.classList.toggle('pulse', shopPulse);
+        if (tip) bigText(tip, 146, 16, '#ff8');
+    }
     function drawHUD() {
         const p = local();
         ctx.save();
@@ -1168,12 +1423,13 @@
         ctx.fillStyle = '#222'; rrect(56, 12, 96, 10, 3); ctx.fill();
         ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; if (pct > 0) { rrect(56, 12, Math.max(6, Math.round(96 * pct)), 10, 3); ctx.fill(); }
         ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(57, 13, Math.max(0, Math.round(96 * pct) - 2), 3);
-        if (p.upgrades.armor) { ctx.fillStyle = '#8f8'; ctx.font = 'bold 9px Arial'; ctx.fillText('+' + p.upgrades.armor, 154, 21); ctx.font = 'bold 13px Arial'; }
+        if (p.upgrades.armor) { ctx.fillStyle = '#8f8'; ctx.font = isTouch ? 'bold 10px Arial' : 'bold 9px Arial'; ctx.fillText('+' + p.upgrades.armor, 154, 21); ctx.font = 'bold 13px Arial'; }
         // Booster meter just under the hull bar
         const bpct = clamp(p.boost / Sim.BOOST.max, 0, 1);
         ctx.fillStyle = '#222'; ctx.fillRect(56, 24, 96, 4);
         ctx.fillStyle = p.boosting ? '#ffb347' : bpct >= 1 ? '#6cf' : '#48a'; ctx.fillRect(56, 24, Math.round(96 * bpct), 4);
-        ctx.fillStyle = '#9cf'; ctx.font = 'bold 8px Arial'; ctx.fillText('JET', 36, 29); ctx.font = 'bold 13px Arial';
+        if (!isTouch) { ctx.fillStyle = '#9cf'; ctx.font = 'bold 8px Arial'; ctx.fillText('JET', 36, 29); }
+        ctx.font = 'bold 13px Arial';
         ctx.fillStyle = '#fff'; ctx.fillText('BOMBS', 14, 42);
         for (let i = 0; i < MAX_BOMBS; i++) { ctx.fillStyle = i < p.bombs ? '#f90' : '#444'; ctx.beginPath(); ctx.arc(70 + i * 15, 38, 5, 0, Math.PI * 2); ctx.fill(); }
         ctx.fillStyle = '#fff'; ctx.fillText('ABOARD', 14, 62);
@@ -1188,8 +1444,9 @@
         }
         // Right block: score, credits, troops
         const myUnits = sim.units.filter(u => u.team === p.team).length;
+        const sn = hudSize(11), yB = 84 + sn + 4, yC = yB + sn + 3;
         ctx.textAlign = 'right';
-        panel(GAME_WIDTH - 158, 8, 150, sim.mode === 'versus' ? 92 : 108);
+        panel(GAME_WIDTH - 158, 8, 150, (sim.mode === 'versus' ? yB : yC) + 6 - 8);
         ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
         ctx.fillText(String(p.score).padStart(6, '0'), GAME_WIDTH - 14, 26);
         ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#ccc';
@@ -1197,12 +1454,16 @@
         else if (sim.mode === 'coop') { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + ' · ' + biome().name + '  LIVES ' + sim.lives, GAME_WIDTH - 14, 62); }
         else { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('DOWNED ' + p.deaths + ' / ' + o.deaths, GAME_WIDTH - 14, 62); }
         ctx.fillStyle = '#8f8'; ctx.font = 'bold 18px Arial'; ctx.fillText('$' + p.credits, GAME_WIDTH - 14, 84);
-        ctx.textAlign = 'left'; ctx.font = 'bold 11px Arial';
+        ctx.textAlign = 'left'; ctx.font = hudFont(11);
         ctx.fillText('CREDITS', GAME_WIDTH - 152, 84);
-        ctx.fillStyle = '#ccc'; ctx.fillText('TROOPS ' + myUnits + '/' + MAX_ALLIES + (sim.mode !== 'versus' ? '   ENEMY $' + Math.floor(sim.aiCredits) : ''), GAME_WIDTH - 152, 97);
-        if (sim.mode !== 'versus') { ctx.fillStyle = '#fc6'; ctx.fillText('THREAT x' + Sim.threat(sim).toFixed(1), GAME_WIDTH - 152, 110); }
+        ctx.fillStyle = '#ccc'; ctx.fillText('TROOPS ' + myUnits + '/' + MAX_ALLIES, GAME_WIDTH - 152, yB);
+        if (sim.mode !== 'versus') {
+            const fmtK = n => n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+            ctx.fillStyle = '#fc6'; ctx.fillText('THREAT x' + Sim.threat(sim).toFixed(1), GAME_WIDTH - 152, yC, 66);
+            ctx.fillStyle = '#f99'; ctx.textAlign = 'right'; ctx.fillText('ENEMY $' + fmtK(Math.floor(sim.aiCredits)), GAME_WIDTH - 14, yC, 66); ctx.textAlign = 'left';
+        }
         // Radar strip
-        const rx = 170, ry = 10, rw = GAME_WIDTH - 340, rh = 12;
+        const rx = 170, ry = 10, rw = GAME_WIDTH - 340, rh = isTouch ? 18 : 12, rowShift = isTouch ? 6 : 0;
         ctx.fillStyle = 'rgba(8,12,20,0.7)'; rrect(rx - 2, ry - 2, rw + 4, rh + 4, 4); ctx.fill();
         ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.stroke();
         ctx.fillStyle = 'rgba(0,255,120,0.05)'; ctx.fillRect(rx, ry, rw, rh);
@@ -1212,19 +1473,19 @@
         ctx.fillStyle = '#fd4';
         sim.hostages.forEach(h => { if (h.state === 'waiting' || h.state === 'running') ctx.fillRect(mx(h.x), ry + 3, 2, 6); });
         sim.units.forEach(u => { ctx.fillStyle = u.team === p.team ? '#8f8' : (sim.mode === 'coop' && u.team !== AI) ? '#9cf' : '#f33'; ctx.fillRect(mx(u.x), ry + 4, u.type === 'tank' ? 3 : 2, 4); });
-        if (sim.mode === 'solo' && sim.ai.alive) { ctx.fillStyle = sim.ai.boss ? '#f44' : '#f0f'; ctx.fillRect(mx(sim.ai.x), ry + 2, sim.ai.boss ? 6 : 4, 4); }
+        if (sim.mode !== 'versus' && sim.ai.alive) { ctx.fillStyle = sim.ai.boss ? '#f44' : '#f0f'; ctx.fillRect(mx(sim.ai.x), ry + 2, sim.ai.boss ? 6 : 4, isTouch ? 6 : 4); }
         sim.pickups.forEach(k => { ctx.fillStyle = Sim.PICKUPS[k.type].color; ctx.fillRect(mx(k.x), ry + 9, 2, 2); });
         sim.paras.forEach(k => { ctx.fillStyle = '#9cf'; ctx.fillRect(mx(k.x), ry + 1, 2, 3); });
         sim.balloons.forEach(b => { ctx.fillStyle = (sim.mode === 'versus' ? b.team !== localId : b.team === AI) ? '#f66' : '#9cf'; ctx.beginPath(); ctx.arc(mx(b.x) + 1, ry + 3, 1.6, 0, Math.PI * 2); ctx.fill(); });
         sim.players.forEach(o => { if (o.alive && o.id !== localId) { ctx.fillStyle = sim.mode === 'coop' ? '#9cf' : '#f0f'; ctx.fillRect(mx(o.x), ry + 2, 4, 4); } });
-        ctx.fillStyle = '#0f0'; ctx.fillRect(mx(p.x), ry + 2, 4, 8);
+        ctx.fillStyle = '#0f0'; ctx.fillRect(mx(p.x), ry + 2, 4, rh - 4);
         ctx.strokeStyle = '#fff6'; ctx.lineWidth = 1; ctx.strokeRect(mx(cameraX), ry, (GAME_WIDTH / WORLD_WIDTH) * rw, rh);
         // Centre lines
-        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#fff'; ctx.font = hudFont(11); ctx.textAlign = 'center';
         if (sim.mode !== 'versus') {
             const remaining = sim.hostages.filter(h => h.state === 'waiting' || h.state === 'running' || h.state === 'aboard').length;
             const rescued = sim.mode === 'coop' ? sim.players.reduce((a, q) => a + q.rescued, 0) : p.rescued;
-            ctx.fillText(`RESCUED ${rescued}   LOST ${sim.waveLost}   REMAINING ${remaining}`, GAME_WIDTH / 2, 36);
+            ctx.fillText(`RESCUED ${rescued}   LOST ${sim.waveLost}   REMAINING ${remaining}`, GAME_WIDTH / 2, 36 + rowShift, GAME_WIDTH - 340);
         } else {
             // Base hull bars
             const mine = sim.bases[localId], theirs = sim.bases[1 - localId];
@@ -1234,23 +1495,33 @@
                 ctx.fillStyle = `hsl(${pc * 110},80%,45%)`; ctx.fillRect(x + 1, 29, Math.round(138 * pc), 10);
                 ctx.fillStyle = '#fff'; ctx.textAlign = align; ctx.fillText(label + ' BASE ' + Math.ceil(b.health), align === 'left' ? x + 4 : x + 136, 38);
             };
-            bar(mine, 170, 'YOUR', 'left'); bar(theirs, GAME_WIDTH - 310, 'ENEMY', 'right');
+            ctx.save(); ctx.translate(0, rowShift); bar(mine, 170, 'YOUR', 'left'); bar(theirs, GAME_WIDTH - 310, 'ENEMY', 'right'); ctx.restore();
             ctx.textAlign = 'center';
         }
         const gc = Sim.upgradeCost(p, 'gun'), ac = Sim.upgradeCost(p, 'armor');
         ctx.fillStyle = '#8f8';
         const cd = p.strikeCooldown > 0 ? Math.ceil(p.strikeCooldown / 60) + 'S' : '$' + Sim.AIRSTRIKE.cost;
-        ctx.fillText(isTouch ? 'TAP $ FOR TROOPS, UPGRADES AND AIRSTRIKES · AUTO = HANDS-FREE FIRE' : `[1] SOLDIER $${UNITS.soldier.cost}  [2] TANK $${UNITS.tank.cost}  [3] GUNS ${gc === null ? 'MAX' : '$' + gc}  [4] ARMOR ${ac === null ? 'MAX' : '$' + ac}  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] ${p.landed ? 'LOAD' : 'DROP'} ${p.troops}/${Sim.MAX_TROOPS}`, GAME_WIDTH / 2, 52);
-        if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 66); }
+        // Key hint between the HUD panels (desktop); falls back to a short form when the view is narrow.
+        // On touch the first-run coach and the $ chip replace it.
+        if (!isTouch) {
+            const avail = GAME_WIDTH - 340;
+            const long = `[1] SOLDIER $${UNITS.soldier.cost}  [2] TANK $${UNITS.tank.cost}  [3] GUNS ${gc === null ? 'MAX' : '$' + gc}  [4] ARMOR ${ac === null ? 'MAX' : '$' + ac}  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] ${p.landed ? 'LOAD' : 'DROP'} ${p.troops}/${Sim.MAX_TROOPS}`;
+            const lm = ctx.measureText && ctx.measureText(long);
+            const hint = lm && lm.width > avail ? `[1-4] BUY  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] TROOPS ${p.troops}` : long;
+            ctx.fillText(hint, GAME_WIDTH / 2, 52, avail);
+        }
+        if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 66 + rowShift); }
         if (comboText(p)) { ctx.fillStyle = '#ff0'; ctx.font = 'bold 16px Arial'; ctx.fillText(comboText(p), GAME_WIDTH / 2, 100); }
         if (screen === 'playing' && p.alive && pct < 0.3 && Math.floor(frame / 15) % 2 === 0) {
-            ctx.fillStyle = '#f44'; ctx.font = 'bold 14px Arial'; ctx.fillText('HULL CRITICAL - RETURN TO BASE', GAME_WIDTH / 2, GAME_HEIGHT - 14);
+            const home = ownBaseOf(p), dx = home ? cx(home) - cx(p) : 0;
+            const dir = Math.abs(dx) < GAME_WIDTH / 2 ? '' : (dx < 0 ? ' ◄ ' : ' ► ') + (Math.abs(dx) / GAME_WIDTH).toFixed(1) + 'x';
+            ctx.fillStyle = '#f44'; ctx.font = 'bold 14px Arial'; ctx.fillText('HULL CRITICAL - RETURN TO BASE' + dir, GAME_WIDTH / 2, isTouch ? 120 : GAME_HEIGHT - 14);
         }
         if (sim.mode !== 'solo' && !p.alive && screen === 'playing') {
             ctx.fillStyle = '#f88'; ctx.font = 'bold 16px Arial';
             ctx.fillText(p.canRespawn === false ? 'NO LIVES LEFT - YOUR PARTNER FIGHTS ON' : 'SHOT DOWN - REDEPLOYING IN ' + Math.max(0, Math.ceil((301 - p.respawn) / 60)), GAME_WIDTH / 2, 130);
         }
-        if (sim.mode !== 'solo') { ctx.fillStyle = net.transport === 'relay' ? '#fc6' : '#9cf'; ctx.font = 'bold 10px Arial'; ctx.fillText((net.transport === 'relay' ? 'SERVER RELAY  ' : '') + 'PING ' + Math.round(net.rtt) + 'ms  DELAY ' + INPUT_DELAY, GAME_WIDTH / 2, 112); }
+        if (sim.mode !== 'solo') { ctx.fillStyle = net.transport === 'relay' ? '#fc6' : '#9cf'; ctx.font = hudFont(10); ctx.fillText((net.transport === 'relay' ? 'SERVER RELAY  ' : '') + 'PING ' + Math.round(net.rtt) + 'ms  DELAY ' + INPUT_DELAY, GAME_WIDTH / 2, 112); }
         if (sim.mode === 'versus' && net.stalled > 20 && screen === 'playing') {
             ctx.fillStyle = '#fc6'; ctx.font = 'bold 14px Arial'; ctx.fillText('WAITING FOR OPPONENT...', GAME_WIDTH / 2, GAME_HEIGHT - 30);
         }
@@ -1279,24 +1550,28 @@
             ctx.restore();
             if (daily) bigText('DAILY CHALLENGE ' + daily.day + ' · SAME WORLD FOR EVERYONE · ONE BOARD PER DAY', 138, 12, '#fc6');
             bigText('Rescue the hostages and bring them home', 155, 16, '#fff');
-            bigText('Land near hostages so they can run aboard · 4 seats · Return to BASE to unload', 200, 12, '#ddd');
-            bigText('Bombs hit ground targets · Bullets for the enemy chopper · Base repairs and rearms', 220, 12, '#ddd');
-            bigText('Watch out: tanks crush hostages running in the open, and so do your bombs', 240, 12, '#f99');
             if (isTouch) {
-                bigText('Left thumb steers · let go to hover, pull down to land', 262, 12, '#8f8');
-                bigText('Right thumb: FIRE, BOMB, BOOST · AUTO fires for you · $ opens the shop', 278, 12, '#8f8');
+                bigText('Land by the hostages, fly them home, land on BASE', 194, 14, '#ddd');
+                bigText('Left thumb flies · right thumb fires · $ shop · AUTO fires for you', 216, 14, '#8f8');
+                const fsTip = canFS ? 'Tap to start in full screen' : (isIOS && !standalone ? 'Tip: Share → Add to Home Screen for full screen' : '');
+                if (fsTip) bigText(fsTip, 238, 12, '#9cf');
             } else {
+                bigText('Land near hostages so they can run aboard · 4 seats · Return to BASE to unload', 200, 12, '#ddd');
+                bigText('Bombs hit ground targets · Bullets for the enemy chopper · Base repairs and rearms', 220, 12, '#ddd');
+                bigText('Watch out: tanks crush hostages running in the open, and so do your bombs', 240, 12, '#f99');
                 bigText('Press 1 / 2 to buy Soldiers ($' + UNITS.soldier.cost + ') and Tanks ($' + UNITS.tank.cost + ') · They march on the enemy base', 262, 12, '#8f8');
                 bigText('Press 3 / 4 to upgrade Guns and Armor · 5 Airstrike · 6 Hold troops · 7 Load and paradrop soldiers', 278, 12, '#8f8');
             }
             if (blink) bigText(prompt + 'START', 310, 20, '#0f0');
             if (highScore > 0) bigText('BEST ' + highScore, 345, 14, '#ccc');
-            bigText(isTouch ? 'Hold BOOST while flying for the jet booster · tap to go fullscreen' : 'Hold SHIFT while flying to engage the jet booster', 362, 11, '#9cf');
+            if (!isTouch) bigText('Hold SHIFT while flying to engage the jet booster', 362, 11, '#9cf');
             loadBoard(); drawBoardPanel(GAME_WIDTH - 200, 8, daily ? 'TODAY\'S TOP PILOTS' : 'TOP PILOTS');
+        } else if (screen === 'playing' && isTouch && shopOpen() && mode === 'solo') {
+            bigText('SHOP · SLOW-MO', 84, 12, '#8f8');
         } else if (screen === 'paused') {
             overlay(0.5);
             bigText('PAUSED', 190, 40, '#fff');
-            bigText(isTouch ? 'TAP TO RESUME' : 'PRESS P TO RESUME', 230, 16, '#ccc');
+            if (!isTouch) bigText('PRESS P TO RESUME', 230, 16, '#ccc');
         } else if (screen === 'playing' && sim.status === 'waveclear' && sim.mode !== 'versus') {
             overlay(Math.min(0.5, sim.statusTimer / 60));
             bigText('WAVE ' + sim.wave + ' CLEAR', 150, 40, '#ff0');
@@ -1378,12 +1653,13 @@
             drawPickups();
             drawStrikesAndParas();
             drawChoppers();
+            if (isTouch && screen === 'playing' && sim && local() && local().alive && !local().landed && local().bombs > 0) drawBombMarker(local());
             drawProjectiles();
             drawParticles();
             drawFloatTexts();
             ctx.restore();
             drawPost();
-            if (screen !== 'title' && screen !== 'lobby') drawHUD();
+            if (screen !== 'title' && screen !== 'lobby' && screen !== 'gameover') { drawEdgeIndicators(); drawHUD(); drawCoach(); }
         } else {
             ctx.save(); ctx.translate(-Math.round(cameraX), 0); drawGround(); ctx.restore();
             drawPost();
@@ -1413,8 +1689,25 @@
         if (e.code === 'KeyR' && mode === 'solo' && (screen === 'gameover' || screen === 'paused')) startSolo();
     });
     document.addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) input[k] = false; });
-    window.addEventListener('blur', () => { clearInput(); if (mode === 'solo' && screen === 'playing') togglePause(); });
-    document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'solo' && screen === 'playing') togglePause(); });
+    window.addEventListener('blur', () => { clearInput(); resetTouch(); if (mode === 'solo' && screen === 'playing') togglePause(); });
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) { resetTouch(); if (mode === 'solo' && screen === 'playing') togglePause(); }
+        else Sound.resumeQuiet();
+        syncWakeLock();
+    });
+    window.addEventListener('pagehide', () => resetTouch());
+    window.addEventListener('pageshow', e => { if (e && e.persisted) { resetTouch(); Sound.resumeQuiet(); } });
+    // Touch state must never stay stuck after the OS steals a touch, the tab hides or the game pauses
+    let canvasReset = null;
+    function resetTouch() { if (stick.reset) stick.reset(); if (canvasReset) canvasReset(); tapFireFrames = 0; input.fire = false; input.boost = false; }
+    function shopOpen() { return !!(shopEl && shopEl.classList && shopEl.classList.contains && shopEl.classList.contains('open')); }
+    let shopOpenedAt = 0;
+    function closeShop() {
+        if (!shopOpen()) return;
+        shopEl.classList.remove('open');
+        const b = document.getElementById('btnShop'); if (b && b.setAttribute) b.setAttribute('aria-expanded', 'false');
+        needsRender = true;
+    }
 
     function bindControl(el, onDown, onUp) {
         if (!el) return;
@@ -1431,16 +1724,21 @@
     bindControl(document.getElementById('btnBomb'), () => { if (inPlay()) { bombQueued = true; buzz(15); } press('btnBomb', true); }, () => press('btnBomb', false));
     bindControl(document.getElementById('btnBoost'), () => { input.boost = true; press('btnBoost', true); }, () => { input.boost = false; press('btnBoost', false); });
     bindControl(document.getElementById('btnTroops'), () => { if (inPlay()) buyQueued = 'troops'; }, () => {});
-    bindControl(document.getElementById('btnAuto'), () => {
-        autoFire = !autoFire;
-        const b = document.getElementById('btnAuto'); if (b && b.setAttribute) b.setAttribute('aria-pressed', autoFire ? 'true' : 'false');
-    }, () => {});
+    const setAutoAttr = () => { const b = document.getElementById('btnAuto'); if (b && b.setAttribute) b.setAttribute('aria-pressed', autoFire ? 'true' : 'false'); };
+    setAutoAttr();
+    bindControl(document.getElementById('btnAuto'), () => { autoFire = !autoFire; lsSet('nqAuto', autoFire ? '1' : '0'); setAutoAttr(); }, () => {});
     bindControl(document.getElementById('btnShop'), () => {
         if (!shopEl || !shopEl.classList) return;
-        const open = !shopEl.classList.contains('open');
-        shopEl.classList.toggle('open', open);
-        const b = document.getElementById('btnShop'); if (b && b.setAttribute) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (shopOpen()) { closeShop(); return; }
+        if (!inPlay()) return;
+        shopEl.classList.add('open'); shopOpenedAt = performance.now(); shopWave = sim ? sim.wave : 0; coachSet(COACH_SHOP);
+        const b = document.getElementById('btnShop'); if (b && b.setAttribute) b.setAttribute('aria-expanded', 'true');
+        needsRender = true;
     }, () => {});
+    bindControl(document.getElementById('pauseBtn'), () => { if (mode === 'solo' && screen === 'playing') { togglePause(); buzz(10); } }, () => {});
+    bindControl(document.getElementById('pmResume'), () => { if (screen === 'paused') togglePause(); }, () => {});
+    bindControl(document.getElementById('pmRestart'), () => { if (mode === 'solo') startSolo(); }, () => {});
+    bindControl(document.getElementById('pmMenu'), () => { if (mode === 'solo') quitToMenu(); else if (match) window.location.href = match.urls.lobby; }, () => {});
     // Floating thumbstick: appears where the left thumb lands, steers while dragged
     (function () {
         const zone = document.getElementById('stickZone'), base = document.getElementById('stickBase'), knob = document.getElementById('stickKnob');
@@ -1448,10 +1746,18 @@
         const R = 46;
         let pid = null, ox = 0, oy = 0, st = 0, moved = false;
         const setKnob = (dx, dy) => { knob.style.transform = `translate(${dx}px, ${dy}px)`; };
+        const reset = () => {
+            if (pid !== null) { try { zone.releasePointerCapture(pid); } catch (err) { /* ignore */ } }
+            pid = null; stick.active = false; stick.x = 0; stick.y = 0; stick.accX = 0; stick.holdY = null;
+            setKnob(0, 0); base.classList.add('idle'); base.style.left = ''; base.style.top = '';
+        };
+        stick.reset = reset;
+        zone.addEventListener('lostpointercapture', e => { if (e.pointerId === pid) reset(); });
         zone.addEventListener('pointerdown', e => {
-            e.preventDefault(); Sound.unlock();
-            if (pid !== null) return;
-            pid = e.pointerId; ox = e.clientX; oy = e.clientY; st = Date.now(); moved = false;
+            e.preventDefault();
+            if (pid !== null) { if (e.isPrimary && e.pointerId !== pid) reset(); else return; } // a stale pointer: take over
+            closeShop();
+            pid = e.pointerId; ox = e.clientX; oy = e.clientY; st = Date.now(); moved = false; stick.holdY = null; stick.accX = 0;
             const r = zone.getBoundingClientRect();
             base.classList.remove('idle'); base.style.left = (e.clientX - r.left) + 'px'; base.style.top = (e.clientY - r.top) + 'px';
             setKnob(0, 0); stick.active = true; stick.x = 0; stick.y = 0;
@@ -1479,7 +1785,11 @@
     })();
     shopButtons.forEach(([btn, type]) => {
         if (!btn) return;
-        btn.addEventListener('click', () => { Sound.unlock(); if (inPlay()) buyQueued = type; btn.blur(); });
+        btn.addEventListener('click', () => {
+            if (isTouch && performance.now() - shopOpenedAt < 150) return; // ignore the tap that opened the drawer
+            if (inPlay()) { buyQueued = type; if (isTouch) closeShop(); }
+            if (btn.blur) btn.blur();
+        });
     });
     if (shareBtn) shareBtn.addEventListener('click', () => {
         const p = local(); if (!p) return;
@@ -1495,12 +1805,14 @@
     (function () {
         let pid = null, sx = 0, sy = 0, st = 0, moved = false, lpTimer = null;
         const TAP_DIST = 12, TAP_TIME = 300, LONG_PRESS = 450, MOVE = 15;
+        canvasReset = () => { pid = null; if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
         function down(e) {
-            e.preventDefault(); Sound.unlock();
-            if (pid !== null) return;
+            e.preventDefault();
+            if (pid !== null) { if (e.isPrimary && e.pointerId !== pid) canvasReset(); else return; }
             pid = e.pointerId; sx = e.clientX; sy = e.clientY; st = Date.now(); moved = false;
             if (lpTimer) clearTimeout(lpTimer);
-            lpTimer = setTimeout(() => { if (!moved && inPlay()) bombQueued = true; lpTimer = null; }, LONG_PRESS);
+            // Long-press to bomb is a mouse/desktop gesture; on touch, stray touches must not cost bombs
+            if (!isTouch) lpTimer = setTimeout(() => { if (!moved && inPlay()) bombQueued = true; lpTimer = null; }, LONG_PRESS);
         }
         function move(e) {
             if (e.pointerId !== pid) return;
@@ -1514,9 +1826,8 @@
             e.preventDefault();
             const dt = Date.now() - st, d = Math.hypot(e.clientX - sx, e.clientY - sy);
             if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
-            if (!moved && dt < TAP_TIME && d < TAP_DIST) { if (inPlay()) input.fire = true; else primaryAction(); }
+            if (!moved && dt < TAP_TIME && d < TAP_DIST) { if (!inPlay()) primaryAction(); else if (!isTouch) tapFireFrames = 3; }
             if (!isTouch) input.left = input.right = input.up = input.down = false;
-            setTimeout(() => { input.fire = false; }, 50);
             pid = null;
         }
         canvas.addEventListener('pointerdown', down);
@@ -1538,17 +1849,19 @@
         const dt = Math.min(now - last, 100);
         acc += dt;
         last = now;
-        while (acc >= STEP) { update(); acc -= STEP; }
-        render();
-        // Auto low-detail: if the device sustains < ~40 fps, drop the dearest cosmetics
-        if (dt > 25) { if (++slowFrames > 90 && !lowDetail) { lowDetail = true; particles.length = Math.min(particles.length, 80); } } else if (slowFrames > 0) slowFrames--;
+        let steps = 0;
+        while (acc >= STEP - 1) { update(); acc -= STEP; steps++; }
+        // 90/120 Hz screens: only draw when the simulation advanced (or something asked for a redraw)
+        if (steps || needsRender) { render(); needsRender = false; }
+        // Auto low-detail: if the device keeps needing catch-up steps (< ~40 fps), drop the dearest cosmetics
+        if (steps > 1) { if (++slowFrames > 90 && !lowDetail) { lowDetail = true; particles.length = Math.min(particles.length, 80); } } else if (slowFrames > 0) slowFrames--;
         requestAnimationFrame(loop);
     }
 
     // Read-only debug hook (used by automated play tests)
     window.__nq = { get sim() { return sim; }, get screen() { return screen; }, get mode() { return mode; }, get net() { return net; }, get localId() { return localId; },
         get state() { return screen; }, get score() { return local() ? local().score : 0; }, get credits() { return local() ? local().credits : 0; },
-        input, startSolo, primaryAction, get frame() { return frame; } };
+        input, startSolo, primaryAction, togglePause, quitToMenu, stick, touchVertical, predictLocal, get autoFire() { return autoFire; }, get frame() { return frame; } };
 
     fitCanvas();
     if (mode === 'solo') {
@@ -1561,7 +1874,7 @@
             setTimeout(() => { input.up = false; input.fire = true; }, 1500);
             const wm = /wave=(\d+)/.exec(hash); // screenshot helper: jump straight to a given wave
             if (wm && mode === 'solo') { sim.wave = Math.max(0, parseInt(wm[1], 10) - 1); sim.status = 'waveclear'; sim.statusTimer = 179; }
-            if (hash.indexOf('shop') > 0 && shopEl && shopEl.classList) shopEl.classList.add('open');
+            if (hash.indexOf('shop') > 0 && shopEl && shopEl.classList) { shopEl.classList.add('open'); shopWave = sim.wave; }
             if (hash.indexOf('#autostart-demo') === 0) { // screenshot/demo helper: show troops near base
                 sim.players[0].credits = 1000; input.right = false;
                 setTimeout(() => { buyQueued = 'tank'; }, 300); setTimeout(() => { buyQueued = 'soldier'; }, 600); setTimeout(() => { buyQueued = 'soldier'; }, 900);
@@ -1571,5 +1884,6 @@
         startVersus();
     }
     updateDomScore();
+    if (document.body && document.body.dataset) { document.body.dataset.screen = screen; document.body.dataset.mode = mode; lastScreenAttr = screen; }
     requestAnimationFrame(loop);
 })();

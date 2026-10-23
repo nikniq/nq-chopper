@@ -49,40 +49,75 @@ canvas:focus-visible { outline-offset: -3px; }
     #gameWrapper { padding: 2px 4px 4px; }
 }
 /* ---------- Mobile play ---------- */
-body.touch { overscroll-behavior: none; touch-action: manipulation; }
+body.touch { overscroll-behavior: none; touch-action: manipulation; overflow-x: hidden; }
 #playArea { position: relative; }
 #playArea:fullscreen, #playArea:-webkit-full-screen { background: #000; width: 100vw; height: 100vh; }
-#playArea:fullscreen #gameWrapper, #playArea:-webkit-full-screen #gameWrapper { padding: 0; height: 100%; }
+/* Safe areas (notch, home indicator) are carried by the wrapper padding; fitCanvas() reads it */
+#playArea:fullscreen #gameWrapper, #playArea:-webkit-full-screen #gameWrapper { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); height: 100%; box-sizing: border-box; }
 #playArea:fullscreen canvas, #playArea:-webkit-full-screen canvas { border-radius: 0; box-shadow: none; }
 #touchControls { position: absolute; inset: 0; display: none; pointer-events: none; z-index: 4; }
-#stickZone { position: absolute; left: 0; top: 24%; bottom: 0; width: 42%; pointer-events: auto; touch-action: none; }
+
+/* System icons: a row under the HUD hull panel, with hit areas larger than the visuals */
+#sysGroup { position: absolute; left: 8px; top: 19%; display: flex; flex-direction: row; gap: 12px; pointer-events: none; z-index: 6; }
+#sysGroup button { position: relative; pointer-events: auto; width: 34px; height: 34px; padding: 0; border-radius: 50%; margin: 0; font-size: 15px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3); color: #fff; }
+#sysGroup button::before { content: ""; position: absolute; inset: -6px; border-radius: inherit; }
+#sysGroup #shareBtn { width: auto; border-radius: 17px; padding: 0 10px; font-size: 12px; }
+body.touch[data-screen="playing"] #shareBtn { display: none !important; }
+#pauseBtn { display: none; }
+body.touch[data-mode="solo"][data-screen="playing"] #pauseBtn { display: inline-block; }
+
+/* Floating thumbstick: the left side of the canvas below the system icons */
+#stickZone { position: absolute; left: 0; top: calc(19% + 48px); bottom: 0; width: 42%; pointer-events: auto; touch-action: none; }
 #stickBase { position: absolute; width: 108px; height: 108px; margin: -54px 0 0 -54px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.45); background: rgba(0,0,0,0.22); pointer-events: none; }
-#stickBase.idle { left: calc(70px + env(safe-area-inset-left)); top: calc(100% - 72px); opacity: 0.45; }
+#stickBase.idle { left: 70px; top: calc(100% - 72px); opacity: 0.45; }
 #stickKnob { position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px; border-radius: 50%; background: rgba(255,255,255,0.55); box-shadow: 0 2px 8px #0008; }
-#actionGroup { position: absolute; right: max(10px, env(safe-area-inset-right)); bottom: max(10px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(3, auto); gap: 8px; align-items: end; justify-items: center; pointer-events: none; }
-.touch-btn { pointer-events: auto; touch-action: none; width: 58px; height: 58px; border-radius: 50%; background: rgba(0,0,0,0.5); color: #fff; border: 2px solid rgba(255,255,255,0.35); font-size: 13px; font-weight: 700; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
-.touch-btn.small { width: 46px; height: 46px; font-size: 11px; }
-.touch-btn.big { width: 76px; height: 76px; font-size: 16px; background: rgba(200,40,40,0.55); border-color: rgba(255,180,180,0.6); }
-.touch-btn.active, .touch-btn:active { background: rgba(255,255,255,0.3); }
+
+/* Right-hand cluster: Fire in the corner, Bomb and Boost on an arc, small chips for $, Auto, Troops.
+   A compact 176x128 footprint keeps the ground lane ahead of the chopper visible. Gaps absorb touches. */
+#actionGroup { position: absolute; right: 10px; bottom: 10px; width: 176px; height: 128px; pointer-events: auto; touch-action: none; }
+.touch-btn { position: absolute; pointer-events: auto; touch-action: none; border-radius: 50%; background: rgba(0,0,0,0.25); color: #fff; border: 2px solid rgba(255,255,255,0.35); font-size: 13px; font-weight: 700; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; text-shadow: 0 1px 2px #000; }
+#btnShoot { right: 0; bottom: 0; width: 68px; height: 68px; font-size: 16px; background: rgba(200,40,40,0.35); border-color: rgba(255,180,180,0.6); }
+#btnBomb { right: 76px; bottom: 0; width: 52px; height: 52px; }
+#btnBoost { right: 8px; bottom: 76px; width: 52px; height: 52px; }
+.touch-btn.small { min-width: 40px; width: auto; height: 40px; border-radius: 20px; padding: 0 7px; font-size: 11px; white-space: nowrap; }
+#btnAuto { right: 70px; bottom: 66px; }
+#btnTroops { right: 118px; bottom: 60px; }
+#btnShop { right: 136px; bottom: 6px; }
+.touch-btn.active, .touch-btn:active { background: rgba(255,255,255,0.35); }
+#btnShoot.active, #btnShoot:active { background: rgba(255,80,80,0.6); }
 #btnAuto[aria-pressed="true"] { background: rgba(255,170,0,0.6); border-color: #ffd27a; }
-#btnShop[aria-expanded="true"] { background: rgba(60,140,60,0.7); }
-/* Shop becomes a pop-up drawer over the bottom of the canvas */
-#shop.drawer { position: absolute; left: max(128px, 15%); right: calc(232px + env(safe-area-inset-right)); bottom: 10px; margin: 0; display: none; flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; gap: 6px; padding: 8px; background: rgba(8,12,20,0.88); border: 1px solid #fff3; border-radius: 12px; z-index: 5; -webkit-overflow-scrolling: touch; }
+#btnShop[aria-expanded="true"] { background: rgba(60,140,60,0.75); }
+.touch-btn.ctx-off { opacity: 0.4; }
+.touch-btn.pulse { animation: nqPulse 1s ease-in-out infinite; }
+@keyframes nqPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(140,255,140,0.0); } 50% { box-shadow: 0 0 0 6px rgba(140,255,140,0.55); } }
+/* Touch controls only while flying */
+body.touch:not([data-screen="playing"]):not([data-screen="countdown"]) #actionGroup,
+body.touch:not([data-screen="playing"]):not([data-screen="countdown"]) #stickBase { visibility: hidden; }
+body.touch:not([data-screen="playing"]) #actionGroup .touch-btn { pointer-events: none; }
+
+/* Shop drawer: above the right-hand cluster, clear of the thumbstick, wraps so every item shows */
+#shop.drawer { position: absolute; left: 42%; right: 10px; bottom: 146px; top: auto; max-height: calc(100% - 146px - 26%); margin: 0; display: none; flex-wrap: wrap; overflow-x: hidden; overflow-y: auto; justify-content: center; align-content: flex-end; gap: 6px; padding: 6px; background: rgba(8,12,20,0.9); border: 1px solid #fff3; border-radius: 12px; z-index: 5; -webkit-overflow-scrolling: touch; }
 #shop.drawer.open { display: flex; }
-#shop.drawer .shop-btn { flex: 0 0 auto; min-height: 44px; font-size: 0.85rem; }
-#shop.drawer #shopHint { display: none; }
+#shop.drawer .shop-btn { flex: 0 0 auto; min-height: 40px; padding: 4px 8px; font-size: 0.8rem; }
+#shop.drawer #shopHint, #shop.drawer #shopLabel, #shop.drawer #troopsBtn { display: none; }
+
+/* Pause menu (and the Menu button on game over) */
+#pauseMenu { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; gap: 14px; z-index: 7; padding-top: 22%; box-sizing: border-box; }
+body.touch[data-screen="paused"] #pauseMenu { display: flex; }
+body.touch[data-screen="gameover"] #pauseMenu { display: flex; align-items: flex-end; padding-bottom: 5%; }
+body.touch[data-screen="gameover"] #pauseMenu .pm-solo { display: none; }
+#pauseMenu .pm-btn { min-width: 120px; min-height: 52px; border-radius: 12px; background: rgba(8,12,20,0.85); color: #fff; border: 2px solid rgba(255,255,255,0.4); font-size: 16px; font-weight: 700; }
+#pauseMenu .pm-btn:active { background: rgba(255,255,255,0.25); }
+.toast { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); background: rgba(8,12,20,0.92); color: #fff; padding: 10px 14px; border-radius: 10px; border: 1px solid #fff3; z-index: 8; font-size: 14px; max-width: 80%; text-align: center; pointer-events: none; }
+
 #rotateHint { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(10,14,22,0.94); color: #fff; font-size: 1.2rem; font-weight: 700; align-items: center; justify-content: center; text-align: center; padding: 24px; }
+#rotateHint > div { max-width: 86vw; overflow-wrap: break-word; }
 #rotateHint .rot-icon { font-size: 3rem; margin-bottom: 12px; }
 @media (orientation: portrait) { body.touch #rotateHint { display: flex; } }
-/* Landscape phones: drop page chrome so the canvas gets the height */
+/* Landscape phones: drop page chrome and fill the screen edge to edge, inside the safe area */
 @media (max-height: 520px) and (orientation: landscape) {
     body.touch #score { display: none; }
     body.touch #controls { display: none; }
-    body.touch #gameWrapper { padding-top: 2px; }
+    body.touch #gameWrapper { padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left)); }
+    body.touch canvas { border-radius: 0; box-shadow: none; }
 }
-#sysGroup { position: absolute; left: max(8px, env(safe-area-inset-left)); top: 22%; display: flex; flex-direction: column; gap: 6px; pointer-events: none; z-index: 6; }
-#sysGroup button { pointer-events: auto; width: 34px; height: 34px; padding: 0; border-radius: 50%; margin: 0; font-size: 15px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3); color: #fff; }
-#sysGroup #shareBtn { width: auto; border-radius: 17px; padding: 0 10px; font-size: 12px; }
-body.touch { overflow-x: hidden; }
-#rotateHint > div { max-width: 86vw; overflow-wrap: break-word; }
-#stickZone { top: 34%; }

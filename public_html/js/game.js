@@ -288,6 +288,7 @@
             die() { noise(0.9, 0.5, 600); tone('sawtooth', 220, 20, 1.0, 0.25); },
             alarm() { tone('square', 880, 880, 0.08, 0.05); tone('square', 660, 660, 0.08, 0.05, 0.1); },
             threat() { tone('triangle', 1500, 1200, 0.05, 0.05); },
+            chime(n, soft) { const f = 523 * Math.pow(1.26, Math.max(0, n - 1)); tone('triangle', f, f, 0.14, soft ? 0.07 : 0.12); if (!soft && n >= 4) [659, 784, 1047].forEach((g, i) => tone('triangle', g, g, 0.18, 0.08, 0.06 * (i + 1))); },
             at(pan, vol) { curPan = pan || 0; curVol = vol === undefined ? 1 : vol; },
             toggleMute() { muted = !muted; return muted; },
             get muted() { return muted; }
@@ -406,6 +407,7 @@
         if (ev.team !== undefined && PERSONAL[ev.name] && sim && sim.mode === 'versus' && me && ev.team !== me.team) return;
         heard[ev.name] = (heard[ev.name] || 0) + 1;
         if (heard[ev.name] > 3) return;
+        if (ev.name === 'pickup' && boardedThisTick && me && ev.team === me.team) return; // our seat chime replaces it
         let pan = 0, vol = 1;
         if (ev.x !== undefined) {
             const dx = ev.x - (cameraX + GAME_WIDTH / 2);
@@ -560,6 +562,7 @@
     function startSolo() {
         sim = Sim.createGame({ mode: 'solo', seed: daily ? daily.seed | 0 : (Date.now() ^ (Math.random() * 0x7fffffff)) | 0 });
         particles = []; floatTexts = []; rings = []; craters = []; screenFlash = 0; newBest = false; submitStatus = '';
+        runners = []; seatPrev = 0; rescuedPrev = 0; camLead = 0; camV = 0;
         if (shareBtn) shareBtn.style.display = 'none';
         track('game_start', { mode: daily ? 'daily' : 'solo' });
         screen = 'playing'; screenTimer = 0;
@@ -600,7 +603,7 @@
             if (p.score > highScore) { highScore = p.score; newBest = true; saveHighScore(highScore); }
             submitScore(p);
             if (shareBtn) shareBtn.style.display = '';
-            track('game_over', { mode: daily ? 'daily' : 'solo', score: p.score, wave: sim.wave, rescued: p.rescued, new_best: newBest });
+            track('game_over', { mode: daily ? 'daily' : 'solo', score: p.score, wave: sim.wave, rescued: p.rescued, new_best: newBest, tanks: p.stats.tanks, full_loads: p.stats.fullLoads });
             setTimeout(() => { board.fetchedAt = 0; }, 1500);
         }
     }
@@ -744,7 +747,53 @@
     // =====================================================================
     // Main update (fixed 60 Hz)
     // =====================================================================
-    let lastScreenAttr = null, shopWave = 0;
+    let lastScreenAttr = null, shopWave = 0, camLead = 0, camV = 0;
+    // Rescue celebration (client-only): rising chimes as seats fill, runners into base on unload
+    let seatPrev = 0, rescuedPrev = 0, runners = [], seatShow = 0, boardedThisTick = false;
+    function rescueTick(p) {
+        boardedThisTick = false;
+        if (!p || screen !== 'playing') { seatPrev = p ? p.carrying : 0; rescuedPrev = p ? p.rescued : 0; return; }
+        if (p.carrying > seatPrev) {
+            boardedThisTick = true; seatShow = 90;
+            Sound.chime(p.carrying);
+            if (p.carrying === MAX_CARRY) { addText(cx(p), p.y - 50, 'FULL - HEAD HOME', '#ff0', true); buzz(20); }
+        }
+        if (p.rescued > rescuedPrev) {
+            const n = p.rescued - rescuedPrev, home = ownBaseOf(p);
+            for (let i = 0; i < Math.min(8, n); i++) runners.push({ x: cx(p) + (i - n / 2) * 8, tx: home ? (home.x > WORLD_WIDTH / 2 ? home.x - 20 : home.x + home.width + 18) : cx(p), anim: i * 7, note: i, done: false });
+            seatShow = 0;
+        }
+        if (p.landed) seatShow = Math.max(seatShow, 2);
+        if (seatShow > 0) seatShow--;
+        seatPrev = p.carrying; rescuedPrev = p.rescued;
+        for (let i = runners.length - 1; i >= 0; i--) {
+            const r = runners[i]; r.anim++;
+            const d = r.tx - r.x;
+            if (Math.abs(d) > 2) r.x += Math.sign(d) * 1.6;
+            else if (!r.done) { r.done = true; r.fade = 20; Sound.chime(1 + (r.note % 4), true); }
+            else if (--r.fade <= 0) runners.splice(i, 1);
+        }
+    }
+    function drawRescueFx() {
+        const p = local();
+        runners.forEach(r => {
+            if (!isVisible(r.x)) return;
+            ctx.save(); ctx.globalAlpha = r.done ? clamp(r.fade / 20, 0, 1) : 1; ctx.translate(r.x, GROUND_Y);
+            const swing = Math.sin(r.anim * 0.5) * 4;
+            ctx.strokeStyle = '#3a3a5a'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(-2 + swing, 0); ctx.moveTo(0, -9); ctx.lineTo(2 - swing, 0); ctx.stroke();
+            ctx.fillStyle = ['#fd4', '#f88', '#8cf', '#cfc'][r.note % 4]; ctx.fillRect(-3.5, -19, 7, 11);
+            ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, -22, 3.5, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#ffd9b3'; ctx.beginPath(); ctx.moveTo(0, -17); ctx.lineTo(-5, -26 + swing * 0.5); ctx.moveTo(0, -17); ctx.lineTo(5, -26 - swing * 0.5); ctx.stroke();
+            ctx.restore();
+        });
+        // Seat gauge under the chopper while boarding or parked
+        if (p && p.alive && seatShow > 0) {
+            ctx.save();
+            for (let i = 0; i < MAX_CARRY; i++) { ctx.fillStyle = i < p.carrying ? '#fd4' : 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.arc(cx(p) - 18 + i * 12, p.y + p.height + 10, 4, 0, Math.PI * 2); ctx.fill(); }
+            ctx.restore();
+        }
+    }
     function update() {
         frame++;
         // Shopping on a phone: solo time runs at half speed while the drawer is open
@@ -762,9 +811,16 @@
         // Camera follows the local chopper
         if (sim) {
             const p = local();
-            const targetCam = cx(p) - GAME_WIDTH / 2 + p.dir * 110;
-            cameraX += (targetCam - cameraX) * 0.08;
+            // Lead the camera by velocity (not facing), so hover turns don't swing the view;
+            // a damped spring follows smoothly, including at boost speed.
+            const hovering = Math.abs(p.vx) < 0.5;
+            const want = hovering && !p.landed ? p.dir * 40 : clamp(p.vx * 28, -150, 150);
+            camLead += (want - camLead) * (hovering ? 0.03 : 0.05);
+            const targetCam = clamp(cx(p) - GAME_WIDTH / 2 + camLead, 0, WORLD_WIDTH - GAME_WIDTH);
+            if (screen !== 'playing' || Math.abs(targetCam - cameraX) > GAME_WIDTH) { cameraX = targetCam; camV = 0; }
+            else { camV += (targetCam - cameraX) * 0.02; camV *= 0.78; cameraX += camV; }
             cameraX = clamp(cameraX, 0, WORLD_WIDTH - GAME_WIDTH);
+            rescueTick(p);
             if (isTouch) feelTick(p);
             if (screen === 'playing' && p.alive && p.health / p.maxHealth < 0.3 && frame % 45 === 0) Sound.alarm();
         }
@@ -1501,6 +1557,15 @@
         ctx.restore();
     }
     // First-run touch coach: one short contextual tip at a time until the rescue loop is learned
+    // End-of-run combat debrief from the simulation's per-pilot ledger
+    function drawDebrief(p, y) {
+        const st = p && p.stats; if (!st) return;
+        const n = hudSize(12);
+        const kills = `KILLS  TANKS ${st.tanks} · AA ${st.aa} · INFANTRY ${st.soldiers} · CHOPPERS ${st.helis}${st.bosses ? ' + ' + st.bosses + ' GUNSHIP' + (st.bosses > 1 ? 'S' : '') : ''}`;
+        const play = `FULL LOADS ${st.fullLoads} · PERFECT WAVES ${st.perfectWaves} · BEST COMBO x${Math.min(3, 1 + Math.max(0, st.maxCombo - 1) * 0.25)}`;
+        const cmd = `TROOPS BOUGHT ${st.unitsBought} · PARADROPS ${st.troopsDropped} · AIRSTRIKES ${st.strikes} · DAMAGE TAKEN ${st.dmgTaken}`;
+        [kills, play, cmd].forEach((line, i) => bigText(line, y + i * (n + 6), n, i === 0 ? '#fc6' : '#9cf'));
+    }
     function drawCoach() {
         const p = local();
         const sb = document.getElementById('btnShop');
@@ -1699,12 +1764,13 @@
         } else if (screen === 'gameover') {
             const p = local();
             overlay(Math.min(0.55, screenTimer / 40));
-            bigText(daily ? 'DAILY RUN OVER' : 'CHOPPER DOWN', 140, 44, '#f44');
-            bigText('SCORE ' + p.score, 190, 24, '#fff');
-            bigText(`RESCUED ${p.rescued}   LOST ${p.lost}   WAVE ${sim.wave}`, 220, 16, '#ccc');
-            if (newBest) bigText('NEW BEST SCORE!', 255, 20, '#ff0'); else bigText('BEST ' + highScore, 255, 16, '#ccc');
-            if (submitStatus) bigText(submitStatus, 285, 13, '#8f8');
-            if (screenTimer > 30 && blink) bigText(isTouch ? 'TAP TO RETRY' : 'PRESS R OR SPACE TO RETRY', 310, 18, '#0f0');
+            bigText(daily ? 'DAILY RUN OVER' : 'CHOPPER DOWN', 132, 44, '#f44');
+            bigText('SCORE ' + p.score, 172, 24, '#fff');
+            bigText(`RESCUED ${p.rescued}   LOST ${p.lost}   WAVE ${sim.wave}`, 198, 16, '#ccc');
+            drawDebrief(p, 222);
+            if (newBest) bigText('NEW BEST SCORE!', 290, 20, '#ff0'); else bigText('BEST ' + highScore, 290, 16, '#ccc');
+            if (submitStatus) bigText(submitStatus, 310, 13, '#8f8');
+            if (screenTimer > 30 && blink) bigText(isTouch ? 'TAP TO RETRY' : 'PRESS R OR SPACE TO RETRY', 334, 18, '#0f0');
             loadBoard(); drawBoardPanel(GAME_WIDTH - 200, 8, daily ? 'TODAY\'S TOP PILOTS' : 'TOP PILOTS');
         } else if (screen === 'lobby') {
             overlay(0.55);
@@ -1739,6 +1805,7 @@
                 bigText(`${p.name.toUpperCase()} ${p.score}   ·   ${o.name.toUpperCase()} ${o.score}`, 210, 20, '#fff');
                 bigText(`RESCUED ${p.rescued}   TIMES DOWNED ${p.deaths}`, 240, 14, '#ccc');
             }
+            drawDebrief(p, 262);
             if (screenTimer > 60 && blink) bigText(prompt + 'RETURN TO LOBBY', 300, 18, '#0f0');
         }
     }
@@ -1768,6 +1835,7 @@
             drawUnits();
             drawPickups();
             drawStrikesAndParas();
+            drawRescueFx();
             drawChoppers();
             if (isTouch && screen === 'playing' && sim && local() && local().alive && !local().landed && local().bombs > 0) drawBombMarker(local());
             drawProjectiles();
@@ -1981,7 +2049,7 @@
     // Read-only debug hook (used by automated play tests)
     window.__nq = { get sim() { return sim; }, get screen() { return screen; }, get mode() { return mode; }, get net() { return net; }, get localId() { return localId; },
         get state() { return screen; }, get score() { return local() ? local().score : 0; }, get credits() { return local() ? local().credits : 0; },
-        input, startSolo, primaryAction, togglePause, quitToMenu, stick, touchVertical, predictLocal, get autoFire() { return autoFire; }, get frame() { return frame; } };
+        input, startSolo, primaryAction, togglePause, quitToMenu, stick, touchVertical, predictLocal, get autoFire() { return autoFire; }, get runners() { return runners; }, get cameraX() { return cameraX; }, get frame() { return frame; } };
 
     fitCanvas();
     if (mode === 'solo') {
@@ -1995,6 +2063,7 @@
             const wm = /wave=(\d+)/.exec(hash); // screenshot helper: jump straight to a given wave
             if (wm && mode === 'solo') { sim.wave = Math.max(0, parseInt(wm[1], 10) - 1); sim.status = 'waveclear'; sim.statusTimer = 179; }
             if (hash.indexOf('shop') > 0 && shopEl && shopEl.classList) { shopEl.classList.add('open'); shopWave = sim.wave; }
+            if (hash.indexOf('gameover') > 0) setTimeout(() => { const q = sim.players[0]; Object.assign(q.stats, { tanks: 7, aa: 1, soldiers: 4, helis: 2, bosses: 1, fullLoads: 3, perfectWaves: 1, maxCombo: 4, unitsBought: 5, troopsDropped: 2, strikes: 1, dmgTaken: 260 }); q.score = 18450; q.rescued = 23; sim.status = 'over'; }, 800);
             if (hash.indexOf('#autostart-demo') === 0) { // screenshot/demo helper: show troops near base
                 sim.players[0].credits = 1000; input.right = false;
                 setTimeout(() => queueBuy('tank'), 300); setTimeout(() => queueBuy('soldier'), 600); setTimeout(() => queueBuy('soldier'), 900);

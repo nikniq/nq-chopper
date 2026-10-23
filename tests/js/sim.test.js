@@ -455,4 +455,19 @@ const calm = g => { g.units = g.units.filter(u => !u.ai); g.shells = []; g.ai.al
     b.ai.health -= 50; assert.notStrictEqual(Sim.hash(a), Sim.hash(b), 'AI heli health is hashed');
     b.ai.health += 50; b.hostages[0].state = 'dead'; assert.notStrictEqual(Sim.hash(a), Sim.hash(b), 'hostage states are hashed');
 }
+// Combat ledger: deterministic and counts what happened
+{
+    const a = run('solo', 4242, 2500, 1), b = run('solo', 4242, 2500, 1);
+    assert.deepStrictEqual(a.s.players[0].stats, b.s.players[0].stats, 'ledger is deterministic');
+    const g = Sim.createGame({ mode: 'solo', seed: 120 });
+    const p = g.players[0]; g.ai.alive = false; g.ai.respawn = 0; p.invuln = 1e9;
+    const t = g.units.find(u => u.ai && u.type === 'tank'); g.units = g.units.filter(u => u === t || !u.ai);
+    p.x = 1500; p.y = 150; p.landed = false; t.x = 1500; t.vx = 0;
+    g.bombs.push({ team: 0, owner: 0, x: t.x + 13, y: t.y - 30, vx: 0, vy: 3 });
+    for (let f = 0; f < 20 && g.units.includes(t); f++) Sim.step(g, [inp({})]);
+    assert.strictEqual(p.stats.tanks, 1, 'tank kill is counted');
+    Sim.step(g, [inp({ buy: 'soldier' })]);
+    p.credits = 1000; Sim.step(g, [inp({ buy: 'strike' })]);
+    assert.ok(p.stats.unitsBought === 1 && p.stats.strikes === 1, 'purchases are counted');
+}
 console.log('all sim tests passed');

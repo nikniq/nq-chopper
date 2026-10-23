@@ -104,7 +104,8 @@ body.touch:not([data-screen="playing"]) #actionGroup .touch-btn { pointer-events
 /* Pause menu (and the Menu button on game over) */
 #pauseMenu { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; gap: 14px; z-index: 7; padding-top: 22%; box-sizing: border-box; }
 body.touch[data-screen="paused"] #pauseMenu { display: flex; }
-body.touch[data-screen="gameover"] #pauseMenu { display: flex; align-items: flex-end; padding-bottom: 5%; }
+body.touch[data-screen="gameover"] #pauseMenu { display: flex; align-items: flex-end; justify-content: flex-start; padding: 0 0 12px 12px; pointer-events: none; }
+body.touch[data-screen="gameover"] #pauseMenu .pm-btn { pointer-events: auto; min-width: 96px; min-height: 44px; }
 body.touch[data-screen="gameover"] #pauseMenu .pm-solo { display: none; }
 #pauseMenu .pm-btn { min-width: 120px; min-height: 52px; border-radius: 12px; background: rgba(8,12,20,0.85); color: #fff; border: 2px solid rgba(255,255,255,0.4); font-size: 16px; font-weight: 700; }
 #pauseMenu .pm-btn:active { background: rgba(255,255,255,0.25); }

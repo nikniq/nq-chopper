@@ -145,6 +145,28 @@ console.log('lockstep client ok');
     console.log('touch flight ok');
 }
 
+// ---- Camera and rescue celebration ----
+{
+    const c = makeClient({ scoreUrl: null, csrf: 'x', match: null });
+    const nq = c.nq; nq.startSolo(); c.frames(2);
+    const s = nq.sim, p = s.players[0];
+    const calm = () => { s.units = []; s.shells = []; s.ai.alive = false; s.ai.respawn = 0; p.invuln = 1e9; };
+    calm(); p.x = 1500; p.y = 150; p.landed = false; p.vx = 0; p.vy = 0;
+    for (let i = 0; i < 120; i++) { calm(); p.y = 150; p.vy = 0; c.frames(1); }
+    c.key('ArrowLeft'); c.frames(1); c.key('ArrowLeft', true);
+    const cam0 = nq.cameraX;
+    for (let i = 0; i < 30; i++) { calm(); p.y = 150; p.vy = 0; c.frames(1); }
+    assert.ok(Math.abs(nq.cameraX - cam0) < 40, 'a hover turn no longer swings the camera: moved ' + (nq.cameraX - cam0).toFixed(1));
+    // Unload 4 hostages at base: runners appear and head for the base
+    s.hostages.slice(0, 4).forEach(h => { h.state = 'aboard'; h.carrier = 0; }); p.carrying = 4;
+    p.x = 45; p.y = 380 - p.height; p.vy = 0; p.landed = true;
+    calm(); c.frames(2);
+    assert.ok(p.rescued === 4 && nq.runners.length === 4, 'unloading spawns runners: ' + nq.runners.length);
+    for (let i = 0; i < 200; i++) { calm(); c.frames(1); }
+    assert.strictEqual(nq.runners.length, 0, 'runners reach the base and fade out');
+    console.log('camera and rescue celebration ok');
+}
+
 // ---- Co-op: same harness, allied pilots vs the AI, must stay in sync and share lives ----
 {
     const nA = fakeNetPair(), nB = fakeNetPair();

@@ -24,7 +24,7 @@ function makeClient(config, fakeNet, opts = {}) {
     };
     win.window = win; win.self = win; win.globalThis = win;
     win.document = { createElement: () => mkEl(), getElementById: id => (els[id] = els[id] || mkEl()), addEventListener: (ev, fn) => { docHandlers[ev] = fn; }, body: mkEl(), hidden: false };
-    win.performance = { now: () => 0 }; win.localStorage = { getItem: () => null, setItem: noop };
+    win.performance = { now: opts.now || (() => 0) }; win.localStorage = { getItem: () => null, setItem: noop };
     win.Math = Math; win.Date = Date; win.JSON = JSON; win.Object = Object; win.Array = Array; win.String = String; win.Number = Number; win.Promise = Promise; win.Set = Set; win.Error = Error; win.console = console; win.Proxy = Proxy; win.Infinity = Infinity;
     if (fakeNet) win.NQNet = fakeNet;
     const context = vm.createContext(win);
@@ -165,5 +165,42 @@ console.log('lockstep client ok');
     assert.ok(sa.players.every(p => p.x > 150), 'both allied pilots flew right on both sims');
     assert.ok(sa.players[0].health === sa.players[0].maxHealth || sa.players[0].health > 0, 'host alive');
     console.log('coop lockstep ok');
+}
+
+// ---- Netcode resilience: lost message, mid-match relay switch, one-shot inputs, forged codes, forfeit ----
+{
+    let clock = 0;
+    const nA = fakeNetPair(), nB = fakeNetPair();
+    const mk = (role, me, op, n) => makeClient({ scoreUrl: null, csrf: 'x', match: { code: 'NET001', role, mode: 'versus', seed: 99, status: 'active', me, opponent: op, urls } }, n, { now: () => clock });
+    const h = mk('host', { id: 1, name: 'Alpha' }, { id: 2, name: 'Bravo' }, nA), g = mk('guest', { id: 2, name: 'Bravo' }, { id: 1, name: 'Alpha' }, nB);
+    const la = nA.links[0], lb = nB.links[0]; la.peer = lb; lb.peer = la;
+    let sent = 0, dropped = 0; const send0 = la.send;
+    la.send = function (obj) { if (obj.t === 'i' && ++sent % 37 === 0) { dropped++; return true; } return send0.call(this, obj); }; // lossy host uplink
+    la.opts.onOpen(); lb.opts.onOpen();
+    const run = n => { for (let i = 0; i < n; i++) { clock += 1000 / 60; h.frames(1); g.frames(1); nA.pump(); nB.pump(); } };
+    run(183 + 300);
+    assert.ok(dropped > 3 && h.nq.sim.frame > 250 && g.nq.sim.frame > 250, `dropped ${dropped} host messages without stalling (frames ${h.nq.sim.frame}/${g.nq.sim.frame})`);
+    // One tank press, then both sides fall back to the relay (delay grows mid-match)
+    h.nq.sim.players[1].credits = g.nq.sim.players[1].credits = 5000;
+    g.key('Digit2');
+    const before = h.nq.sim.frame;
+    la.opts.onTransport('relay'); lb.opts.onTransport('relay');
+    run(400);
+    assert.ok(h.nq.sim.frame > before + 300 && g.nq.sim.frame > before + 300, 'relay fallback mid-match does not freeze either peer');
+    while (g.nq.sim.frame < h.nq.sim.frame) { g.frames(1); nA.pump(); nB.pump(); }
+    while (h.nq.sim.frame < g.nq.sim.frame) { h.frames(1); nA.pump(); nB.pump(); }
+    assert.strictEqual(h.win.NQSim.hash(h.nq.sim), g.win.NQSim.hash(g.nq.sim), 'peers still identical after loss and the transport switch');
+    assert.ok(!h.nq.net.desync && !g.nq.net.desync, 'no desync flagged');
+    assert.strictEqual(g.nq.sim.units.filter(u => u.team === 1 && u.type === 'tank').length, 1, 'one key press bought exactly one tank across the delay change');
+    // A forged shop code from the network is dropped on arrival
+    const fut = h.nq.sim.frame + 500;
+    la.opts.onMessage({ t: 'i', f: fut, i: [0, 'constructor'] });
+    assert.strictEqual(h.nq.net.remoteInputs[fut].buy, null, 'unknown buy codes are rejected when unpacked');
+    delete h.nq.net.remoteInputs[fut];
+    // Opponent vanishes: after 30 s of silence the match ends as a forfeit win
+    for (let i = 0; i < 200 && h.nq.screen !== 'over'; i++) { clock += 250; h.frames(1); nB.pump(); }
+    assert.strictEqual(h.nq.screen, 'over', 'silent opponent forfeits');
+    assert.ok(h.nq.sim.winner === 0 && /TIMED OUT/.test(h.nq.sim.endReason), 'host wins by timeout: ' + h.nq.sim.endReason);
+    console.log('netcode resilience ok');
 }
 console.log('all client tests passed');

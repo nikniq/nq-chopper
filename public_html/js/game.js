@@ -40,7 +40,7 @@
     function hudSize(px) { return isTouch ? Math.max(px, Math.ceil(MIN_CSS_PX / (view.cssPerUnit || 1))) : px; }
     function hudFont(px, bold) { return (bold === false ? '' : 'bold ') + hudSize(px) + 'px Arial'; }
     function drawBoardPanel(x, y, title) {
-        if (!cfg.boardUrl) return;
+        if (!cfg.boardUrl || GAME_WIDTH < 780) return;
         const rows = board.rows;
         const n = hudSize(10), pitch = n + 5, w = isTouch ? 210 : 190;
         x = Math.min(x, GAME_WIDTH - w - 8);
@@ -76,10 +76,13 @@
     // Lockstep input latency in ticks. Starts at a guess per transport and adapts to the measured
     // round trip so the game neither stalls (delay too small) nor feels sluggish (delay too big).
     const P2P_DELAY = 5, RELAY_DELAY = 18, MIN_DELAY = 3, MAX_DELAY = 30;
+    // Both peers must prefill exactly the same frames, whatever transport they opened on
+    const START_DELAY = RELAY_DELAY, STALL_FORFEIT_MS = 30000, STALL_WARN_MS = 5000;
     let INPUT_DELAY = P2P_DELAY;
 
     const forceTouch = !!(window.location && /[?&]touch=1\b/.test(window.location.search || ''));
-    const isTouch = forceTouch || window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    // Touch mode only for touch-first devices (phones, tablets). Touchscreen laptops keep the desktop UI.
+    const isTouch = forceTouch || window.matchMedia('(pointer: coarse)').matches;
     const playArea = document.getElementById('playArea') || canvasWrapper;
     const shopEl = document.getElementById('shop');
     const nav = window.navigator || {};
@@ -125,7 +128,7 @@
     }
     // Analog thumbstick state (touch only). x/y in [-1, 1]. Vertical input goes through a predictive
     // speed controller (touchVertical); horizontal speed is pulse-width modulated via accX.
-    const stick = { enabled: isTouch, active: false, x: 0, y: 0, accX: 0, lastKey: 0, holdY: null, wasLocked: false, tie: 0, reset: null };
+    const stick = { enabled: isTouch, active: false, x: 0, y: 0, accX: 0, lastKey: 0, lastTouch: Date.now(), holdY: null, wasLocked: false, tie: 0, reset: null };
     // Auto-fire is on by default on touch (frees the right thumb for bombs and boost); remembered per device
     let autoFire = isTouch ? lsGet('nqAuto', '1') === '1' : false;
     let tapFireFrames = 0;
@@ -206,7 +209,28 @@
     // Sound (synthesised, no assets)
     // ---------------------------------------------------------------------
     const Sound = (() => {
-        let ac = null, muted = false, primed = false, lastResume = 0;
+        let ac = null, muted = false, primed = false, lastResume = 0, master = null, noiseBuf = null, voices = 0;
+        let curPan = 0, curVol = 1;
+        function out(a) {
+            if (!master) {
+                try {
+                    master = a.createGain(); master.gain.value = 0.8;
+                    if (a.createDynamicsCompressor) { const c = a.createDynamicsCompressor(); c.threshold.value = -18; c.ratio.value = 6; c.knee.value = 12; master.connect(c).connect(a.destination); }
+                    else master.connect(a.destination);
+                } catch (e) { master = null; return a.destination; }
+            }
+            return master;
+        }
+        // Route a voice: optional stereo pan, counted against a cap so big fights never choke a phone
+        function route(a, node, stopAt) {
+            if (voices >= 24) return false;
+            voices++;
+            let dest = out(a);
+            if (curPan && a.createStereoPanner) { try { const pn = a.createStereoPanner(); pn.pan.value = curPan; pn.connect(dest); dest = pn; } catch (e) { /* ignore */ } }
+            node.connect(dest);
+            setTimeout(() => { voices = Math.max(0, voices - 1); }, Math.max(50, (stopAt - a.currentTime) * 1000 + 60));
+            return true;
+        }
         function get() {
             if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ac = null; } }
             if (ac && ac.state !== 'running' && ac.state !== 'closed') {
@@ -228,22 +252,22 @@
             o.type = type;
             o.frequency.setValueAtTime(f0, t);
             o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
-            g.gain.setValueAtTime(vol, t);
+            g.gain.setValueAtTime(Math.max(0.0011, vol * curVol), t);
             g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-            o.connect(g).connect(a.destination);
+            o.connect(g);
+            if (!route(a, g, t + dur + 0.05)) return;
             o.start(t); o.stop(t + dur + 0.05);
         }
         function noise(dur, vol, cutoff) {
             const a = get(); if (!a || muted) return;
-            const n = Math.floor(a.sampleRate * dur);
-            const buf = a.createBuffer(1, n, a.sampleRate);
-            const d = buf.getChannelData(0);
-            for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
-            const src = a.createBufferSource(); src.buffer = buf;
+            // One shared second of white noise, shaped by a gain envelope (no per-hit buffer allocation)
+            if (!noiseBuf) { noiseBuf = a.createBuffer(1, a.sampleRate, a.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+            const t = a.currentTime, src = a.createBufferSource(); src.buffer = noiseBuf;
             const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cutoff || 1200;
-            const g = a.createGain(); g.gain.value = vol;
-            src.connect(f).connect(g).connect(a.destination);
-            src.start();
+            const g = a.createGain(); g.gain.setValueAtTime(Math.max(0.0011, vol * curVol), t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+            src.connect(f).connect(g);
+            if (!route(a, g, t + dur)) return;
+            src.start(t, Math.random() * Math.max(0, 1 - dur), dur);
         }
         return {
             unlock,
@@ -262,6 +286,9 @@
             denied() { tone('sawtooth', 200, 150, 0.12, 0.06); },
             wave() { [392, 523, 659, 784].forEach((f, i) => tone('square', f, f, 0.2, 0.08, i * 0.12)); },
             die() { noise(0.9, 0.5, 600); tone('sawtooth', 220, 20, 1.0, 0.25); },
+            alarm() { tone('square', 880, 880, 0.08, 0.05); tone('square', 660, 660, 0.08, 0.05, 0.1); },
+            threat() { tone('triangle', 1500, 1200, 0.05, 0.05); },
+            at(pan, vol) { curPan = pan || 0; curVol = vol === undefined ? 1 : vol; },
             toggleMute() { muted = !muted; return muted; },
             get muted() { return muted; }
         };
@@ -297,7 +324,9 @@
     let localId = match && match.role === 'guest' ? 1 : 0;
     let cameraX = 0, shake = 0, particles = [], floatTexts = [];
     const input = { left: false, right: false, up: false, down: false, fire: false, boost: false };
-    let bombQueued = false, buyQueued = null;
+    let bombQueued = 0, buyQueue = [];
+    const queueBomb = () => { bombQueued = Math.min(4, bombQueued + 1); };
+    const queueBuy = code => { if (buyQueue.length < 8) buyQueue.push(code); };
     const local = () => sim ? sim.players[localId] : null;
 
     // Scenery generated once
@@ -322,6 +351,7 @@
     function cached(key, make) { return cache[key] || (cache[key] = make()); }
     function makeSprite(size, draw) { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'); if (g) draw(g, size); return c; }
     const glowSprite = (col) => cached('glow' + col, () => makeSprite(16, (g, n) => { const r = g.createRadialGradient(n / 2, n / 2, 1, n / 2, n / 2, n / 2); r.addColorStop(0, col); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, n, n); }));
+    function emit(pt) { if (screen === 'paused' || particles.length >= MAX_PARTICLES) return; particles.push(pt); }
     const isVisible = (x, margin) => x > cameraX - (margin || 60) && x < cameraX + GAME_WIDTH + (margin || 60);
     function rrect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
     function panel(x, y, w, h) { ctx.fillStyle = 'rgba(8,12,20,0.66)'; rrect(x, y, w, h, 6); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.stroke(); ctx.fillStyle = 'rgba(255,255,255,0.06)'; rrect(x, y, w, Math.min(10, h / 3), 6); ctx.fill(); }
@@ -367,12 +397,39 @@
         }
         floatTexts.push({ x, y, text, color: color || '#fff', life: 70, big: !!big, w });
     }
+    // Positional, team-aware sound: pan by screen position, fade with distance, keep the opponent's
+    // shop clicks private in versus, and cap repeats of the same sound within one tick.
+    const PERSONAL = { denied: 1, deploy: 1, dropoff: 1, pickup: 1, heal: 1, wave: 1 };
+    function playFx(ev, heard) {
+        if (!Sound[ev.name]) return;
+        const me = local();
+        if (ev.team !== undefined && PERSONAL[ev.name] && sim && sim.mode === 'versus' && me && ev.team !== me.team) return;
+        heard[ev.name] = (heard[ev.name] || 0) + 1;
+        if (heard[ev.name] > 3) return;
+        let pan = 0, vol = 1;
+        if (ev.x !== undefined) {
+            const dx = ev.x - (cameraX + GAME_WIDTH / 2);
+            vol = clamp(1 - (Math.abs(dx) - GAME_WIDTH * 0.5) / 900, 0, 1);
+            if (vol < 0.05) return;
+            pan = clamp(dx / (GAME_WIDTH * 0.7), -1, 1);
+        }
+        Sound.at(pan, vol); Sound[ev.name](); Sound.at(0, 1);
+        if (ev.name === 'die' && me && !me.alive) buzz([80, 40, 160]);
+    }
+    // Hit feedback: remember which units/choppers lost health this tick (client-only)
+    const lastHp = new WeakMap(), hitAt = new WeakMap();
+    function trackHits() {
+        const look = o => { if (!o) return; const h = lastHp.get(o); if (h !== undefined && o.health < h) hitAt.set(o, frame); lastHp.set(o, o.health); };
+        sim.units.forEach(look); sim.players.forEach(look); look(sim.ai);
+    }
     function consumeFx() {
+        const heard = {};
+        if (sim) trackHits();
         const near = x => x === undefined || Math.abs(x - (cameraX + GAME_WIDTH / 2)) < 760;
         sim.bullets.forEach(b => { if (b.life === 60) spawnMuzzleFlash(b.x + (b.vx > 0 ? 6 : 2), b.y + 1, b.vx > 0 ? 1 : -1); });
         sim.shells.forEach(b => { if (b.kind === 'rifle' && b.life === 40) spawnMuzzleFlash(b.x, b.y, b.vx > 0 ? 1 : -1); if (b.kind === 'shell' && b.life === 90) spawnMuzzleFlash(b.x, b.y, b.vx > 0 ? 1 : -1); });
         for (const ev of sim.fx) {
-            if (ev.t === 'snd') { if (Sound[ev.name]) Sound[ev.name](); if (ev.name === 'die' && local() && !local().alive) buzz([80, 40, 160]); }
+            if (ev.t === 'snd') playFx(ev, heard);
             else if (ev.t === 'txt') addText(ev.x, ev.y, ev.msg, ev.color, ev.big);
             else if (ev.t === 'p') spawnParticles(ev.x, ev.y, ev.n, ev.o);
             else if (ev.t === 'x') { if (near(ev.x)) { explosionFx(ev.x, ev.y, ev.big); if (ev.big && Math.abs(ev.x - (cameraX + GAME_WIDTH / 2)) < 400) buzz(40); } }
@@ -474,11 +531,11 @@
         return best;
     }
     function captureInput() {
-        const o = { l: input.left ? 1 : 0, r: input.right ? 1 : 0, u: input.up ? 1 : 0, d: input.down ? 1 : 0, f: (input.fire || autoFire || tapFireFrames > 0) ? 1 : 0, b: bombQueued ? 1 : 0, bo: input.boost ? 1 : 0, buy: buyQueued };
-        bombQueued = false; buyQueued = null;
+        const o = { l: input.left ? 1 : 0, r: input.right ? 1 : 0, u: input.up ? 1 : 0, d: input.down ? 1 : 0, f: (input.fire || autoFire || tapFireFrames > 0) ? 1 : 0, b: bombQueued > 0 ? 1 : 0, bo: input.boost ? 1 : 0, buy: buyQueue.length ? buyQueue.shift() : null };
+        if (bombQueued > 0) bombQueued--;
         if (tapFireFrames > 0) tapFireFrames--;
         // Touch thumbstick, unless the keyboard was used in the last 8 s
-        if (stick.enabled && Date.now() - stick.lastKey > 8000) {
+        if (stick.enabled && stick.lastTouch >= stick.lastKey && Date.now() - stick.lastKey > 8000) {
             const p = local();
             if (p && p.alive) { const v = touchVertical(stick, predictLocal(p), p.height); o.u = v.u; o.d = v.d; }
             else { stick.holdY = null; o.u = o.d = 0; }
@@ -493,8 +550,9 @@
         return o;
     }
     const packInput = i => [(i.l ? 1 : 0) | (i.r ? 2 : 0) | (i.u ? 4 : 0) | (i.d ? 8 : 0) | (i.f ? 16 : 0) | (i.b ? 32 : 0) | (i.bo ? 64 : 0), i.buy || 0];
-    const unpackInput = a => ({ l: a[0] & 1, r: a[0] & 2, u: a[0] & 4, d: a[0] & 8, f: a[0] & 16, b: a[0] & 32, bo: a[0] & 64, buy: a[1] || null });
-    const clearInput = () => { Object.keys(input).forEach(k => input[k] = false); bombQueued = false; buyQueued = null; tapFireFrames = 0; };
+    const unpackInput = a => { const k = (Array.isArray(a) ? a[0] : 0) | 0, code = Array.isArray(a) ? a[1] : null;
+        return { l: k & 1, r: k & 2, u: k & 4, d: k & 8, f: k & 16, b: k & 32, bo: k & 64, buy: Sim.BUY_CODES.indexOf(code) >= 0 ? code : null }; };
+    const clearInput = () => { Object.keys(input).forEach(k => input[k] = false); bombQueued = 0; buyQueue = []; tapFireFrames = 0; };
 
     // =====================================================================
     // Solo mode
@@ -563,7 +621,22 @@
     // =====================================================================
     // Versus mode: lobby + lockstep
     // =====================================================================
-    const net = { link: null, status: '', level: '', transport: null, rtt: 0, pings: {}, lastPing: 0, localInputs: [], remoteInputs: [], remoteHashes: {}, localHashes: {}, stalled: 0, desync: false, posted: false, opponent: match ? match.opponent : null };
+    const net = { link: null, status: '', level: '', transport: null, rtt: 0, pings: {}, lastPing: 0, localInputs: [], remoteInputs: [], remoteHashes: {}, localHashes: {}, stalled: 0, desync: false, posted: false, opponent: match ? match.opponent : null, sentLog: [], lastRemoteAt: 0, stallSince: 0 };
+    // Send one input frame, piggybacking the last few frames so a single lost message can never stall the match
+    function sendInput(g, inp) {
+        const packed = packInput(inp);
+        net.sentLog.push([g, packed]); if (net.sentLog.length > 16) net.sentLog.shift();
+        net.link.send({ t: 'i', f: g, i: packed, r: net.sentLog.slice(-8) });
+    }
+    // Raising the input delay must fill and send every skipped frame. The filler carries only held
+    // movement/fire, never a one-shot bomb or purchase (those wait for the next real capture).
+    function growDelay(want) {
+        if (!sim || want <= INPUT_DELAY) { if (!sim) INPUT_DELAY = Math.max(INPUT_DELAY, want); return; }
+        const f = sim.frame;
+        const filler = { l: input.left ? 1 : 0, r: input.right ? 1 : 0, u: input.up ? 1 : 0, d: input.down ? 1 : 0, f: (input.fire || autoFire) ? 1 : 0, b: 0, bo: input.boost ? 1 : 0, buy: null };
+        for (let g = f + INPUT_DELAY; g < f + want; g++) if (net.localInputs[g] === undefined) { net.localInputs[g] = filler; sendInput(g, filler); }
+        INPUT_DELAY = want;
+    }
     function startVersus() {
         if (match.status === 'finished') { net.status = 'THIS MATCH HAS ALREADY FINISHED'; net.level = 'error'; screen = 'lobby'; return; }
         screen = 'lobby';
@@ -571,8 +644,8 @@
             code: match.code, role: match.role, urls: match.urls, csrf: cfg.csrf, opponent: match.opponent, ice: match.ice,
             onStatus(msg, level) { net.status = msg; net.level = level || ''; },
             onOpponent(op) { net.opponent = op; },
-            onOpen(kind) { net.transport = kind; if (kind === 'relay') INPUT_DELAY = RELAY_DELAY; if (!sim) beginMatch(); },
-            onTransport(kind) { net.transport = kind; net.rtt = 0; if (kind === 'relay' && INPUT_DELAY < RELAY_DELAY) INPUT_DELAY = RELAY_DELAY; },
+            onOpen(kind) { net.transport = kind; if (!sim) beginMatch(); },
+            onTransport(kind) { net.transport = kind; net.rtt = 0; if (kind === 'relay' && INPUT_DELAY < RELAY_DELAY) growDelay(RELAY_DELAY); },
             onMessage(m) { onNetMessage(m); },
             onClose(msg) { onNetClosed(msg); }
         });
@@ -580,14 +653,24 @@
     function beginMatch() {
         const names = match.role === 'host' ? [match.me.name, net.opponent ? net.opponent.name : 'GUEST'] : [net.opponent ? net.opponent.name : 'HOST', match.me.name];
         sim = Sim.createGame({ mode: match.mode === 'coop' ? 'coop' : 'versus', seed: match.seed, names });
+        INPUT_DELAY = START_DELAY; // the adaptive retune lowers it once the ping is known (lowering is always gap-free)
         for (let f = 0; f < INPUT_DELAY; f++) { net.localInputs[f] = Sim.EMPTY; net.remoteInputs[f] = Sim.EMPTY; }
+        net.lastRemoteAt = performance.now();
         particles = []; floatTexts = []; consumeFx();
         screen = 'countdown'; screenTimer = 0;
         Sound.wave();
         track('match_start', { mode: sim.mode, role: match.role, transport: net.transport || 'unknown' });
     }
     function onNetMessage(m) {
-        if (m.t === 'i') net.remoteInputs[m.f] = unpackInput(m.i);
+        if (!m || typeof m !== 'object') return;
+        if (m.t === 'i') {
+            const floor = sim ? sim.frame : 0;
+            const put = (g, pk) => { if (Number.isInteger(g) && g >= floor && net.remoteInputs[g] === undefined) net.remoteInputs[g] = unpackInput(pk); };
+            put(m.f, m.i);
+            if (Array.isArray(m.r)) m.r.forEach(e => { if (Array.isArray(e)) put(e[0], e[1]); });
+            net.lastRemoteAt = performance.now();
+        }
+        else if (m.t === 'bye') onNetClosed('OPPONENT LEFT');
         else if (m.t === 'p') net.link.send({ t: 'q', s: m.s });
         else if (m.t === 'q') { const sent = net.pings[m.s]; if (sent) { delete net.pings[m.s]; const r = performance.now() - sent; net.rtt = net.rtt ? net.rtt * 0.7 + r * 0.3 : r; } }
         else if (m.t === 'h') {
@@ -603,7 +686,7 @@
     function onNetClosed(msg) {
         if (!sim || screen === 'over') return;
         if (screen === 'countdown' || screen === 'playing') {
-            if (sim.status !== 'over') { sim.status = 'over'; sim.winner = localId; sim.endReason = msg || 'OPPONENT DISCONNECTED'; }
+            if (sim.status !== 'over') { sim.status = 'over'; sim.winner = sim.mode === 'coop' ? null : localId; sim.endReason = msg || 'OPPONENT DISCONNECTED'; }
         }
     }
     function versusTick() {
@@ -619,20 +702,24 @@
             for (const k of Object.keys(net.pings)) if (k < f - 600) delete net.pings[k];
             if (net.rtt || net.transport === 'relay') {
                 const want = net.rtt ? clamp(Math.ceil((net.rtt / 2 + (net.transport === 'relay' ? 160 : 25)) / STEP) + 1, MIN_DELAY, MAX_DELAY) : RELAY_DELAY;
-                if (want > INPUT_DELAY + 1 || want < INPUT_DELAY - 2) {
-                    // Growing the delay must not leave a gap of frames the opponent never receives
-                    const cur = captureInput();
-                    for (let g = f + INPUT_DELAY; g < f + want; g++) if (net.localInputs[g] === undefined) { net.localInputs[g] = cur; net.link.send({ t: 'i', f: g, i: packInput(cur) }); }
-                    INPUT_DELAY = want;
-                }
+                if (want > INPUT_DELAY + 1) growDelay(want);
+                else if (want < INPUT_DELAY - 2) INPUT_DELAY = want; // shrinking: frames already sent stay in use
             }
         }
         if (net.localInputs[f + INPUT_DELAY] === undefined) {
             const inp = captureInput();
             net.localInputs[f + INPUT_DELAY] = inp;
-            net.link.send({ t: 'i', f: f + INPUT_DELAY, i: packInput(inp) });
+            sendInput(f + INPUT_DELAY, inp);
         }
-        if (net.remoteInputs[f] === undefined) { net.stalled++; return; }
+        if (net.remoteInputs[f] === undefined) {
+            net.stalled++;
+            // Opponent gone quiet (tab hidden, phone locked, connection lost): forfeit after 30 s of wall-clock silence
+            if (performance.now() - net.lastRemoteAt > STALL_FORFEIT_MS && sim.status !== 'over') {
+                if (net.link) net.link.send({ t: 'bye' });
+                sim.status = 'over'; sim.winner = sim.mode === 'coop' ? null : localId; sim.endReason = sim.mode === 'coop' ? 'PARTNER TIMED OUT' : 'OPPONENT TIMED OUT';
+            }
+            return;
+        }
         net.stalled = 0;
         const inputs = localId === 0 ? [net.localInputs[f], net.remoteInputs[f]] : [net.remoteInputs[f], net.localInputs[f]];
         Sim.step(sim, inputs);
@@ -679,6 +766,7 @@
             cameraX += (targetCam - cameraX) * 0.08;
             cameraX = clamp(cameraX, 0, WORLD_WIDTH - GAME_WIDTH);
             if (isTouch) feelTick(p);
+            if (screen === 'playing' && p.alive && p.health / p.maxHealth < 0.3 && frame % 45 === 0) Sound.alarm();
         }
         if (frame % 15 === 0) { updateDomScore(); announceScreen(); }
         if (screen !== lastScreenAttr) {
@@ -909,7 +997,7 @@
         ctx.beginPath(); ctx.moveTo(b.x - 4, GROUND_Y); ctx.lineTo(b.x + 18, b.y + 22); ctx.lineTo(b.x + 40, b.y + 34); ctx.lineTo(b.x + 62, b.y + 16);
         ctx.lineTo(b.x + 84, b.y + 30); ctx.lineTo(b.x + b.width - 16, b.y + 20); ctx.lineTo(b.x + b.width + 4, GROUND_Y); ctx.closePath(); ctx.fill();
         ctx.fillStyle = '#222'; ctx.fillRect(b.x + 30, b.y + 36, 14, 14); ctx.fillRect(b.x + 70, b.y + 40, 10, 10);
-        if (frame % 4 === 0) particles.push({ x: b.x + rand(10, b.width - 10), y: b.y + 20, vx: rand(-0.2, 0.2), vy: -0.6, life: 50, maxLife: 50, color: pick(['#333', '#555']), size: 6, gravity: -0.005 });
+        if (frame % 4 === 0) emit({ x: b.x + rand(10, b.width - 10), y: b.y + 20, vx: rand(-0.2, 0.2), vy: -0.6, life: 50, maxLife: 50, color: pick(['#333', '#555']), size: 6, gravity: -0.005 });
     }
     function drawBaseHealth(b) {
         if (b.health >= b.maxHealth || b.destroyed) return;
@@ -982,7 +1070,7 @@
             ctx.fillStyle = dayPhase() >= 0.45 && dayPhase() < 0.8 ? '#ffb347' : '#ffd'; ctx.fillRect(h.x + 8, GROUND_Y - h.h + 10, 10, 8);
             ctx.fillStyle = '#8a6a4a'; for (let i = 0; i < 3; i++) ctx.fillRect(h.x + 2 + i * 18, GROUND_Y - h.h + 6, 2, h.h - 6);
             ctx.fillStyle = '#553'; ctx.fillRect(h.x + h.w - 14, GROUND_Y - h.h - 10, 5, 12);
-            if (frame % 6 === 0) particles.push({ x: h.x + h.w - 11, y: GROUND_Y - h.h - 12, vx: rand(-0.1, 0.3), vy: -0.4, life: 60, maxLife: 60, color: '#ccc', size: 2, gravity: -0.004, grow: 0.06 });
+            if (frame % 6 === 0) emit({ x: h.x + h.w - 11, y: GROUND_Y - h.h - 12, vx: rand(-0.1, 0.3), vy: -0.4, life: 60, maxLife: 60, color: '#ccc', size: 2, gravity: -0.004, grow: 0.06 });
             if (h.garrison) {
                 const c = colorsOf(h.garrison.team), door = h.x + h.w / 2;
                 // Flag on the roof
@@ -1097,6 +1185,9 @@
                 ctx.fillStyle = '#0008'; ctx.fillRect(x - 1, y - 1, w + 2, 5);
                 ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; ctx.fillRect(x, y, Math.round(w * pct), 3);
             }
+            // White flash for a few frames after a hit, so chipping armour reads clearly
+            const hf = hitAt.get(u);
+            if (hf !== undefined && frame - hf < 4) { ctx.save(); ctx.globalAlpha = 0.65; ctx.fillStyle = '#fff'; ctx.fillRect(u.x, u.y, u.width, u.height); ctx.restore(); }
         });
     }
     function drawHeli(h, body, glass, flash) {
@@ -1201,6 +1292,27 @@
             else { ctx.font = 'bold 9px Arial'; ctx.textAlign = 'center'; ctx.fillText('$', k.x, y + 3.5); ctx.textAlign = 'left'; }
         });
     }
+    // Incoming fire: ring hostile shells whose straight path reaches the local chopper within ~0.75 s
+    const warnedShells = new WeakSet();
+    function drawThreats() {
+        const p = local();
+        if (!p || !p.alive || screen !== 'playing') return;
+        const bx = p.x - 6, by = p.y - 6, bw = p.width + 12, bh = p.height + 12;
+        let n = 0;
+        for (const b of sim.shells) {
+            if (n >= 3) break;
+            if (b.kind !== 'aa' && b.kind !== 'heli' && b.kind !== 'rocket' && b.kind !== 'shell') continue;
+            if (sim.mode === 'versus' ? b.team === p.team : b.team !== AI) continue;
+            let x = b.x, y = b.y, hit = false;
+            for (let t = 0; t < 45 && !hit; t++) { x += b.vx; y += b.vy; hit = x > bx && x < bx + bw && y > by && y < by + bh; }
+            if (!hit) continue;
+            n++;
+            if (!warnedShells.has(b)) { warnedShells.add(b); Sound.at(0, 0.5); Sound.threat(); Sound.at(0, 1); }
+            const r = 9 + 3 * Math.abs(Math.sin(frame / 3));
+            ctx.save(); ctx.strokeStyle = 'rgba(255,60,60,0.9)'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+        }
+    }
     function drawStrikesAndParas() {
         sim.strikes.forEach(k => {
             if (!isVisible(k.x, 120)) return;
@@ -1211,7 +1323,7 @@
             ctx.fillStyle = '#5a636c'; ctx.beginPath(); ctx.moveTo(-26, 0); ctx.lineTo(-18, -9); ctx.lineTo(-14, 0); ctx.closePath(); ctx.fill();
             ctx.fillStyle = '#9ff'; ctx.fillRect(16, -2.5, 6, 2);
             ctx.restore();
-            if (frame % 2 === 0 && !lowDetail) particles.push({ x: k.x - k.dir * 26, y: k.y, vx: -k.dir * 1.2, vy: 0, life: 40, maxLife: 40, color: '#eee', size: 3, gravity: 0, grow: 0.12 });
+            if (frame % 2 === 0 && !lowDetail) emit({ x: k.x - k.dir * 26, y: k.y, vx: -k.dir * 1.2, vy: 0, life: 40, maxLife: 40, color: '#eee', size: 3, gravity: 0, grow: 0.12 });
         });
         sim.paras.forEach(k => {
             if (!isVisible(k.x)) return;
@@ -1284,7 +1396,7 @@
                 ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
                 ctx.fillStyle = '#ddd'; rrect(-7, -2.5, 14, 5, 2); ctx.fill(); ctx.fillStyle = '#f44'; ctx.fillRect(4, -2.5, 3, 5); ctx.fillStyle = '#ff8'; ctx.fillRect(-11, -1.5, 4, 3);
                 ctx.restore();
-                if (frame % 2 === 0) particles.push({ x: b.x - b.vx, y: b.y - b.vy, vx: rand(-0.3, 0.3), vy: rand(-0.3, 0.3), life: 18, maxLife: 18, color: '#999', size: 3, gravity: -0.01, grow: 0.15 });
+                if (frame % 2 === 0) emit({ x: b.x - b.vx, y: b.y - b.vy, vx: rand(-0.3, 0.3), vy: rand(-0.3, 0.3), life: 18, maxLife: 18, color: '#999', size: 3, gravity: -0.01, grow: 0.15 });
                 return;
             }
             if (b.kind === 'rifle') { if (!isVisible(b.x)) return; ctx.fillStyle = b.team === AI ? '#f88' : '#ff8'; ctx.fillRect(b.x - 2.5, b.y - 1, 5, 2); return; }
@@ -1522,6 +1634,10 @@
             ctx.fillText(p.canRespawn === false ? 'NO LIVES LEFT - YOUR PARTNER FIGHTS ON' : 'SHOT DOWN - REDEPLOYING IN ' + Math.max(0, Math.ceil((301 - p.respawn) / 60)), GAME_WIDTH / 2, 130);
         }
         if (sim.mode !== 'solo') { ctx.fillStyle = net.transport === 'relay' ? '#fc6' : '#9cf'; ctx.font = hudFont(10); ctx.fillText((net.transport === 'relay' ? 'SERVER RELAY  ' : '') + 'PING ' + Math.round(net.rtt) + 'ms  DELAY ' + INPUT_DELAY, GAME_WIDTH / 2, 112); }
+        if (sim.mode !== 'solo' && net.stalled > 20 && screen === 'playing' && performance.now() - net.lastRemoteAt > STALL_WARN_MS) {
+            const left = Math.max(0, Math.ceil((STALL_FORFEIT_MS - (performance.now() - net.lastRemoteAt)) / 1000));
+            ctx.fillStyle = '#f88'; ctx.font = 'bold 15px Arial'; ctx.fillText((sim.mode === 'coop' ? 'PARTNER' : 'OPPONENT') + ' NOT RESPONDING - MATCH ENDS IN ' + left + 's', GAME_WIDTH / 2, GAME_HEIGHT - 52);
+        }
         if (sim.mode === 'versus' && net.stalled > 20 && screen === 'playing') {
             ctx.fillStyle = '#fc6'; ctx.font = 'bold 14px Arial'; ctx.fillText('WAITING FOR OPPONENT...', GAME_WIDTH / 2, GAME_HEIGHT - 30);
         }
@@ -1655,6 +1771,7 @@
             drawChoppers();
             if (isTouch && screen === 'playing' && sim && local() && local().alive && !local().landed && local().bombs > 0) drawBombMarker(local());
             drawProjectiles();
+            drawThreats();
             drawParticles();
             drawFloatTexts();
             ctx.restore();
@@ -1682,8 +1799,8 @@
         if (k) { e.preventDefault(); if (inPlay()) input[k] = true; }
         if (e.repeat) return;
         if (e.code === 'Space' || e.code === 'Enter') { if (!inPlay()) primaryAction(); }
-        if (e.code === 'KeyB' && inPlay()) bombQueued = true;
-        if (BUYKEYS[e.code] && inPlay()) buyQueued = BUYKEYS[e.code];
+        if (e.code === 'KeyB' && inPlay()) queueBomb();
+        if (BUYKEYS[e.code] && inPlay()) queueBuy(BUYKEYS[e.code]);
         if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
         if (e.code === 'KeyM') toggleMute();
         if (e.code === 'KeyR' && mode === 'solo' && (screen === 'gameover' || screen === 'paused')) startSolo();
@@ -1695,7 +1812,7 @@
         else Sound.resumeQuiet();
         syncWakeLock();
     });
-    window.addEventListener('pagehide', () => resetTouch());
+    window.addEventListener('pagehide', () => { resetTouch(); if (match && net.link && sim && sim.status !== 'over') net.link.send({ t: 'bye' }); });
     window.addEventListener('pageshow', e => { if (e && e.persisted) { resetTouch(); Sound.resumeQuiet(); } });
     // Touch state must never stay stuck after the OS steals a touch, the tab hides or the game pauses
     let canvasReset = null;
@@ -1721,9 +1838,9 @@
     }
     const press = (id, on) => { const el = document.getElementById(id); if (el && el.classList) el.classList.toggle('active', on); };
     bindControl(document.getElementById('btnShoot'), () => { if (!inPlay()) primaryAction(); input.fire = true; press('btnShoot', true); }, () => { input.fire = false; press('btnShoot', false); });
-    bindControl(document.getElementById('btnBomb'), () => { if (inPlay()) { bombQueued = true; buzz(15); } press('btnBomb', true); }, () => press('btnBomb', false));
+    bindControl(document.getElementById('btnBomb'), () => { if (inPlay()) { queueBomb(); buzz(15); } press('btnBomb', true); }, () => press('btnBomb', false));
     bindControl(document.getElementById('btnBoost'), () => { input.boost = true; press('btnBoost', true); }, () => { input.boost = false; press('btnBoost', false); });
-    bindControl(document.getElementById('btnTroops'), () => { if (inPlay()) buyQueued = 'troops'; }, () => {});
+    bindControl(document.getElementById('btnTroops'), () => { if (inPlay()) queueBuy('troops'); }, () => {});
     const setAutoAttr = () => { const b = document.getElementById('btnAuto'); if (b && b.setAttribute) b.setAttribute('aria-pressed', autoFire ? 'true' : 'false'); };
     setAutoAttr();
     bindControl(document.getElementById('btnAuto'), () => { autoFire = !autoFire; lsSet('nqAuto', autoFire ? '1' : '0'); setAutoAttr(); }, () => {});
@@ -1757,7 +1874,7 @@
             e.preventDefault();
             if (pid !== null) { if (e.isPrimary && e.pointerId !== pid) reset(); else return; } // a stale pointer: take over
             closeShop();
-            pid = e.pointerId; ox = e.clientX; oy = e.clientY; st = Date.now(); moved = false; stick.holdY = null; stick.accX = 0;
+            pid = e.pointerId; ox = e.clientX; oy = e.clientY; st = Date.now(); moved = false; stick.holdY = null; stick.accX = 0; stick.lastTouch = Date.now();
             const r = zone.getBoundingClientRect();
             base.classList.remove('idle'); base.style.left = (e.clientX - r.left) + 'px'; base.style.top = (e.clientY - r.top) + 'px';
             setKnob(0, 0); stick.active = true; stick.x = 0; stick.y = 0;
@@ -1787,7 +1904,7 @@
         if (!btn) return;
         btn.addEventListener('click', () => {
             if (isTouch && performance.now() - shopOpenedAt < 150) return; // ignore the tap that opened the drawer
-            if (inPlay()) { buyQueued = type; if (isTouch) closeShop(); }
+            if (inPlay()) { queueBuy(type); if (isTouch) closeShop(); }
             if (btn.blur) btn.blur();
         });
     });
@@ -1805,18 +1922,20 @@
     (function () {
         let pid = null, sx = 0, sy = 0, st = 0, moved = false, lpTimer = null;
         const TAP_DIST = 12, TAP_TIME = 300, LONG_PRESS = 450, MOVE = 15;
-        canvasReset = () => { pid = null; if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+        canvasReset = () => { pid = null; if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } if (!isTouch) input.left = input.right = input.up = input.down = false; };
         function down(e) {
             e.preventDefault();
             if (pid !== null) { if (e.isPrimary && e.pointerId !== pid) canvasReset(); else return; }
             pid = e.pointerId; sx = e.clientX; sy = e.clientY; st = Date.now(); moved = false;
+            try { if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
             if (lpTimer) clearTimeout(lpTimer);
             // Long-press to bomb is a mouse/desktop gesture; on touch, stray touches must not cost bombs
-            if (!isTouch) lpTimer = setTimeout(() => { if (!moved && inPlay()) bombQueued = true; lpTimer = null; }, LONG_PRESS);
+            if (!isTouch) lpTimer = setTimeout(() => { if (!moved && inPlay()) queueBomb(); lpTimer = null; }, LONG_PRESS);
         }
         function move(e) {
             if (e.pointerId !== pid) return;
             e.preventDefault();
+            if (e.pointerType === 'mouse' && !e.buttons) { canvasReset(); return; } // release was missed
             const dx = e.clientX - sx, dy = e.clientY - sy;
             if (Math.abs(dx) > MOVE || Math.abs(dy) > MOVE) { moved = true; if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } }
             if (inPlay() && !isTouch) { input.left = dx < -MOVE; input.right = dx > MOVE; input.up = dy < -MOVE; input.down = dy > MOVE; }
@@ -1834,6 +1953,7 @@
         canvas.addEventListener('pointermove', move);
         canvas.addEventListener('pointerup', up);
         canvas.addEventListener('pointercancel', up);
+        canvas.addEventListener('lostpointercapture', e => { if (e.pointerId === pid) canvasReset(); });
         canvas.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
         canvas.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
         canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -1877,7 +1997,7 @@
             if (hash.indexOf('shop') > 0 && shopEl && shopEl.classList) { shopEl.classList.add('open'); shopWave = sim.wave; }
             if (hash.indexOf('#autostart-demo') === 0) { // screenshot/demo helper: show troops near base
                 sim.players[0].credits = 1000; input.right = false;
-                setTimeout(() => { buyQueued = 'tank'; }, 300); setTimeout(() => { buyQueued = 'soldier'; }, 600); setTimeout(() => { buyQueued = 'soldier'; }, 900);
+                setTimeout(() => queueBuy('tank'), 300); setTimeout(() => queueBuy('soldier'), 600); setTimeout(() => queueBuy('soldier'), 900);
             }
         }
     } else {

@@ -178,7 +178,7 @@ class MatchController extends Controller
             'reason' => $data['reason'],
             'finished_at' => now(),
         ]);
-        $match->signals()->delete();
+        // Relay rows are left for matches:prune; the slower peer may still be catching up on them.
 
         return response()->json(['recorded' => true]);
     }

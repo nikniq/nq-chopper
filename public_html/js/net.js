@@ -190,8 +190,13 @@
             relayTick();
             if (!channelOpen) announce('relay');
         }
+        function flushOutbox() {
+            if (!(channelOpen && channel && channel.readyState === 'open')) return;
+            while (outbox.length) { const m = outbox.shift(); try { channel.send(JSON.stringify(m)); } catch (e) { outbox.unshift(m); break; } }
+        }
         async function relayTick() {
             if (closed || !relayActive) { relayTimer = null; return; }
+            flushOutbox();
             if (channelOpen && relayDrainUntil && Date.now() > relayDrainUntil && outbox.length === 0) { relayActive = false; relayTimer = null; return; }
             if (!relayBusy) {
                 relayBusy = true;
@@ -203,6 +208,7 @@
                     for (const m of res.msgs) deliver(m);
                 } catch (e) {
                     outbox.unshift(...batch);
+                    flushOutbox(); // the direct link may have opened meanwhile: deliver there instead of losing it
                     if (!channelOpen && ++relayFailures > 50) { fail('LOST CONTACT WITH SERVER'); return; }
                     if (relayFailures === 5) onStatus('RELAY HICCUP, RETRYING...', 'warn');
                 }

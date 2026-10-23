@@ -146,7 +146,7 @@ class MatchTest extends TestCase
         $match->refresh();
         $this->assertSame('finished', $match->status);
         $this->assertSame($guest->id, $match->winner_user_id);
-        $this->assertSame(0, $match->signals()->count());
+        $this->assertSame(1, $match->signals()->count(), 'relay rows are kept for the slower peer; matches:prune clears them later');
 
         $this->actingAs($guest)->get('/multiplayer')->assertOk()->assertSeeInOrder(['Alpha', 'Bravo', '1200 – 3400', 'Won']);
         $this->actingAs($host)->get('/multiplayer')->assertSee('Lost');

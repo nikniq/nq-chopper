@@ -23,6 +23,9 @@
     const GARRISON_RANGE = 170;
     const PICKUPS = { health: { amount: 35, color: '#f55' }, bombs: { amount: MAX_BOMBS, color: '#f90' }, credits: { amount: 60, color: '#8f8' } };
     const BOSS_EVERY = 3;
+    const COAX = { range: 140, rate: 25, dmg: 6 };         // AI tank coaxial MG vs low/landed choppers in front
+    const HOSTAGE_ESCAPE = 2700;                          // frames blocked by an enemy-held hut before hostages flee on foot
+    const BASE_SAFE = 400;                                // kills near your own base pay nothing (anti-camping)
     const AIRSTRIKE = { cost: 250, cooldown: 900, bombs: 6, speed: 7 };
     const AA = { width: 26, height: 16, health: 90, range: 300, fireRate: 80, dmg: 16 };
     const MAX_TROOPS = 4;        // soldiers a chopper can carry for paradrops
@@ -39,6 +42,9 @@
     const BOOST = { max: 100, drain: 1.1, regen: 0.3, regenDelay: 45, speedMul: 2.1 };
     // Threat multiplier: waves get tougher on a curve, not just by adding a tank
     const threat = s => 1 + Math.max(0, s.wave - 1) * 0.18 + Math.max(0, s.wave - 5) * 0.07;
+    // Only accept known shop codes (inputs come from the network in online play)
+    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops'];
+    const has = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 
     // ---------------------------------------------------------------------
     // Deterministic helpers
@@ -63,7 +69,7 @@
 
     // Cosmetic events for the client
     const fx = (s, ev) => { s.fx.push(ev); };
-    const snd = (s, name) => fx(s, { t: 'snd', name });
+    const snd = (s, name, x, team) => fx(s, { t: 'snd', name, x, team });
     const text = (s, x, y, msg, color, big) => fx(s, { t: 'txt', x, y, msg, color: color || '#fff', big: !!big });
     const parts = (s, x, y, n, o) => fx(s, { t: 'p', x, y, n, o });
     const explosion = (s, x, y, big) => fx(s, { t: 'x', x, y, big: !!big });
@@ -86,7 +92,7 @@
         const def = UNITS.tank;
         const hp = team === AI ? Math.round((30 + s.wave * 6) * threat(s)) : def.health;
         return { team, type: 'tank', x, y: GROUND_Y - def.height, width: def.width, height: def.height, vx: vx || 0, dir: vx ? sign(vx) : 1,
-            speed: def.speed, health: hp, maxHealth: hp, range: def.range, fireTimer: rand(s, 60, 160), angle: -Math.PI / 2, anim: 0, moving: true, ai: team === AI };
+            speed: def.speed, health: hp, maxHealth: hp, range: def.range, fireTimer: rand(s, 60, 160), angle: -Math.PI / 2, anim: 0, moving: true, ai: team === AI, coaxTimer: COAX.rate };
     }
     function makeAA(s, x) {
         return { team: AI, type: 'aa', x, y: GROUND_Y - AA.height, width: AA.width, height: AA.height, vx: 0, dir: -1, speed: 0,
@@ -144,28 +150,37 @@
     function spawnHostageGroup(s, gx) {
         s.huts.push({ x: gx, w: 54, h: 36, garrison: null, fireTimer: 0, warnTimer: 0, balloonTimer: 0 });
         const count = 3 + Math.floor(rnd(s) * 2);
-        for (let i = 0; i < count; i++) s.hostages.push({ x: gx + 60 + i * 14 + rand(s, -3, 3), state: 'waiting', dir: -1, anim: Math.floor(rnd(s) * 100), carrier: -1 });
+        for (let i = 0; i < count; i++) s.hostages.push({ x: gx + 60 + i * 14 + rand(s, -3, 3), state: 'waiting', dir: -1, anim: Math.floor(rnd(s) * 100), carrier: -1, blocked: 0, flee: false });
     }
     function spawnAiHeli(s) {
         const a = s.ai, base = s.bases[1];
         a.boss = s.wave % BOSS_EVERY === 0;
         a.x = base.x - 80; a.y = 110; a.vx = -a.speed; a.dir = -1; a.shootCooldown = 90; a.burst = 0;
-        a.maxHealth = Math.round((150 + (s.wave - 1) * 40) * (a.boss ? 3 : 1) * threat(s)); a.health = a.maxHealth;
+        const baseHp = 150 + (s.wave - 1) * 40, t = threat(s);
+        a.maxHealth = Math.round(a.boss ? baseHp * 2.2 * Math.sqrt(t) : baseHp * t); a.health = a.maxHealth;
         a.speed = Math.min(4.2, 2 + (s.wave - 1) * 0.25 + (a.boss ? 0.4 : 0)); a.alive = true; a.respawn = 0;
         a.width = a.boss ? 78 : 60; a.height = a.boss ? 30 : 24;
         if (a.boss) { text(s, a.x, a.y - 30, 'GUNSHIP INBOUND', '#f66', true); snd(s, 'die'); }
     }
     function setupWave(s, n) {
+        // Player soldiers garrisoned in huts or still under parachutes carry over as ground troops
+        const keep = [];
+        s.huts.forEach(h => { const g = h.garrison; if (g && g.team !== AI) for (let i = 0; i < g.count; i++) keep.push(makeSoldier(s, g.team, Math.max(150, hutDoor(h) - 30 - i * 12), marchDir(s, g.team))); });
+        s.paras.forEach(k => { if (k.team !== AI) keep.push(makeSoldier(s, k.team, k.x - UNITS.soldier.width / 2, k.dir)); });
         s.wave = n; s.waveRescued = 0; s.waveLost = 0; s.waveBonus = 0;
         s.hostages = []; s.huts = []; s.bullets = []; s.shells = []; s.bombs = []; s.pickups = []; s.strikes = []; s.paras = [];
-        s.units = s.units.filter(u => u.team !== AI);
+        s.units = s.units.filter(u => u.team !== AI).concat(keep);
         s.tankSpawnTimer = 0;
         s.balloons = [];
-        // War chest: the computer gets a lump sum per wave and a steady income to spend on troops
-        s.aiCredits += Math.round((150 + n * 120) * threat(s));
+        // War chest: a lump sum per wave plus a quarter of what was left unspent (no unbounded hoarding)
+        s.aiCredits = Math.round(s.aiCredits * 0.25) + Math.round((150 + n * 120) * threat(s));
         const eb = s.bases[1];
-        eb.maxHealth = 400 + (n - 1) * 150; eb.health = eb.maxHealth; eb.destroyed = false;
-        s.players.forEach(p => { if (p.alive || s.mode === 'solo') resetPlayer(s, p); });
+        eb.maxHealth = Math.round((400 + (n - 1) * 150) * threat(s)); eb.health = eb.maxHealth; eb.destroyed = false;
+        s.players.forEach(p => {
+            // Co-op: a pilot who was out of lives comes back if the squad has a life to spend
+            if (s.mode === 'coop' && !p.alive && !p.canRespawn && s.lives > 0) { s.lives--; p.canRespawn = true; resetPlayer(s, p); p.invuln = 90; text(s, cx(p), p.y - 30, 'REDEPLOYED', '#8f8'); }
+            else if (p.alive) resetPlayer(s, p);
+        });
         const groups = Math.min(2 + n, 7);
         const span = (WORLD_WIDTH - 900) / groups;
         for (let g = 0; g < groups; g++) spawnHostageGroup(s, 480 + g * span + rand(s, 40, span - 120));
@@ -175,8 +190,8 @@
             while (tries++ < 20 && s.huts.some(h => Math.abs(h.x + 40 - tx) < 160)) tx = rand(s, 380, WORLD_WIDTH - 260);
             s.units.push(makeTank(s, AI, tx, pick(s, [-1, 1]) * (0.8 + n * 0.15)));
         }
-        // Anti-air emplacements guard the approach to the enemy base from wave 2
-        const aaCount = n >= 2 ? Math.min(3, 1 + Math.floor((n - 2) / 2)) : 0;
+        // Anti-air emplacements guard the approach to the enemy base from wave 3
+        const aaCount = n >= 3 ? Math.min(3, 1 + Math.floor((n - 3) / 2)) : 0;
         for (let i = 0; i < aaCount; i++) {
             let ax = rand(s, WORLD_WIDTH * 0.55, WORLD_WIDTH - 300), tries = 0;
             while (tries++ < 20 && (s.huts.some(h => Math.abs(h.x + 40 - ax) < 140) || s.units.some(u => u.type === 'aa' && Math.abs(u.x - ax) < 160))) ax = rand(s, WORLD_WIDTH * 0.55, WORLD_WIDTH - 300);
@@ -232,19 +247,31 @@
         return Math.round(pts * Math.min(3, 1 + (p.combo - 1) * 0.25));
     }
     function comboLabel(p) { return p.combo > 1 ? '  x' + String(Math.min(3, 1 + (p.combo - 1) * 0.25)).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') : ''; }
+    // Kills scored while parked, or from right beside your own base, pay nothing in solo/co-op:
+    // otherwise sitting on the repair pad holding fire is a risk-free infinite score loop.
+    function camping(s, p) {
+        if (s.mode === 'versus' || !p) return false;
+        const b = ownBase(s, p.team);
+        return p.landed || (b && Math.abs(cx(p) - cx(b)) < BASE_SAFE);
+    }
     function award(s, p, pts, x, y, cash, big) {
+        if (camping(s, p)) { text(s, x, y, 'NO BOUNTY NEAR BASE', '#aaa'); return; }
         const final = comboPoints(p, pts);
         p.score += final;
         if (cash) p.credits += cash;
         text(s, x, y, '+' + final + (cash ? ' +$' + cash : '') + comboLabel(p), p.combo > 1 ? '#ff0' : '#fff', big);
     }
+    function fielded(s, team) {
+        return s.units.filter(u => u.team === team).length + s.paras.filter(k => k.team === team).length
+            + s.players.filter(q => q.team === team).reduce((a, q) => a + q.troops, 0);
+    }
     function buyUnit(s, p, type) {
-        const def = UNITS[type];
+        const def = has(UNITS, type) ? UNITS[type] : null;
         if (!def || !p.alive) return false;
-        const mine = s.units.filter(u => u.team === p.team).length;
+        const mine = fielded(s, p.team);
         if (p.credits < def.cost || mine >= MAX_ALLIES) {
             text(s, cx(p), p.y - 30, p.credits < def.cost ? 'NEED $' + def.cost : 'TROOP LIMIT', '#f66');
-            snd(s, 'denied');
+            snd(s, 'denied', cx(p), p.team);
             return false;
         }
         p.credits -= def.cost;
@@ -253,19 +280,19 @@
         s.units.push(type === 'tank' ? Object.assign(makeTank(s, p.team, x, 0), { dir, angle: dir === 1 ? 0 : Math.PI }) : makeSoldier(s, p.team, x, dir));
         parts(s, x, GROUND_Y - 4, 6, { speed: 1, colors: ['#9c9', '#cfc'], size: 3, life: 25, up: 0.6 });
         text(s, cx(p), p.y - 30, def.name + ' DEPLOYED  -$' + def.cost, '#8f8');
-        snd(s, 'deploy');
+        snd(s, 'deploy', cx(p), p.team);
         return true;
     }
     function callAirstrike(s, p) {
         if (!p.alive) return false;
         const x = cx(p), y = p.y - 30;
-        if (p.strikeCooldown > 0) { text(s, x, y, 'AIRSTRIKE IN ' + Math.ceil(p.strikeCooldown / 60) + 'S', '#f66'); snd(s, 'denied'); return false; }
-        if (p.credits < AIRSTRIKE.cost) { text(s, x, y, 'NEED $' + AIRSTRIKE.cost, '#f66'); snd(s, 'denied'); return false; }
+        if (p.strikeCooldown > 0) { text(s, x, y, 'AIRSTRIKE IN ' + Math.ceil(p.strikeCooldown / 60) + 'S', '#f66'); snd(s, 'denied', cx(p), p.team); return false; }
+        if (p.credits < AIRSTRIKE.cost) { text(s, x, y, 'NEED $' + AIRSTRIKE.cost, '#f66'); snd(s, 'denied', cx(p), p.team); return false; }
         p.credits -= AIRSTRIKE.cost; p.strikeCooldown = AIRSTRIKE.cooldown;
         const dir = p.dir;
-        s.strikes.push({ team: p.team, dir, x: dir === 1 ? x - 520 : x + 520, y: 34, targetX: x, bombsLeft: AIRSTRIKE.bombs, dropTimer: 0 });
+        s.strikes.push({ team: p.team, dir, x: clamp(dir === 1 ? x - 520 : x + 520, -180, WORLD_WIDTH + 180), y: 34, targetX: x, bombsLeft: AIRSTRIKE.bombs, dropTimer: 0, armed: false });
         text(s, x, y, 'AIRSTRIKE INBOUND  -$' + AIRSTRIKE.cost, '#fc6', true);
-        snd(s, 'wave');
+        snd(s, 'wave', cx(p), p.team);
         return true;
     }
     // One key does both: landed next to your soldiers it loads them, airborne it drops one by parachute
@@ -274,21 +301,23 @@
         const x = cx(p), y = p.y - 30;
         if (p.landed) {
             let loaded = 0;
+            const pad = ownBase(s, p.team), onPad = pad && overlap(p, pad), reach = onPad ? LOAD_RANGE + pad.width / 2 + 20 : LOAD_RANGE;
+            const from = onPad ? cx(pad) : x;
             for (let i = s.units.length - 1; i >= 0 && p.troops < MAX_TROOPS; i--) {
                 const u = s.units[i];
-                if (u.team === p.team && u.type === 'soldier' && Math.abs(cx(u) - x) < LOAD_RANGE) { s.units.splice(i, 1); p.troops++; loaded++; }
+                if (u.team === p.team && u.type === 'soldier' && Math.abs(cx(u) - from) < reach) { s.units.splice(i, 1); p.troops++; loaded++; }
             }
-            if (loaded > 0) { text(s, x, y, '+' + loaded + ' TROOPS ABOARD (' + p.troops + '/' + MAX_TROOPS + ')', '#9cf'); snd(s, 'pickup'); return true; }
+            if (loaded > 0) { text(s, x, y, '+' + loaded + ' TROOPS ABOARD (' + p.troops + '/' + MAX_TROOPS + ')', '#9cf'); snd(s, 'pickup', cx(p), p.team); return true; }
             if (p.troops >= MAX_TROOPS) text(s, x, y, 'TROOP BAY FULL', '#f66');
             else text(s, x, y, 'NO SOLDIERS NEARBY TO LOAD', '#f66');
-            snd(s, 'denied');
+            snd(s, 'denied', cx(p), p.team);
             return false;
         }
-        if (p.troops <= 0) { text(s, x, y, 'NO TROOPS ABOARD - LAND BY SOLDIERS TO LOAD', '#f66'); snd(s, 'denied'); return false; }
+        if (p.troops <= 0) { text(s, x, y, 'NO TROOPS ABOARD - LAND BY SOLDIERS TO LOAD', '#f66'); snd(s, 'denied', cx(p), p.team); return false; }
         p.troops--;
         s.paras.push({ team: p.team, x, y: p.y + p.height + 6, vx: p.vx * 0.5, vy: 2.2, dir: marchDir(s, p.team), anim: 0 });
         text(s, x, y, 'PARATROOPER AWAY (' + p.troops + ' LEFT)', '#9cf');
-        snd(s, 'deploy');
+        snd(s, 'deploy', cx(p), p.team);
         return true;
     }
     function updateParas(s) {
@@ -312,7 +341,7 @@
         if (!p.alive) return false;
         if (p.rally === null) { p.rally = clamp(cx(p), 80, WORLD_WIDTH - 80); text(s, cx(p), p.y - 30, 'TROOPS: HOLD THIS LINE', '#9cf'); }
         else { p.rally = null; text(s, cx(p), p.y - 30, 'TROOPS: ADVANCE!', '#9cf'); }
-        snd(s, 'pickup');
+        snd(s, 'pickup', cx(p), p.team);
         return true;
     }
     function updateStrikes(s) {
@@ -324,28 +353,30 @@
                 if (--k.dropTimer <= 0) {
                     k.dropTimer = 10; k.bombsLeft--;
                     s.bombs.push({ team: k.team, x: k.x, y: k.y + 10, vx: k.dir * 2.5, vy: 1.5 });
-                    snd(s, 'bomb');
+                    snd(s, 'bomb', k.x);
                 }
             }
-            if (k.x < -200 || k.x > WORLD_WIDTH + 200) s.strikes.splice(i, 1);
+            // Leave only once off the map AND done (all bombs dropped, or well past the target)
+            if ((k.x < -200 || k.x > WORLD_WIDTH + 200) && (k.bombsLeft === 0 || (k.x - k.targetX) * k.dir > 400)) s.strikes.splice(i, 1);
         }
     }
     function upgradeCost(p, type) {
+        if (!has(UPGRADES, type)) return null;
         const def = UPGRADES[type];
         return p.upgrades[type] >= def.costs.length ? null : def.costs[p.upgrades[type]];
     }
     function buyUpgrade(s, p, type) {
-        const def = UPGRADES[type];
+        const def = has(UPGRADES, type) ? UPGRADES[type] : null;
         if (!def || !p.alive) return false;
         const cost = upgradeCost(p, type), x = cx(p), y = p.y - 30;
-        if (cost === null) { text(s, x, y, def.name + ' MAXED', '#f66'); snd(s, 'denied'); return false; }
-        if (p.credits < cost) { text(s, x, y, 'NEED $' + cost, '#f66'); snd(s, 'denied'); return false; }
+        if (cost === null) { text(s, x, y, def.name + ' MAXED', '#f66'); snd(s, 'denied', cx(p), p.team); return false; }
+        if (p.credits < cost) { text(s, x, y, 'NEED $' + cost, '#f66'); snd(s, 'denied', cx(p), p.team); return false; }
         p.credits -= cost;
         p.upgrades[type]++;
         if (type === 'armor') { p.maxHealth += def.bonus; p.health += def.bonus; }
         parts(s, x, cy(p), 14, { speed: 2.5, colors: ['#8f8', '#fff', '#ff0'], size: 3, life: 30 });
         text(s, x, y, def.name + ' LEVEL ' + p.upgrades[type] + '  -$' + cost, '#8f8', true);
-        snd(s, 'dropoff');
+        snd(s, 'dropoff', cx(p), p.team);
         return true;
     }
 
@@ -355,22 +386,22 @@
     function shoot(s, p) {
         if (p.fireCooldown > 0) return;
         const bx = p.dir === 1 ? p.x + p.width : p.x - 8;
-        s.bullets.push({ team: p.team, x: bx, y: p.y + p.height / 2 - 1, vx: p.dir * 9 + p.vx * 0.5, width: 8, height: 3, life: 60 });
+        s.bullets.push({ team: p.team, owner: p.id, x: bx, y: p.y + p.height / 2 - 1, vx: p.dir * 9 + p.vx * 0.5, width: 8, height: 3, life: 60 });
         p.fireCooldown = UPGRADES.gun.cooldown[p.upgrades.gun];
-        snd(s, 'shoot');
+        snd(s, 'shoot', bx, p.team);
     }
     function dropBomb(s, p) {
         if (p.bombs <= 0 || p.landed) return;
         s.bombs.push({ team: p.team, x: cx(p), y: p.y + p.height + 4, vx: p.vx * 0.8, vy: 1 });
         p.bombs--;
-        snd(s, 'bomb');
+        snd(s, 'bomb', cx(p), p.team);
     }
     function damagePlayer(s, p, amount, why) {
         if (!p.alive || p.invuln > 0 || s.status !== 'playing') return;
         p.health = Math.max(0, p.health - amount);
         p.invuln = 40;
         fx(s, { t: 'shake', v: 5, team: p.team });
-        snd(s, 'hit');
+        snd(s, 'hit', cx(p), p.team);
         parts(s, cx(p), cy(p), 6, { speed: 2, colors: ['#ff0', '#f80'], size: 3, life: 20 });
         if (why) text(s, cx(p), p.y - 20, why, '#f66');
         if (p.health <= 0) killPlayer(s, p);
@@ -378,7 +409,7 @@
     function killPlayer(s, p) {
         p.alive = false; p.deaths++; p.spin = 0; p.respawn = 0;
         explosion(s, cx(p), cy(p), false);
-        snd(s, 'die');
+        snd(s, 'die', cx(p), p.team);
         // Anyone aboard is lost
         s.hostages.forEach(h => { if (h.state === 'aboard' && h.carrier === p.id) { h.state = 'dead'; p.lost++; s.waveLost++; } });
         p.carrying = 0;
@@ -389,7 +420,7 @@
             if (s.lives > 0) { s.lives--; p.canRespawn = true; text(s, cx(p), p.y - 56, s.lives + (s.lives === 1 ? ' LIFE LEFT' : ' LIVES LEFT'), '#fc6'); }
             else {
                 p.canRespawn = false;
-                if (!s.players.some(o => o.alive)) endMatch(s, null, 'SQUAD WIPED ON WAVE ' + s.wave);
+                if (!s.players.some(o => o.alive || o.canRespawn)) endMatch(s, null, 'SQUAD WIPED ON WAVE ' + s.wave);
             }
         } else p.canRespawn = true;
     }
@@ -402,7 +433,7 @@
         }
         if (s.mode !== 'solo' && p.canRespawn && p.respawn >= 121 + 180) {
             resetPlayer(s, p);
-            p.invuln = 90;
+            p.invuln = 90; p.canRespawn = false;
             text(s, cx(p), p.y - 30, 'REDEPLOYED', '#8f8');
         }
     }
@@ -412,7 +443,7 @@
         const wantBoost = !!inp.bo && (inp.l || inp.r) && p.boost > 0 && !p.landed;
         if (wantBoost) { p.boost = Math.max(0, p.boost - BOOST.drain); p.boostIdle = 0; }
         else if (++p.boostIdle > BOOST.regenDelay && p.boost < BOOST.max) p.boost = Math.min(BOOST.max, p.boost + BOOST.regen);
-        if (wantBoost && !p.boosting) snd(s, 'wave');
+        if (wantBoost && !p.boosting) snd(s, 'wave', cx(p), p.team);
         p.boosting = wantBoost;
         const sp = p.speed * (wantBoost ? BOOST.speedMul : 1);
         const targetVx = inp.l ? -sp : inp.r ? sp : 0;
@@ -436,9 +467,10 @@
         if (inp.f) shoot(s, p);
         if (inp.b) dropBomb(s, p);
         if (p.strikeCooldown > 0) p.strikeCooldown--;
-        if (inp.buy) {
-            if (UNITS[inp.buy]) buyUnit(s, p, inp.buy);
-            else if (UPGRADES[inp.buy]) buyUpgrade(s, p, inp.buy);
+        if (!Number.isFinite(p.credits)) p.credits = 0;
+        if (inp.buy && BUY_CODES.includes(inp.buy)) {
+            if (has(UNITS, inp.buy)) buyUnit(s, p, inp.buy);
+            else if (has(UPGRADES, inp.buy)) buyUpgrade(s, p, inp.buy);
             else if (inp.buy === 'strike') callAirstrike(s, p);
             else if (inp.buy === 'rally') toggleRally(s, p);
             else if (inp.buy === 'troops') loadOrDrop(s, p);
@@ -454,10 +486,10 @@
                 let pts = n * 100; if (n === MAX_CARRY) pts += 200;
                 p.score += pts; p.carrying = 0;
                 text(s, cx(p), p.y - 24, '+' + pts + (n === MAX_CARRY ? ' FULL LOAD' : ''), '#ff0', true);
-                earn(s, p, n * 40, cx(p), p.y - 44);
-                snd(s, 'dropoff');
+                earn(s, p, n * Math.round(40 * threat(s)), cx(p), p.y - 44);
+                snd(s, 'dropoff', cx(p), p.team);
             }
-            if (p.health < p.maxHealth && s.frame % 6 === 0) { p.health++; if (s.frame % 30 === 0) snd(s, 'heal'); }
+            if (p.health < p.maxHealth && s.frame % 6 === 0) { p.health++; if (s.frame % 30 === 0) snd(s, 'heal', cx(p), p.team); }
             if (p.bombs < MAX_BOMBS && s.frame % 20 === 0) p.bombs++;
         }
     }
@@ -471,7 +503,16 @@
             h.anim++;
             if (h.state !== 'waiting' && h.state !== 'running') return;
             let best = null, bestD = 280;
-            const hut = hutOf(s, h.x);
+            const hut = h.flee ? null : hutOf(s, h.x);
+            // Held by the computer for too long: the hostages slip out and walk home on their own
+            if (s.mode !== 'versus' && !h.flee) {
+                if (hut && hut.garrison && hut.garrison.team === AI) {
+                    if (++h.blocked >= HOSTAGE_ESCAPE) {
+                        h.flee = true;
+                        if (!hut.escaped) { hut.escaped = true; text(s, hutDoor(hut), GROUND_Y - hut.h - 40, 'HOSTAGES ESCAPE ON FOOT!', '#fd4', true); }
+                    }
+                } else h.blocked = 0;
+            }
             landed.forEach(p => {
                 const d = Math.abs(cx(p) - h.x);
                 if (d >= bestD) return;
@@ -487,8 +528,13 @@
                 if (Math.abs(dx) < 8) {
                     h.state = 'aboard'; h.carrier = best.id; best.carrying++;
                     text(s, cx(best), best.y - 16, best.carrying + '/' + MAX_CARRY, '#ff0');
-                    snd(s, 'pickup');
+                    snd(s, 'pickup', cx(best), best.team);
                 }
+            } else if (h.flee) {
+                // Walking home: exposed in the open (tanks can crush them), saved on reaching the pad
+                const home = s.bases[0], hx = cx(home);
+                h.state = 'running'; h.dir = hx < h.x ? -1 : 1; h.x += h.dir * 0.9;
+                if (Math.abs(h.x - hx) < 30) { h.state = 'saved'; s.waveRescued++; text(s, hx, GROUND_Y - 60, 'HOSTAGE MADE IT HOME', '#8f8'); }
             } else h.state = 'waiting';
         });
         s.huts.forEach(h => { if (h.warnTimer > 0) h.warnTimer--; });
@@ -526,7 +572,7 @@
         if (best && u.type !== 'aa') return best;
         const eb = enemyBase(s, u.team);
         if (eb && !u.ai) {
-            const d = u.team === 0 ? eb.x - ux : ux - (eb.x + eb.width);
+            const d = marchDir(s, u.team) === 1 ? eb.x - ux : ux - (eb.x + eb.width);
             if (d < u.range) return { kind: 'base', x: cx(eb), y: cy(eb), obj: eb };
         }
         if (u.type === 'tank' || u.type === 'aa') {
@@ -537,7 +583,21 @@
                 const d = u.ai ? Math.abs(dx) : dist(dx, dy);
                 if (d < bd && dy < -10) { bd = d; bh = { kind: 'heli', x: cx(c), y: cy(c), obj: c }; }
             });
-            return bh;
+            if (bh) return bh;
+            // Skimming the ground no longer makes a chopper immune: AI tanks rake low choppers in front
+            // with a coaxial machine gun (but never one sitting on its own repair pad)
+            if (u.ai && u.type === 'tank') {
+                let low = null, ld = COAX.range;
+                choppers(s).forEach(c => {
+                    if (!hostile(s, c.team, u.team) || c.team === AI) return;
+                    const dx = cx(c) - ux, dy = cy(c) - u.y, pad = ownBase(s, c.team);
+                    if (dy < -10 || Math.abs(dx) >= ld || sign(dx) !== u.dir) return;
+                    if (pad && cx(c) > pad.x - 60 && cx(c) < pad.x + pad.width + 60) return;
+                    ld = Math.abs(dx); low = { kind: 'coax', x: cx(c), y: cy(c), obj: c };
+                });
+                return low;
+            }
+            return null;
         }
         return null;
     }
@@ -545,16 +605,16 @@
         const def = UNITS[u.type], ux = cx(u);
         if (u.type === 'soldier') {
             s.shells.push({ team: u.team, x: ux + u.dir * 6, y: u.y + 7, vx: u.dir * 6, vy: 0, width: 5, height: 2, dmg: def.dmg, life: 40, kind: 'rifle' });
-            snd(s, 'rifle');
+            snd(s, 'rifle', ux);
         } else if (target.kind === 'heli') {
             const oy = u.y, dx = target.x - ux, dy = target.y - oy;
             let vx = 0, vy = -5, dmg = u.type === 'aa' ? Math.round(AA.dmg * threat(s)) : u.ai ? Math.round(12 * threat(s)) : 20;
-            if (!u.ai || s.wave >= 2 || u.type === 'aa') {
+            {
                 const mag = dist(dx, dy) || 1, sp = u.type === 'aa' ? 5.5 : u.ai ? 3.5 + s.wave * 0.3 : 5;
                 vx = dx / mag * sp; vy = dy / mag * sp;
             }
             s.shells.push({ team: u.team, x: ux + vx * 2.5, y: oy + vy * 2.5, vx, vy, width: 7, height: 7, dmg, life: 140, kind: 'aa' });
-            snd(s, 'enemyShoot');
+            snd(s, 'enemyShoot', ux);
         } else {
             const dir = target.x < ux ? -1 : 1;
             s.shells.push({ team: u.team, x: ux + dir * 16, y: u.y + 6, vx: dir * 4.5, vy: 0, width: 6, height: 6, dmg: u.ai ? Math.round(14 * threat(s)) : def.dmg, life: 90, kind: 'shell' });
@@ -599,11 +659,20 @@
                     if (u.moving) u.x = dir === 1 ? Math.min(stopX, u.x + u.speed) : Math.max(stopX, u.x - u.speed);
                 }
             }
+            if (target && target.kind === 'coax') {
+                // keep the barrel level toward the chopper and stop to rake it
+                if (--u.coaxTimer <= 0) {
+                    const dir = target.x < ux ? -1 : 1;
+                    s.shells.push({ team: u.team, x: ux + dir * 14, y: u.y + 4, vx: dir * 6, vy: 0, width: 5, height: 2, dmg: Math.round(COAX.dmg * threat(s)), life: 30, kind: 'rifle' });
+                    u.coaxTimer = COAX.rate + Math.floor(rnd(s) * 10);
+                    snd(s, 'rifle', ux);
+                }
+            }
             u.fireTimer--;
-            if (target && u.fireTimer <= 0) {
+            if (target && target.kind !== 'coax' && u.fireTimer <= 0) {
                 fireAt(s, u, target);
                 if (u.type === 'aa') u.fireTimer = Math.max(40, AA.fireRate - s.wave * 4) + rand(s, 0, 20);
-                else if (u.ai) u.fireTimer = (target.kind === 'heli' ? Math.max(50, 140 - s.wave * 10) + rand(s, 0, 40) : Math.max(45, 120 - s.wave * 8) + rand(s, 0, 30));
+                else if (u.ai) u.fireTimer = (target.kind === 'heli' ? Math.max(50, 160 - s.wave * 12) + rand(s, 0, 40) : Math.max(45, 120 - s.wave * 8) + rand(s, 0, 30));
                 else u.fireTimer = UNITS[u.type].fireRate + rand(s, 0, 15);
             }
             // Tanks crush enemy soldiers
@@ -623,11 +692,12 @@
     function updateAiEconomy(s) {
         const eb = s.bases[1];
         if (eb.destroyed) return;
-        s.aiCredits += (0.09 + s.wave * 0.035) * threat(s) * (s.mode === 'coop' ? 1.35 : 1);
+        s.aiCredits = Math.min(s.aiCredits + (0.09 + s.wave * 0.035) * threat(s) * (s.mode === 'coop' ? 1.35 : 1), Math.round((600 + 300 * s.wave) * threat(s)));
         if (++s.aiThink < 45) return;
         s.aiThink = 0;
         const tanks = s.units.filter(u => u.ai && u.type === 'tank').length;
-        const soldiers = s.units.filter(u => u.ai && u.type === 'soldier').length;
+        const soldiers = s.units.filter(u => u.ai && u.type === 'soldier').length
+            + s.huts.reduce((n, h) => n + (h.garrison && h.garrison.team === AI ? h.garrison.count : 0), 0);
         const tankCap = Math.round((3 + s.wave * 2) * Math.min(1.6, threat(s))), soldierCap = s.wave >= 2 ? Math.min(8, 1 + s.wave) : 0;
         const wantSoldier = soldierCap > soldiers && (tanks >= tankCap || rnd(s) < 0.35);
         if (wantSoldier && s.aiCredits >= UNITS.soldier.cost) {
@@ -662,8 +732,11 @@
             let popped = false;
             for (const c of choppers(s)) {
                 if (!hostile(s, c.team, b.team) || !overlap(c, box)) continue;
+                const hp = c.health, inv = c.invuln;
                 damageChopper(s, c, 70, null, 'BALLOON TETHER');
-                if (c.team !== AI && c.invuln === 40) { c.vx *= -0.5; c.vy = 2; }
+                const hit = c.team === AI ? c.health < hp : (c.invuln === 40 && inv !== 40);
+                if (!hit) continue;
+                if (c.team !== AI) { c.vx *= -0.5; c.vy = 2; }
                 popped = true; break;
             }
             if (popped) popBalloon(s, i, null);
@@ -672,7 +745,7 @@
     function popBalloon(s, i, by) {
         const b = s.balloons[i];
         parts(s, b.x, b.y, 12, { speed: 2.5, colors: ['#ddd', '#f66', '#fff'], size: 3, life: 25 });
-        snd(s, 'hit');
+        snd(s, 'hit', b.x);
         b.hut.balloonTimer = 720;
         if (by) award(s, by, 25, b.x, b.y - 14, 0);
         s.balloons.splice(i, 1);
@@ -684,17 +757,19 @@
         for (const h of s.huts) {
             if (Math.abs(ux - hutDoor(h)) > 6) continue;
             const g = h.garrison;
+            // The computer does not seize an empty hut while its hostages are still waiting there
+            if (!g && u.ai && s.hostages.some(o => (o.state === 'waiting' || o.state === 'running') && !o.flee && hutOf(s, o.x) === h)) return false;
             if (!g) {
                 h.garrison = { team: u.team, count: 1 };
                 text(s, hutDoor(h), GROUND_Y - h.h - 30, 'HUT SECURED', u.ai ? '#f66' : '#8f8');
-                snd(s, 'pickup');
+                snd(s, 'pickup', hutDoor(h));
             } else if (!hostile(s, g.team, u.team)) {
                 if (g.count >= (u.ai ? aiGarrisonCap(s) : GARRISON_CAP.player)) return false; // full: march on
                 g.count++;
             } else {
                 g.count--;
                 parts(s, hutDoor(h), GROUND_Y - 16, 10, { speed: 2, colors: ['#ff0', '#f80', '#fff'], size: 3, life: 20 });
-                snd(s, 'rifle'); snd(s, 'hit');
+                snd(s, 'rifle', hutDoor(h)); snd(s, 'hit', hutDoor(h));
                 if (g.count <= 0) { h.garrison = null; text(s, hutDoor(h), GROUND_Y - h.h - 30, 'HUT CLEARED', u.ai ? '#f66' : '#8f8'); }
                 else text(s, hutDoor(h), GROUND_Y - h.h - 30, 'STORMED  ' + g.count + ' LEFT', '#fc6');
             }
@@ -715,7 +790,7 @@
             const dir = cx(best) < door ? -1 : 1;
             s.shells.push({ team: g.team, x: door + dir * 10, y: GROUND_Y - h.h + 14, vx: dir * 6, vy: 0.35, width: 5, height: 2, dmg: UNITS.soldier.dmg, life: 40, kind: 'rifle' });
             fx(s, { t: 'p', x: door + dir * 12, y: GROUND_Y - h.h + 14, n: 2, o: { speed: 1.5, colors: ['#ffa'], size: 2, life: 6 } });
-            snd(s, 'rifle');
+            snd(s, 'rifle', door);
             h.fireTimer = Math.max(18, Math.round(70 / g.count));
         });
     }
@@ -731,7 +806,7 @@
             const pts = u.ai ? (byPlayerShot ? killer.pts : 50) : (u.type === 'tank' ? 150 : 40);
             const cash = u.ai ? (byPlayerShot ? 30 : 20) : (u.type === 'tank' ? 40 : 10);
             if (byPlayerShot) award(s, killer.player, pts, cx(u), u.y - 10, cash);
-            else { killer.player.score += pts; killer.player.credits += cash; text(s, cx(u), u.y - 10, '+' + pts + ' +$' + cash, '#fff'); }
+            else if (!(u.ai && camping(s, killer.player))) { killer.player.score += pts; killer.player.credits += cash; text(s, cx(u), u.y - 10, '+' + pts + ' +$' + cash, '#fff'); }
         } else if (!u.ai) {
             text(s, cx(u), u.y - 14, (why ? why + ' - ' : '') + UNITS[u.type].name + ' LOST', '#f88');
         }
@@ -767,7 +842,7 @@
                 else if (k.type === 'bombs') { p.bombs = MAX_BOMBS; text(s, cx(p), p.y - 24, 'BOMBS REARMED', def.color); }
                 else { earn(s, p, def.amount, cx(p), p.y - 24); }
                 parts(s, k.x, k.y, 10, { speed: 2, colors: [def.color, '#fff'], size: 3, life: 20 });
-                snd(s, 'pickup');
+                snd(s, 'pickup', cx(p), p.team);
                 s.pickups.splice(i, 1);
                 break;
             }
@@ -814,13 +889,13 @@
                 const vx = (tx - sx) / mag * sp, vy = (ty - sy) / mag * sp;
                 s.shells.push({ team: AI, x: sx + a.dir * 20, y: sy + 8, vx: vx - vy * spread, vy: vy + vx * spread, width: 9, height: 9, dmg: 30, life: 160, kind: 'rocket' });
                 a.shootCooldown = a.burst > 0 ? 7 : Math.max(60, 120 - s.wave * 5);
-                snd(s, 'bomb');
+                snd(s, 'bomb', sx);
             } else {
                 const sp = 6;
                 s.shells.push({ team: AI, x: sx, y: sy, vx: (tx - sx) / mag * sp, vy: (ty - sy) / mag * sp, width: 7, height: 7, dmg: Math.round(18 * threat(s)), life: 200, kind: 'heli' });
                 a.shootCooldown = Math.max(35, 75 - s.wave * 5);
                 if (a.boss && rnd(s) < 0.5) { a.burst = 3; a.shootCooldown = 20; }
-                snd(s, 'enemyShoot');
+                snd(s, 'enemyShoot', sx);
             }
         }
         if (a.health < a.maxHealth * 0.35 && s.frame % 5 === 0) parts(s, cx(a) + rand(s, -6, 6), a.y + 6, 1, { speed: 0.3, colors: ['#444'], size: 5, life: 40, up: 0.8 });
@@ -899,12 +974,17 @@
     function updateProjectiles(s) {
         // Machine-gun bullets
         for (let i = s.bullets.length - 1; i >= 0; i--) {
-            const b = s.bullets[i], owner = playerByTeam(s, b.team);
+            const b = s.bullets[i], owner = b.owner !== undefined && s.players[b.owner] ? s.players[b.owner] : playerByTeam(s, b.team);
             b.x += b.vx; b.life--;
             let hit = b.life <= 0 || b.x < 0 || b.x > WORLD_WIDTH;
             if (!hit) for (let j = s.units.length - 1; j >= 0; j--) {
                 const u = s.units[j];
-                if (hostile(s, u.team, b.team) && overlap(u, b)) { damageUnit(s, j, u.type === 'aa' ? 12 : u.ai || u.type === 'soldier' ? 999 : 20, owner ? { player: owner, direct: true, pts: u.type === 'aa' ? 200 : 100 } : null); hit = true; break; }
+                if (hostile(s, u.team, b.team) && overlap(u, b)) {
+                    // Armour: the machine gun drops infantry outright but only chips tanks; bombs are the anti-tank tool
+                    const gunDmg = UPGRADES.gun.dmg[owner ? owner.upgrades.gun : 0];
+                    const dmg = u.type === 'aa' ? 12 : u.type === 'soldier' ? 999 : u.ai && u.type === 'tank' ? Math.round(gunDmg * 0.45) : 20;
+                    damageUnit(s, j, dmg, owner ? { player: owner, direct: true, pts: u.type === 'aa' ? 200 : 100 } : null); hit = true; break;
+                }
             }
             if (!hit) for (const c of choppers(s)) {
                 if (hostile(s, c.team, b.team) && overlap(c, b)) { damageChopper(s, c, UPGRADES.gun.dmg[owner ? owner.upgrades.gun : 0], owner); hit = true; break; }
@@ -969,10 +1049,10 @@
         });
     }
     function checkWaveClear(s) {
-        if (s.hostages.length === 0) return;
+        if (s.status !== 'playing' || s.hostages.length === 0) return;
         if (s.hostages.every(h => h.state === 'saved' || h.state === 'dead') && s.players.every(p => p.carrying === 0)) {
             s.waveBonus = s.waveRescued * 50 * s.wave + (s.waveLost === 0 ? 500 : 0);
-            s.players.forEach(p => { p.score += s.waveBonus; earn(s, p, 100 + (s.waveLost === 0 ? 100 : 0)); });
+            s.players.forEach(p => { p.score += s.waveBonus; earn(s, p, Math.round((100 + (s.waveLost === 0 ? 100 : 0)) * threat(s))); });
             if (s.mode === 'coop') { s.lives++; s.players.forEach(p => text(s, cx(p), p.y - 50, '+1 LIFE', '#8f8')); }
             s.status = 'waveclear'; s.statusTimer = 0;
             snd(s, 'dropoff');
@@ -996,7 +1076,7 @@
             updateProjectiles(s);
             updatePickups(s);
             checkCollisions(s);
-            if (s.mode !== 'versus') checkWaveClear(s);
+            if (s.mode !== 'versus' && s.status === 'playing') checkWaveClear(s);
         } else if (s.status === 'dying') {
             s.statusTimer++;
             const p = s.players[0];
@@ -1014,7 +1094,7 @@
     // Cheap state fingerprint for desync detection between lockstep peers.
     function hash(s) {
         let h = 2166136261;
-        const mix = v => { const n = Math.round(v * 1000) | 0; h ^= n; h = Math.imul(h, 16777619); };
+        const mix = v => { const n = Number.isFinite(v) ? Math.round(v * 1000) | 0 : 0x7fffffff; h ^= n; h = Math.imul(h, 16777619); };
         mix(s.frame); mix(s.rs);
         s.players.forEach(p => { mix(p.x); mix(p.y); mix(p.health); mix(p.credits); mix(p.score); mix(p.carrying); });
         s.bases.forEach(b => mix(b.health));
@@ -1023,8 +1103,16 @@
         s.players.forEach(p => { mix(p.rally === null ? -1 : p.rally); mix(p.strikeCooldown); mix(p.troops); mix(p.boost); });
         mix(s.paras.length);
         s.huts.forEach(h => mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5));
+        const STATUS = ['playing', 'dying', 'waveclear', 'over'], HSTATE = ['waiting', 'running', 'aboard', 'saved', 'dead'], TYPES = ['soldier', 'tank', 'aa'];
+        mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.hostageTimer);
+        const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0);
+        s.players.forEach(p => { mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.lost); });
+        s.hostages.forEach(o => { mix(o.x); mix(HSTATE.indexOf(o.state)); mix(o.carrier); mix(o.blocked); });
+        s.units.forEach(u => { mix(u.y); mix(u.team); mix(TYPES.indexOf(u.type)); });
+        s.bombs.forEach(b => { mix(b.x); mix(b.y); });
+        s.pickups.forEach(k => mix(k.x)); s.paras.forEach(k => { mix(k.x); mix(k.y); }); s.strikes.forEach(k => mix(k.x));
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, AIRSTRIKE, AA, BOOST, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
 });

@@ -151,7 +151,7 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
     assert.ok(!b.ai.boss, 'wave 1 is a normal enemy chopper');
     b.wave = 2; b.status = 'waveclear'; b.statusTimer = 179; Sim.step(b, [inp({})]);
     assert.strictEqual(b.wave, 3);
-    assert.ok(b.ai.boss && b.ai.maxHealth === Math.round((150 + 2 * 40) * 3 * Sim.threat(b)), 'wave 3 spawns a gunship with triple hull (scaled by threat)');
+    assert.ok(b.ai.boss && b.ai.maxHealth === Math.round((150 + 2 * 40) * 2.2 * Math.sqrt(Sim.threat(b))) && b.ai.maxHealth > 2 * (150 + 2 * 40), 'wave 3 spawns a gunship with well over double hull');
     const p = b.players[0]; p.invuln = 1e9; p.x = b.ai.x - 200; p.y = b.ai.y;
     let rockets = 0;
     for (let f = 0; f < 900; f++) { Sim.step(b, [inp({})]); rockets += b.shells.filter(s => s.kind === 'rocket' && s.life === 159).length; }
@@ -200,13 +200,15 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
     for (let f = 0; f < 30; f++) Sim.step(v, [inp({ f: 1 }), inp({})]);
     assert.ok(b.health < hp, 'versus opponents still take damage');
 }
-// Anti-air emplacements appear from wave 2, resist bullets, and shoot at the chopper
+// Anti-air emplacements appear from wave 3, resist bullets, and shoot at the chopper
 {
     const w = Sim.createGame({ mode: 'solo', seed: 71 });
     assert.ok(!w.units.some(u => u.type === 'aa'), 'no AA on wave 1');
     w.wave = 1; w.status = 'waveclear'; w.statusTimer = 179; Sim.step(w, [inp({})]);
+    assert.ok(w.wave === 2 && !w.units.some(u => u.type === 'aa'), 'no AA on wave 2 either (difficulty ramps one system per wave)');
+    w.status = 'waveclear'; w.statusTimer = 179; Sim.step(w, [inp({})]);
     const aa = w.units.find(u => u.type === 'aa');
-    assert.ok(aa && w.wave === 2, 'an AA emplacement guards wave 2');
+    assert.ok(aa && w.wave === 3, 'an AA emplacement guards wave 3');
     const p = w.players[0]; p.invuln = 0; p.health = 1000; p.maxHealth = 1000; p.x = aa.x - 150; p.y = aa.y - 120; p.dir = 1;
     const hpBefore = p.health; let flak = 0;
     for (let f = 0; f < 240; f++) { p.y = aa.y - 120; p.vy = 0; Sim.step(w, [inp({})]); flak += w.shells.filter(sh => sh.team === Sim.AI && sh.kind === 'aa' && sh.life === 139).length; }
@@ -313,5 +315,144 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
     const w4 = Sim.createGame({ mode: 'solo', seed: 92 }); w4.wave = 3; w4.status = 'waveclear'; w4.statusTimer = 179; Sim.step(w4, [inp({})]);
     const hp4 = w4.units.find(u => u.ai && u.type === 'tank').maxHealth;
     assert.ok(hp4 > hp1 * 1.5 && w4.aiCredits > w1.aiCredits, 'wave 4 tanks are much tougher and the enemy richer: ' + hp1 + ' -> ' + hp4);
+}
+// ---- Regression tests for the verified audit findings ----
+const calm = g => { g.units = g.units.filter(u => !u.ai); g.shells = []; g.ai.alive = false; g.ai.respawn = 0; };
+// Dying with the last hostages aboard is a death, not a wave clear (solo resurrect / co-op soft-lock)
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 101 });
+    for (let f = 0; f < 30; f++) Sim.step(g, [inp({})]);
+    const p = g.players[0]; calm(g);
+    g.hostages.forEach((h, i) => { if (i < 2) { h.state = 'aboard'; h.carrier = 0; } else h.state = 'saved'; });
+    p.carrying = 2; p.x = 1500; p.y = 150; p.landed = false; p.health = 5; p.invuln = 0;
+    g.shells.push({ team: Sim.AI, x: p.x + p.width / 2, y: p.y + p.height / 2, vx: 0, vy: 0, width: 7, height: 7, dmg: 999, life: 5, kind: 'heli' });
+    Sim.step(g, [inp({})]);
+    assert.strictEqual(g.status, 'dying', 'fatal hit with the last hostages aboard is a death: ' + g.status);
+    for (let f = 0; f < 300; f++) Sim.step(g, [inp({})]);
+    assert.strictEqual(g.status, 'over', 'and ends the run');
+}
+// Co-op: P2's troops march (base-range formula used the team id), squad wipe waits for a pending redeploy,
+// and a life earned on wave clear brings back a pilot who was out
+{
+    const c = Sim.createGame({ mode: 'coop', seed: 102 });
+    calm(c); c.players[1].credits = 1000; c.players[1].invuln = 1e9; c.players[0].invuln = 1e9;
+    Sim.step(c, [inp({}), inp({ buy: 'tank' })]);
+    const t = c.units.find(u => u.team === 1 && u.type === 'tank'), x0 = t.x;
+    for (let f = 0; f < 600; f++) { calm(c); Sim.step(c, [inp({}), inp({})]); }
+    assert.ok(t.x > x0 + 300, 'co-op P2 tank advances: ' + x0.toFixed(0) + ' -> ' + t.x.toFixed(0));
+    const w = Sim.createGame({ mode: 'coop', seed: 103 });
+    calm(w); w.lives = 1;
+    const [A, B] = w.players;
+    const kill = q => { q.invuln = 0; q.health = 1; w.shells.push({ team: Sim.AI, x: q.x + 30, y: q.y + 12, vx: 0, vy: 0, width: 7, height: 7, dmg: 999, life: 3, kind: 'heli' }); Sim.step(w, [inp({}), inp({})]); };
+    A.y = B.y = 150; A.landed = B.landed = false; A.x = 900; B.x = 1300;
+    kill(A); assert.ok(!A.alive && A.canRespawn && w.lives === 0, 'A spends the last life');
+    for (let f = 0; f < 30; f++) Sim.step(w, [inp({}), inp({})]);
+    kill(B); assert.strictEqual(w.status, 'playing', 'no squad wipe while A is still due to redeploy');
+    for (let f = 0; f < 400; f++) { calm(w); Sim.step(w, [inp({}), inp({})]); }
+    assert.ok(A.alive && !B.alive && B.canRespawn === false, 'A redeployed, B is out');
+    w.hostages.forEach(h => { h.state = 'saved'; }); w.players.forEach(q => { q.carrying = 0; });
+    for (let f = 0; f < 200; f++) Sim.step(w, [inp({}), inp({})]);
+    assert.ok(w.wave === 2 && B.alive, 'the wave-clear life brings B back on wave 2 (lives now ' + w.lives + ')');
+}
+// Airstrike called at the map edge still arrives and drops its bombs
+{
+    const a = Sim.createGame({ mode: 'solo', seed: 104 });
+    const p = a.players[0]; calm(a); p.invuln = 1e9; p.credits = 1000; p.x = 40; p.y = 150; p.landed = false; p.dir = 1;
+    Sim.step(a, [inp({ buy: 'strike' })]);
+    let dropped = 0; for (let f = 0; f < 400; f++) { const n = a.bombs.length; Sim.step(a, [inp({})]); if (a.bombs.length > n) dropped++; }
+    assert.strictEqual(dropped, Sim.AIRSTRIKE.bombs, 'edge airstrike delivers all its bombs: ' + dropped);
+}
+// Forged shop codes over the network cannot corrupt credits
+{
+    const g = Sim.createGame({ mode: 'versus', seed: 105 });
+    const c0 = g.players[1].credits;
+    for (const bad of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) Sim.step(g, [inp({}), inp({ buy: bad })]);
+    assert.ok(Number.isFinite(g.players[1].credits) && g.players[1].credits === c0, 'credits untouched by forged buy codes');
+    Sim.step(g, [inp({}), inp({ buy: 'tank' })]);
+    assert.strictEqual(g.players[1].credits, c0 - Sim.UNITS.tank.cost, 'real purchases still cost money');
+}
+// AI infantry: never seizes a hut whose hostages are waiting; hostages held too long escape and walk home
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 106 });
+    calm(g);
+    const hut = g.huts[0], door = hut.x + hut.w / 2;
+    const sol = { team: Sim.AI, type: 'soldier', x: door - 4, y: Sim.GROUND_Y - 20, width: 8, height: 20, vx: 0, dir: -1, speed: 1.1, health: 24, maxHealth: 24, range: 130, fireTimer: 999, angle: 0, anim: 0, moving: true, ai: true };
+    g.units.push(sol); Sim.step(g, [inp({})]);
+    assert.ok(!hut.garrison, 'AI soldier walks past a hut with waiting hostages');
+    hut.garrison = { team: Sim.AI, count: 2 };
+    const held = g.hostages.filter(h => Math.abs(h.x - (hut.x + 80)) < 110);
+    for (let f = 0; f < Sim.HOSTAGE_ESCAPE + 5; f++) { g.units = g.units.filter(u => !u.ai || u === sol); g.shells = []; g.ai.alive = false; Sim.step(g, [inp({})]); }
+    assert.ok(held.every(h => h.flee), 'held hostages escape after the time limit');
+    for (let f = 0; f < 4000 && held.some(h => h.state !== 'saved'); f++) { calm(g); Sim.step(g, [inp({})]); }
+    assert.ok(held.every(h => h.state === 'saved'), 'escaped hostages walk home and count as rescued');
+}
+// Armour: guns chip AI tanks, bombs kill them; and parking on the pad pays no bounty
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 107 });
+    g.wave = 3; g.status = 'waveclear'; g.statusTimer = 179; Sim.step(g, [inp({})]);
+    const p = g.players[0]; g.ai.alive = false; g.ai.respawn = 0; p.invuln = 1e9;
+    const t = g.units.find(u => u.ai && u.type === 'tank');
+    g.units = g.units.filter(u => u === t || !u.ai);
+    p.x = t.x - 110; p.y = Sim.GROUND_Y - p.height; p.vy = 0; p.landed = true; p.dir = 1; t.vx = 0;
+    Sim.step(g, [inp({ f: 1 })]); for (let f = 0; f < 15; f++) Sim.step(g, [inp({})]);
+    assert.ok(g.units.includes(t) && t.health < t.maxHealth, 'one bullet only chips a wave-4 tank (' + t.health + '/' + t.maxHealth + ')');
+    g.bombs.push({ team: 0, x: t.x + 13, y: t.y - 30, vx: 0, vy: 3 });
+    for (let f = 0; f < 20 && g.units.includes(t); f++) Sim.step(g, [inp({})]);
+    assert.ok(!g.units.includes(t), 'one bomb destroys it');
+    const camp = Sim.createGame({ mode: 'solo', seed: 108 });
+    const q = camp.players[0]; camp.ai.alive = false; camp.ai.respawn = 0; q.invuln = 1e9;
+    camp.units = camp.units.filter(u => !u.ai);
+    const victim = { team: Sim.AI, type: 'soldier', x: q.x + 160, y: Sim.GROUND_Y - 20, width: 8, height: 20, vx: 0, dir: -1, speed: 0, health: 24, maxHealth: 24, range: 0, fireTimer: 999, angle: 0, anim: 0, moving: false, ai: true };
+    camp.units.push(victim);
+    const sc = q.score, cr = q.credits;
+    for (let f = 0; f < 60; f++) Sim.step(camp, [inp({ f: 1 })]);
+    assert.ok(!camp.units.includes(victim) && q.score === sc && q.credits === cr, 'kills from the pad pay nothing (score ' + sc + ' -> ' + q.score + ')');
+}
+// Coaxial MG: a landed chopper in front of an AI tank takes fire; on its own pad it is safe
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 109 });
+    const p = g.players[0]; g.ai.alive = false; g.ai.respawn = 0;
+    g.units = g.units.filter(u => !u.ai);
+    const t = { team: Sim.AI, type: 'tank', x: 900, y: Sim.GROUND_Y - 22, width: 26, height: 22, vx: -0.0001, dir: -1, speed: 0.8, health: 300, maxHealth: 300, range: 210, fireTimer: 999, angle: 0, anim: 0, moving: true, ai: true, coaxTimer: 25 };
+    g.units.push(t);
+    p.x = 800; p.y = Sim.GROUND_Y - p.height; p.landed = true; p.invuln = 0; const hp = p.health;
+    for (let f = 0; f < 120; f++) { t.x = 900; t.vx = -0.0001; Sim.step(g, [inp({})]); if (p.invuln > 0) p.invuln = 0; }
+    assert.ok(p.health < hp, 'landed in front of a tank: coax MG hits (' + hp + ' -> ' + p.health + ')');
+    const g2 = Sim.createGame({ mode: 'solo', seed: 110 });
+    const p2 = g2.players[0]; g2.ai.alive = false; g2.ai.respawn = 0; g2.units = g2.units.filter(u => !u.ai);
+    const t2 = Object.assign({}, t, { x: 200, coaxTimer: 25 }); g2.units.push(t2);
+    const hp2 = p2.health; for (let f = 0; f < 120; f++) { t2.x = 200; t2.vx = -0.0001; Sim.step(g2, [inp({})]); }
+    assert.strictEqual(p2.health, hp2, 'a chopper on its own repair pad is not raked');
+}
+// Troop cap counts troops aboard; soldiers bought on the pad can be loaded straight away
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 111 });
+    const p = g.players[0]; calm(g); p.invuln = 1e9; p.credits = 100000;
+    Sim.step(g, [inp({ buy: 'soldier' })]); Sim.step(g, [inp({ buy: 'troops' })]);
+    assert.strictEqual(p.troops, 1, 'a soldier bought on the pad loads from the pad');
+    for (let k = 0; k < 20; k++) Sim.step(g, [inp({ buy: 'soldier' })]);
+    assert.ok(g.units.filter(u => u.team === 0).length + p.troops <= Sim.MAX_ALLIES, 'troops aboard count toward the cap');
+}
+// Balloons do not burst on an invulnerable chopper; player garrisons survive a wave change
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 112 });
+    calm(g);
+    const hut = g.huts[0]; hut.garrison = { team: Sim.AI, count: 1 };
+    for (let f = 0; f < 420; f++) Sim.step(g, [inp({})]);
+    const bl = g.balloons[0], p = g.players[0];
+    p.invuln = 30; p.x = bl.x - p.width / 2; p.y = bl.y - p.height / 2; p.landed = false; p.vy = 0;
+    Sim.step(g, [inp({})]);
+    assert.ok(g.balloons.includes(bl), 'balloon survives contact while the chopper is invulnerable');
+    hut.garrison = { team: 0, count: 3 };
+    g.hostages.forEach(h => { h.state = 'saved'; }); p.carrying = 0;
+    for (let f = 0; f < 200; f++) Sim.step(g, [inp({})]);
+    assert.ok(g.wave === 2 && g.units.filter(u => u.team === 0 && u.type === 'soldier').length >= 3, 'garrisoned soldiers carry over as ground troops');
+}
+// The desync hash now notices AI chopper and hostage-state differences
+{
+    const a = Sim.createGame({ mode: 'coop', seed: 113 }), b = Sim.createGame({ mode: 'coop', seed: 113 });
+    assert.strictEqual(Sim.hash(a), Sim.hash(b));
+    b.ai.health -= 50; assert.notStrictEqual(Sim.hash(a), Sim.hash(b), 'AI heli health is hashed');
+    b.ai.health += 50; b.hostages[0].state = 'dead'; assert.notStrictEqual(Sim.hash(a), Sim.hash(b), 'hostage states are hashed');
 }
 console.log('all sim tests passed');

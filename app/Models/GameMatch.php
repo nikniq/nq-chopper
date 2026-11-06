@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 #[Fillable(['code', 'host_user_id', 'guest_user_id', 'seed', 'mode', 'status', 'winner_user_id', 'host_score', 'guest_score', 'wave', 'reason', 'finished_at'])]
@@ -54,6 +55,32 @@ class GameMatch extends Model
             'seed' => random_int(1, 2_000_000_000),
             'mode' => array_key_exists($mode, self::MODES) ? $mode : 'versus',
         ]);
+    }
+
+    /**
+     * Finished versus matches ranked by wins, then win rate. Co-op has no winner to rank.
+     *
+     * @return Collection<int, array{user: User, wins: int, played: int, rate: int}>
+     */
+    public static function duelBoard(int $limit = 50): Collection
+    {
+        $matches = static::where('status', 'finished')->where('mode', 'versus')
+            ->whereNotNull('guest_user_id')->get(['host_user_id', 'guest_user_id', 'winner_user_id']);
+        $tally = [];
+        foreach ($matches as $m) {
+            foreach ([$m->host_user_id, $m->guest_user_id] as $id) {
+                $tally[$id] ??= ['wins' => 0, 'played' => 0];
+                $tally[$id]['played']++;
+                $tally[$id]['wins'] += $m->winner_user_id === $id ? 1 : 0;
+            }
+        }
+        $users = User::whereIn('id', array_keys($tally))->get()->keyBy('id');
+
+        return collect($tally)
+            ->filter(fn ($t, $id) => $users->has($id))
+            ->map(fn ($t, $id) => $t + ['user' => $users[$id], 'rate' => (int) round(100 * $t['wins'] / $t['played'])])
+            ->sortBy([['wins', 'desc'], ['rate', 'desc'], ['played', 'asc']])
+            ->take($limit)->values();
     }
 
     public function isParticipant(User $user): bool

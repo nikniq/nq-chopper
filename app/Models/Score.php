@@ -60,7 +60,7 @@ class Score extends Model
             ->values();
     }
 
-    /** @return array{rank: int, score: int}|null the pilot's position on a period board */
+    /** @return array{rank: int, score: int, gap: int|null, ahead: string|null}|null the pilot's position on a period board */
     public static function periodRank(string $board, ?string $day, User $user): ?array
     {
         $mine = (int) static::periodQuery($board, $day)->where('user_id', $user->id)->max('score');
@@ -70,7 +70,21 @@ class Score extends Model
         $better = static::periodQuery($board, $day)->select('user_id')->where('user_id', '!=', $user->id)
             ->groupBy('user_id')->havingRaw('MAX(score) > ?', [$mine])->get()->count();
 
-        return ['rank' => $better + 1, 'score' => $mine];
+        // The nearest pilot ahead, so the page can show what it takes to climb
+        $ahead = $better === 0 ? null : static::periodQuery($board, $day)->with('user')->where('user_id', '!=', $user->id)
+            ->where('score', '>', $mine)->orderBy('score')->orderByDesc('created_at')->first();
+
+        return ['rank' => $better + 1, 'score' => $mine, 'gap' => $ahead ? $ahead->score - $mine : null, 'ahead' => $ahead?->user?->name];
+    }
+
+    /** @return array{pilots: int, runs: int, rescued: int, topWave: int} totals for a period board */
+    public static function periodTotals(string $board, ?string $day = null): array
+    {
+        $t = static::periodQuery($board, $day)
+            ->selectRaw('COUNT(DISTINCT user_id) as pilots, COUNT(*) as runs, COALESCE(SUM(rescued), 0) as rescued, COALESCE(MAX(wave), 0) as top_wave')
+            ->toBase()->first();
+
+        return ['pilots' => (int) $t->pilots, 'runs' => (int) $t->runs, 'rescued' => (int) $t->rescued, 'topWave' => (int) $t->top_wave];
     }
 
     /** Query scoped to one board: the all-time solo board or one day's challenge. */

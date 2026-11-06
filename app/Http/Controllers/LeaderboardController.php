@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\GameMatch;
 use App\Models\Score;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
@@ -9,12 +10,22 @@ use Illuminate\Http\Request;
 
 class LeaderboardController extends Controller
 {
-    public const BOARDS = ['alltime' => 'All-time', 'monthly' => 'This month', 'weekly' => 'This week', 'daily' => 'Daily Challenge'];
+    public const BOARDS = ['alltime' => 'All-time', 'monthly' => 'This month', 'weekly' => 'This week', 'daily' => 'Daily Challenge', 'duels' => 'Duels'];
 
     public function __invoke(Request $request): View
     {
         $board = $request->query('board', 'alltime');
         abort_unless(array_key_exists($board, self::BOARDS), 404);
+
+        if ($board === 'duels') {
+            return view('leaderboard', [
+                'boards' => self::BOARDS,
+                'board' => $board,
+                'day' => null,
+                'duels' => GameMatch::duelBoard(50),
+                'me' => $request->user(),
+            ]);
+        }
 
         $day = null;
         if ($board === 'daily') {
@@ -34,6 +45,7 @@ class LeaderboardController extends Controller
             'board' => $board,
             'day' => $day,
             'rows' => $rows,
+            'totals' => Score::periodTotals($board, $day),
             'myRank' => $me ? Score::periodRank($board, $day, $me) : null,
             'prevDay' => $day ? Carbon::parse($day)->subDay()->toDateString() : null,
             'nextDay' => $day && $day < Score::today() ? Carbon::parse($day)->addDay()->toDateString() : null,

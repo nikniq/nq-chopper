@@ -96,3 +96,4 @@ h2 .more { font-size: 0.8rem; font-weight: 400; margin-left: 10px; }
 .parent-site { color: var(--muted) !important; font-size: 0.85rem; text-decoration: none; margin-left: 10px; }
 .parent-site:hover { color: #fff !important; }
 @media (max-width: 600px) { .parent-site { display: none; } }
+.trend { display: block; width: 100%; height: 110px; background: #0004; border: 1px solid #fff2; border-radius: 8px; margin-bottom: 8px; }

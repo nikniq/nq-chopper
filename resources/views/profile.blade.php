@@ -9,12 +9,30 @@
 
 <section class="stats">
     <div class="stat"><span class="num">{{ number_format($stats['best']) }}</span><span class="lbl">Best score</span></div>
+    <div class="stat"><span class="num">{{ $stats['rank'] ? '#'.$stats['rank'] : '—' }}</span><span class="lbl">All-time rank</span></div>
+    <div class="stat"><span class="num">{{ number_format($stats['average']) }}</span><span class="lbl">Average score</span></div>
     <div class="stat"><span class="num">{{ $stats['topWave'] }}</span><span class="lbl">Highest wave</span></div>
     <div class="stat"><span class="num">{{ number_format($stats['rescued']) }}</span><span class="lbl">Hostages rescued</span></div>
     <div class="stat"><span class="num">{{ $stats['games'] }}</span><span class="lbl">Solo runs</span></div>
     <div class="stat"><span class="num">{{ number_format($stats['dailyBest']) }}</span><span class="lbl">Today's daily</span></div>
+    <div class="stat"><span class="num">{{ $stats['dailies'] }}</span><span class="lbl">Daily challenges flown</span></div>
     <div class="stat"><span class="num">{{ $stats['wins'] }} / {{ $stats['matches'] }}</span><span class="lbl">Duels won</span></div>
 </section>
+
+@if ($trend->count() >= 2)
+    @php
+        $peak = max(1, $trend->max());
+        $last = $trend->count() - 1;
+        $points = $trend->map(fn ($v, $i) => round(100 * $i / $last, 2).','.round(38 - 36 * $v / $peak, 2))->implode(' ');
+    @endphp
+    <section class="leaderboard">
+        <h2>Score trend <span class="muted">last {{ $trend->count() }} solo runs</span></h2>
+        <svg class="trend" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="Solo scores over the last {{ $trend->count() }} runs, latest {{ number_format($trend->last()) }}, best {{ number_format($trend->max()) }}">
+            <polyline points="{{ $points }}" fill="none" stroke="#ff0" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+        </svg>
+        <p class="muted">Latest {{ number_format($trend->last()) }} &middot; Best of these {{ number_format($trend->max()) }}</p>
+    </section>
+@endif
 
 <section class="leaderboard">
     <h2>Achievements <span class="muted">{{ collect($badges)->where('earned', true)->count() }} / {{ count($badges) }}</span></h2>

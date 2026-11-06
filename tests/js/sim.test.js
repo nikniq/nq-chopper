@@ -91,7 +91,7 @@ assert.strictEqual(duel.status, 'playing', 'match continues after a chopper loss
     g.units.filter(u => u.team === 0).forEach(u => { u.x = door - u.width / 2; });
     Sim.step(g, [inp({}), inp({})]);
     assert.ok(hut.garrison && hut.garrison.team === 0 && hut.garrison.count === Sim.GARRISON_CAP.player, 'hut filled to cap: ' + JSON.stringify(hut.garrison));
-    assert.strictEqual(g.units.filter(u => u.team === 0).length, 1, 'fourth soldier marches on when the hut is full');
+    assert.ok(g.units.filter(u => u.team === 0).length === 0 && hut.level === 1, 'fourth soldier fortifies the full hut into a bunker');
     // Bomb the hut: garrison untouched
     g.bombs.push({ team: 1, x: door, y: Sim.GROUND_Y - 6, vx: 0, vy: 1 });
     Sim.step(g, [inp({}), inp({})]);
@@ -535,5 +535,24 @@ const calm = g => { g.units = g.units.filter(u => !u.ai); g.shells = []; g.ai.al
     p.x = 40; p.y = Sim.GROUND_Y - p.height; p.vy = 0; p.landed = true;
     for (let f = 0; f < 70; f++) { g.units = []; g.shells = []; Sim.step(g, [inp({})]); }
     assert.strictEqual(p.aam, Sim.AAM.max, 'rearms at base');
+}
+// Houses: bombed to ruins, rebuilt, upgraded to a bunker, then an AA gun
+{
+    const g = Sim.createGame({ mode: 'versus', seed: 170 });
+    const hut = g.huts[0], door = hut.x + hut.w / 2, P = g.players[0];
+    P.credits = 100000; P.invuln = 1e9; g.players[1].invuln = 1e9;
+    hut.garrison = { team: 1, count: 3 };
+    const boom = () => { g.bombs.push({ team: 0, x: door, y: Sim.GROUND_Y - 3, vx: 0, vy: 1 }); Sim.step(g, [inp({}), inp({})]); };
+    boom(); assert.ok(hut.garrison && hut.hp === 40, 'first bomb damages the house');
+    boom(); assert.ok(hut.ruined && !hut.garrison, 'second bomb leaves ruins and kills the garrison');
+    const send = n => { for (let k = 0; k < n; k++) { Sim.step(g, [inp({ buy: 'soldier' }), inp({})]); g.units.filter(u => u.team === 0).forEach(u => { u.x = door - u.width / 2; }); Sim.step(g, [inp({}), inp({})]); } };
+    send(1); assert.ok(!hut.ruined && hut.garrison.team === 0 && hut.garrison.count === 1, 'a soldier rebuilds it');
+    send(2); assert.strictEqual(hut.garrison.count, Sim.GARRISON_CAP.player, 'more soldiers fill it');
+    send(1); assert.ok(hut.level === 1 && hut.hp === Sim.HUT_HP[1], 'the next one builds a bunker');
+    send(1); assert.strictEqual(hut.level, 2, 'the next adds an AA gun');
+    send(1); assert.strictEqual(g.units.filter(u => u.team === 0 && u.type === 'soldier').length, 1, 'a finished bunker lets soldiers march on');
+    g.units = []; const q = g.players[1]; q.x = door + 60; q.y = 150; q.landed = false; q.invuln = 0; const hp = q.health;
+    for (let f = 0; f < 200 && q.health === hp; f++) { q.y = 150; q.vy = 0; Sim.step(g, [inp({}), inp({})]); }
+    assert.ok(q.health < hp, 'the AA gun hits an enemy chopper');
 }
 console.log('all sim tests passed');

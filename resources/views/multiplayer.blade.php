@@ -47,7 +47,7 @@
         <li><strong>Co-op:</strong> you share one base and a pool of four lives. Each wave cleared adds a life. Allied fire never hurts your partner, but bombs still do.</li>
         <li>Your troops march toward the enemy base, theirs march toward yours. Bases have 1500 hull. First base down loses.</li>
         <li>Hostages keep appearing in the middle of the map. Each one you fly home is worth $40 and 100 points.</li>
-        <li>Soldiers garrison the huts they reach and hold them against tanks and bombs. Only enemy soldiers entering the hut can clear them, one defender per attacker. Hostages at a hut your opponent holds will not board you.</li>
+        <li>Soldiers garrison the houses they reach. Enemy soldiers can storm them one for one, and bombs can reduce an enemy-held house to ruins, which either side can rebuild. Extra soldiers upgrade a full house to a bunker, then add an AA gun. Hostages at a house your opponent holds will not board you.</li>
         <li>If you are shot down you redeploy at your base after a few seconds, but anyone aboard is lost.</li>
         <li>A direct peer-to-peer connection is always preferred. If it is not up within a few seconds the match starts over a server relay, and upgrades to the direct link automatically as soon as it connects.</li>
     </ul>

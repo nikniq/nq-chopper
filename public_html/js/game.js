@@ -1135,14 +1135,36 @@
     function drawHuts() {
         sim.huts.forEach(h => {
             if (!isVisible(h.x + 40, 120)) return;
+            if (h.ruined) {
+                ctx.fillStyle = '#5a4634'; ctx.beginPath(); ctx.moveTo(h.x - 4, GROUND_Y); ctx.lineTo(h.x + 8, GROUND_Y - 14); ctx.lineTo(h.x + 20, GROUND_Y - 7); ctx.lineTo(h.x + 34, GROUND_Y - 18); ctx.lineTo(h.x + 46, GROUND_Y - 6); ctx.lineTo(h.x + h.w + 4, GROUND_Y); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = '#2a2018'; ctx.fillRect(h.x + 12, GROUND_Y - 22, 4, 22); ctx.fillRect(h.x + 38, GROUND_Y - 16, 3, 16);
+                if (frame % 12 === 0) emit({ x: h.x + rand(8, h.w - 8), y: GROUND_Y - 12, vx: rand(-0.1, 0.2), vy: -0.5, life: 60, maxLife: 60, color: '#444', size: 4, gravity: -0.004, grow: 0.08 });
+                return;
+            }
             ctx.fillStyle = '#b08050'; ctx.fillRect(h.x, GROUND_Y - h.h, h.w, h.h);
+            if (h.level === 0) {
             ctx.fillStyle = '#7a4a20';
             ctx.beginPath(); ctx.moveTo(h.x - 6, GROUND_Y - h.h); ctx.lineTo(h.x + h.w / 2, GROUND_Y - h.h - 18); ctx.lineTo(h.x + h.w + 6, GROUND_Y - h.h); ctx.closePath(); ctx.fill();
+            }
             ctx.fillStyle = '#442'; ctx.fillRect(h.x + h.w / 2 - 6, GROUND_Y - 20, 12, 20);
             ctx.fillStyle = dayPhase() >= 0.45 && dayPhase() < 0.8 ? '#ffb347' : '#ffd'; ctx.fillRect(h.x + 8, GROUND_Y - h.h + 10, 10, 8);
             ctx.fillStyle = '#8a6a4a'; for (let i = 0; i < 3; i++) ctx.fillRect(h.x + 2 + i * 18, GROUND_Y - h.h + 6, 2, h.h - 6);
             ctx.fillStyle = '#553'; ctx.fillRect(h.x + h.w - 14, GROUND_Y - h.h - 10, 5, 12);
             if (frame % 6 === 0) emit({ x: h.x + h.w - 11, y: GROUND_Y - h.h - 12, vx: rand(-0.1, 0.3), vy: -0.4, life: 60, maxLife: 60, color: '#ccc', size: 2, gravity: -0.004, grow: 0.06 });
+            if (h.level >= 1) { // concrete bunker over the house
+                ctx.fillStyle = '#6a6f76'; ctx.beginPath(); ctx.moveTo(h.x - 6, GROUND_Y); ctx.lineTo(h.x, GROUND_Y - h.h - 6); ctx.lineTo(h.x + h.w, GROUND_Y - h.h - 6); ctx.lineTo(h.x + h.w + 6, GROUND_Y); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = '#8a9098'; ctx.fillRect(h.x, GROUND_Y - h.h - 6, h.w, 4);
+                ctx.fillStyle = '#111'; ctx.fillRect(h.x + 6, GROUND_Y - h.h + 8, 14, 5); ctx.fillRect(h.x + h.w - 20, GROUND_Y - h.h + 8, 14, 5); ctx.fillRect(h.x + h.w / 2 - 6, GROUND_Y - 18, 12, 18);
+            }
+            if (h.level >= 2) { // roof AA gun tracking upward
+                const gx = h.x + h.w / 2 - 14, gy = GROUND_Y - h.h - 10;
+                ctx.fillStyle = '#333'; ctx.fillRect(gx - 6, gy, 12, 4); ctx.strokeStyle = '#777'; ctx.lineWidth = 2;
+                const sw = Math.sin(frame / 40) * 0.5; ctx.beginPath(); ctx.moveTo(gx - 2, gy); ctx.lineTo(gx - 2 + sw * 12, gy - 12); ctx.moveTo(gx + 2, gy); ctx.lineTo(gx + 2 + sw * 12, gy - 12); ctx.stroke();
+            }
+            if (h.garrison && h.hp < Sim.HUT_HP[h.level]) {
+                const pc = clamp(h.hp / Sim.HUT_HP[h.level], 0, 1);
+                ctx.fillStyle = '#0008'; ctx.fillRect(h.x - 1, GROUND_Y - 6, h.w + 2, 5); ctx.fillStyle = `hsl(${pc * 110},80%,50%)`; ctx.fillRect(h.x, GROUND_Y - 5, Math.round(h.w * pc), 3);
+            }
             if (h.garrison) {
                 const c = colorsOf(h.garrison.team), door = h.x + h.w / 2;
                 // Flag on the roof
@@ -2140,6 +2162,7 @@
             const wm = /wave=(\d+)/.exec(hash); // screenshot helper: jump straight to a given wave
             if (wm && mode === 'solo') { sim.wave = Math.max(0, parseInt(wm[1], 10) - 1); sim.status = 'waveclear'; sim.statusTimer = 179; }
             if (hash.indexOf('shop') > 0 && shopEl && shopEl.classList) { shopEl.classList.add('open'); shopWave = sim.wave; }
+            if (hash.indexOf('forts') > 0) { sim.players[0].x = sim.huts[0].x - 200; const hs = sim.huts; if (hs[0]) { hs[0].ruined = true; hs[0].x = cameraX + 500; } if (hs[1]) { hs[1].x = hs[0].x + 150; hs[1].garrison = { team: 0, count: 3 }; hs[1].level = 1; hs[1].hp = 240; } if (hs[2]) { hs[2].x = hs[0].x + 300; hs[2].garrison = { team: AI, count: 2 }; hs[2].level = 2; hs[2].hp = 100; } }
             if (hash.indexOf('gameover') > 0) setTimeout(() => { const q = sim.players[0]; Object.assign(q.stats, { tanks: 7, aa: 1, soldiers: 4, helis: 2, bosses: 1, fullLoads: 3, perfectWaves: 1, maxCombo: 4, unitsBought: 5, troopsDropped: 2, strikes: 1, dmgTaken: 260 }); q.score = 18450; q.rescued = 23; sim.status = 'over'; }, 800);
             if (hash.indexOf('#autostart-demo') === 0) { // screenshot/demo helper: show troops near base
                 sim.players[0].credits = 1000; input.right = false;

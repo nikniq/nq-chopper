@@ -33,7 +33,7 @@
     </div>
     <div id="score">Score: 0 | Rescued: 0</div>
     <div id="controls">
-        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>Shift</kbd> Boost &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>-<kbd>4</kbd> Buy &nbsp;·&nbsp; <kbd>5</kbd> Airstrike &nbsp;·&nbsp; <kbd>6</kbd> Hold/advance &nbsp;·&nbsp; <kbd>7</kbd> Load/drop troops &nbsp;·&nbsp; <kbd>8</kbd>/<kbd>9</kbd>/<kbd>0</kbd> Engine, bay, repair &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
+        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>Shift</kbd> Boost &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>-<kbd>4</kbd> Buy &nbsp;·&nbsp; <kbd>5</kbd> Airstrike &nbsp;·&nbsp; <kbd>6</kbd> Hold/advance &nbsp;·&nbsp; <kbd>7</kbd> Load/drop troops &nbsp;·&nbsp; <kbd>8</kbd>/<kbd>9</kbd>/<kbd>0</kbd> Engine, bay, repair &nbsp;·&nbsp; <kbd>F</kbd> Flares &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
         <span id="touchHelp" style="display:none">Left thumb steers (let go to hover) &nbsp;·&nbsp; Right thumb: Fire, Bomb, Boost &nbsp;·&nbsp; Shop for troops</span>
         <button id="muteBtn" type="button" aria-pressed="false">Sound: On</button><button id="fullscreenBtn" type="button">Fullscreen</button>
     </div>
@@ -46,6 +46,7 @@
         <button id="buyEngine" class="shop-btn upgrade" type="button" disabled>Engine<span class="lvl"></span> <span class="price">$200</span></button>
         <button id="buyBay" class="shop-btn upgrade" type="button" disabled>Bomb bay<span class="lvl"></span> <span class="price">$200</span></button>
         <button id="buyRepair" class="shop-btn upgrade" type="button" disabled>Auto-repair<span class="lvl"></span> <span class="price">$250</span></button>
+        <button id="buyFlares" class="shop-btn upgrade" type="button" disabled>Flares<span class="lvl"></span> <span class="price">$150</span></button>
         <button id="buyStrike" class="shop-btn ability" type="button" disabled>Airstrike <span class="price">$250</span></button>
         <button id="rallyBtn" class="shop-btn ability" type="button" disabled>Hold troops</button>
         <button id="troopsBtn" class="shop-btn ability" type="button" disabled><span class="lbl">Load / drop troops</span> <span class="price">0/4</span></button>

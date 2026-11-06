@@ -503,4 +503,21 @@ const calm = g => { g.units = g.units.filter(u => !u.ai); g.shells = []; g.ai.al
     for (let k = 0; k < 3; k++) Sim.step(g, [inp({ buy: 'bay' })]);
     assert.strictEqual(p.upgrades.bay, 3, 'bay caps at level 3');
 }
+// Late-wave enemies: heavy tanks, SAM missiles, flares
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 150 });
+    g.wave = 9; g.status = 'waveclear'; g.statusTimer = 179; Sim.step(g, [inp({})]);
+    assert.ok(g.units.some(u => u.heavy), 'wave 10 fields heavy tanks');
+    assert.ok(g.units.some(u => u.sam), 'wave 10 fields SAM launchers');
+    const p = g.players[0]; g.ai.alive = false; g.ai.respawn = 0; g.units = []; p.x = 1500; p.y = 150; p.landed = false;
+    const shoot = () => g.shells.push({ team: Sim.AI, x: 1700, y: 160, vx: -4, vy: 0, width: 9, height: 9, dmg: 30, life: 240, kind: 'missile' });
+    p.credits = 500; Sim.step(g, [inp({ buy: 'flares' })]);
+    assert.strictEqual(p.flares, 2, 'flares fitted');
+    const hp = p.health; shoot();
+    for (let f = 0; f < 90; f++) { p.y = 150; p.vy = 0; Sim.step(g, [inp({})]); }
+    assert.ok(p.health === hp && p.flares === 1 && !g.shells.length, 'a flare decoys the missile');
+    p.flares = 0; p.invuln = 0; shoot();
+    for (let f = 0; f < 90; f++) { p.y = 150; p.vy = 0; Sim.step(g, [inp({})]); }
+    assert.ok(p.health < hp, 'without flares it homes in and hits');
+}
 console.log('all sim tests passed');

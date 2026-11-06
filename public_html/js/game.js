@@ -63,7 +63,7 @@
     function announce(text) { if (announcer && text !== lastAnnounced) { lastAnnounced = text; announcer.textContent = text; } }
     const shopButtons = [
         [document.getElementById('buySoldier'), 'soldier'], [document.getElementById('buyTank'), 'tank'],
-        [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor'], [document.getElementById('buyEngine'), 'engine'], [document.getElementById('buyBay'), 'bay'], [document.getElementById('buyRepair'), 'repair'],
+        [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor'], [document.getElementById('buyEngine'), 'engine'], [document.getElementById('buyBay'), 'bay'], [document.getElementById('buyRepair'), 'repair'], [document.getElementById('buyFlares'), 'flares'],
         [document.getElementById('buyStrike'), 'strike'], [document.getElementById('rallyBtn'), 'rally'], [document.getElementById('troopsBtn'), 'troops']
     ];
 
@@ -381,7 +381,7 @@
         spawnParticles(x, y, big ? 22 : 8, { speed: 1.2, colors: ['#555', '#777', '#333', '#444'], size: big ? 14 : 10, life: big ? 110 : 70, up: 0.9, grow: 0.12 });
         spawnParticles(x, y, big ? 10 : 4, { speed: 4, colors: ['#ffd', '#fc6'], size: 2, life: 25, gravity: 0.15, streak: true });
         rings.push({ x, y, r: 4, max: big ? 90 : 45, life: 1, color: big ? '255,200,80' : '255,230,150' });
-        if (y > GROUND_Y - 30) { craters.push({ x, w: big ? 44 : 26, age: 0 }); if (craters.length > MAX_CRATERS) craters.shift(); }
+        if (y > GROUND_Y - 30) { craters.push({ x, w: big ? 44 : 26, age: 0, born: frame }); if (craters.length > MAX_CRATERS) craters.shift(); }
         if (big) spawnParticles(x, y, 8, { speed: 4, colors: ['#333', '#555', '#222'], size: 5, life: 60, gravity: 0.2, up: 2, debris: true });
         rings.push({ x, y, r: 2, max: big ? 40 : 22, life: 1, color: '255,255,255', fill: true });
         if (Math.abs(x - (cameraX + GAME_WIDTH / 2)) < 500) { shake = Math.max(shake, big ? 14 : 6); if (big) screenFlash = Math.max(screenFlash, 0.5); }
@@ -483,6 +483,7 @@
                 particles.push({ x: cx(p) + side * rand(10, 30), y: GROUND_Y - 1, vx: side * rand(0.8, 2.2) * k, vy: -rand(0.2, 0.9) * k, life: 28, maxLife: 28, color: pick(['#c9a874', '#b89a68', '#d8c090']), size: 3 + k * 3, gravity: 0.01, grow: 0.1 });
             }
         });
+        sim.players.forEach(p => { if (p.alive && p.health / p.maxHealth < 0.4 && frame % 6 === 0 && isVisible(p.x)) particles.push({ x: cx(p) + rand(-10, 10), y: cy(p), vx: rand(-1.5, 1.5), vy: rand(-1.5, 0.5), life: 12, maxLife: 12, color: pick(['#ffd27a', '#fff']), size: 2, gravity: 0.1 }); });
         sim.players.forEach(p => { if (p.alive && p.boosting && isVisible(p.x)) for (let i = 0; i < 2; i++) particles.push({ x: cx(p) - p.dir * (28 + i * 6), y: p.y + 6 + rand(-2, 2), vx: -p.dir * rand(3, 5), vy: rand(-0.4, 0.4), life: 14, maxLife: 14, color: pick(['#ff9a3c', '#ffd27a', '#fff3c4']), size: 4 - i, gravity: 0 }); });
         sim.players.forEach(p => { if (p.alive && Math.abs(p.vx) > 2.2 && isVisible(p.x)) particles.push({ x: cx(p) - p.dir * 26, y: p.y + 8, vx: -p.dir * 0.6, vy: -0.5, life: 20, maxLife: 20, color: '#8899aa', size: 3, gravity: -0.02, grow: 0.1 }); });
     }
@@ -1046,6 +1047,12 @@
         if (bm.key === 'volcanic') { ctx.fillStyle = 'rgba(255,110,40,' + (0.5 + 0.3 * Math.sin(frame / 20)) + ')'; for (let x = startX; x < right; x += 80) ctx.fillRect(x + 30, GROUND_Y + 10, 20, 1.5); }
         craters.forEach(c => {
             if (!isVisible(c.x)) return;
+            const burn = frame - c.born;
+            if (burn < 480 && !lowDetail) {
+                if (frame % 7 === 0) emit({ x: c.x + rand(-6, 6), y: GROUND_Y - 2, vx: rand(-0.15, 0.25), vy: -rand(0.5, 0.9), life: 70, maxLife: 70, color: pick(['#333', '#555', '#222']), size: 5, gravity: -0.004, grow: 0.12 });
+                ctx.fillStyle = `rgba(255,${120 + Math.floor(Math.random() * 80)},40,${0.8 * (1 - burn / 480)})`;
+                ctx.beginPath(); ctx.moveTo(c.x - 5, GROUND_Y); ctx.lineTo(c.x + rand(-2, 2), GROUND_Y - rand(6, 12)); ctx.lineTo(c.x + 5, GROUND_Y); ctx.closePath(); ctx.fill();
+            }
             ctx.fillStyle = 'rgba(20,12,6,0.55)'; ctx.beginPath(); ctx.ellipse(c.x, GROUND_Y + 2, c.w / 2, 4, 0, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = '#3a2a16'; ctx.beginPath(); ctx.ellipse(c.x, GROUND_Y + 3, c.w / 2 - 4, 2.5, 0, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(c.x, GROUND_Y + 1, c.w / 2 + 6, 2, 0, 0, Math.PI * 2); ctx.fill();
@@ -1195,7 +1202,8 @@
                 // Sandbag ring, base plate, twin-barrel mount
                 ctx.fillStyle = '#9a8a5a'; for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.ellipse(-2 + i * 6, 14 - (i % 2) * 3, 5, 3, 0, 0, Math.PI * 2); ctx.fill(); }
                 ctx.fillStyle = '#444'; ctx.fillRect(6, 6, 14, 8);
-                ctx.fillStyle = '#b22'; ctx.beginPath(); ctx.arc(13, 6, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = u.sam ? '#c70' : '#b22'; ctx.beginPath(); ctx.arc(13, 6, 5, 0, Math.PI * 2); ctx.fill();
+                if (u.sam) { ctx.fillStyle = '#ddd'; ctx.fillRect(7, -6, 3, 11); ctx.fillRect(16, -6, 3, 11); ctx.fillStyle = '#f44'; ctx.fillRect(7, -8, 3, 2); ctx.fillRect(16, -8, 3, 2); }
                 ctx.save(); ctx.translate(13, 6); ctx.rotate(u.angle);
                 ctx.fillStyle = '#777'; ctx.fillRect(0, -3.2, 16, 2.2); ctx.fillRect(0, 1, 16, 2.2); ctx.fillStyle = '#333'; ctx.fillRect(13, -3.6, 3, 7.2);
                 ctx.restore();
@@ -1235,7 +1243,7 @@
                 for (let i = 0; i < 4; i++) { const wx = 3 + i * 6.6; ctx.beginPath(); ctx.moveTo(wx, 17.5); ctx.lineTo(wx + Math.cos(roll) * 2.2, 17.5 + Math.sin(roll) * 2.2); ctx.stroke(); }
                 ctx.fillStyle = '#666'; for (let i = 0; i < 6; i++) ctx.fillRect(((i * 5 + (u.moving ? Math.floor(u.anim / 3) : 0)) % 28) - 1, 13, 2, 1.5);
                 // Sloped hull with highlight
-                ctx.fillStyle = c.unit; ctx.beginPath(); ctx.moveTo(0, 14); ctx.lineTo(2, 7); ctx.lineTo(u.width - 4, 7); ctx.lineTo(u.width + 1, 11); ctx.lineTo(u.width + 1, 14); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = u.heavy ? '#4a2a2a' : c.unit; ctx.beginPath(); ctx.moveTo(0, 14); ctx.lineTo(2, 7); ctx.lineTo(u.width - 4, 7); ctx.lineTo(u.width + 1, 11); ctx.lineTo(u.width + 1, 14); ctx.closePath(); ctx.fill();
                 ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(3, 7.5, u.width - 8, 1.5);
                 ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0, 12, u.width + 1, 2);
                 // Turret dome, hatch and barrel with muzzle brake
@@ -1247,6 +1255,7 @@
                 ctx.fillStyle = '#777'; ctx.fillRect(0, -1.6, 15, 3.2); ctx.fillStyle = '#444'; ctx.fillRect(12, -2.2, 3.5, 4.4);
                 ctx.restore();
                 if (!u.ai) { ctx.fillStyle = '#fff'; ctx.fillRect(3, 9, 3, 2.5); }
+                if (u.heavy) { ctx.fillStyle = '#777'; for (let i = 0; i < 4; i++) ctx.fillRect(3 + i * 6, 8.5, 4, 3); ctx.fillStyle = '#ffb000'; ctx.fillRect(13, -3, 3, 2); }
             }
             ctx.restore();
             if (u.health < u.maxHealth) {
@@ -1404,7 +1413,7 @@
         let n = 0;
         for (const b of sim.shells) {
             if (n >= 3) break;
-            if (b.kind !== 'aa' && b.kind !== 'heli' && b.kind !== 'rocket' && b.kind !== 'shell') continue;
+            if (b.kind !== 'aa' && b.kind !== 'heli' && b.kind !== 'rocket' && b.kind !== 'missile' && b.kind !== 'shell') continue;
             if (sim.mode === 'versus' ? b.team === p.team : b.team !== AI) continue;
             let x = b.x, y = b.y, hit = false;
             for (let t = 0; t < 45 && !hit; t++) { x += b.vx; y += b.vy; hit = x > bx && x < bx + bw && y > by && y < by + bh; }
@@ -1494,7 +1503,7 @@
             ctx.fillStyle = b.team === AI ? '#f88' : '#ffe'; ctx.fillRect(b.x, b.y, b.width, b.height);
         });
         sim.shells.forEach(b => {
-            if (b.kind === 'rocket') {
+            if (b.kind === 'rocket' || b.kind === 'missile') {
                 if (!isVisible(b.x)) return;
                 ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
                 ctx.fillStyle = '#ddd'; rrect(-7, -2.5, 14, 5, 2); ctx.fill(); ctx.fillStyle = '#f44'; ctx.fillRect(4, -2.5, 3, 5); ctx.fillStyle = '#ff8'; ctx.fillRect(-11, -1.5, 4, 3);
@@ -1524,7 +1533,7 @@
         ctx.globalAlpha = 1;
         rings.forEach(r => {
             const a = clamp(r.life, 0, 1);
-            if (r.fill && r.max > 15) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * 0.8; const gr = r.r * 3.2; ctx.drawImage(glowSprite('#ffa040'), r.x - gr, r.y - gr, gr * 2, gr * 2); ctx.restore(); }
+            if (r.fill && r.max > 15) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * 0.8; const gr = r.r * 3.2; ctx.drawImage(glowSprite('#ffa040'), r.x - gr, r.y - gr, gr * 2, gr * 2); if (r.y > GROUND_Y - 60) { ctx.fillStyle = `rgba(255,150,60,${a * 0.35})`; ctx.beginPath(); ctx.ellipse(r.x, GROUND_Y + 3, gr * 1.4, 5, 0, 0, Math.PI * 2); ctx.fill(); } ctx.restore(); }
             if (r.fill) { ctx.fillStyle = `rgba(${r.color},${a * 0.8})`; ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.fill(); }
             else { ctx.strokeStyle = `rgba(${r.color},${a})`; ctx.lineWidth = 3 * a + 1; ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.stroke(); }
         });
@@ -1721,7 +1730,7 @@
         if (sim.mode !== 'versus') {
             const remaining = sim.hostages.filter(h => h.state === 'waiting' || h.state === 'running' || h.state === 'aboard').length;
             const rescued = sim.mode === 'coop' ? sim.players.reduce((a, q) => a + q.rescued, 0) : p.rescued;
-            ctx.fillText(`RESCUED ${rescued}   LOST ${sim.waveLost}   REMAINING ${remaining}`, GAME_WIDTH / 2, 36 + rowShift, GAME_WIDTH - 340);
+            ctx.fillText(`RESCUED ${rescued}   LOST ${sim.waveLost}   REMAINING ${remaining}${p.upgrades.flares ? '   FLARES ' + p.flares : ''}`, GAME_WIDTH / 2, 36 + rowShift, GAME_WIDTH - 340);
         } else {
             // Base hull bars
             const mine = sim.bases[localId], theirs = sim.bases[1 - localId];
@@ -1924,7 +1933,7 @@
     // =====================================================================
     const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire', ShiftLeft: 'boost', ShiftRight: 'boost' };
     const BUYKEYS = { Digit1: 'soldier', Numpad1: 'soldier', Digit2: 'tank', Numpad2: 'tank', Digit3: 'gun', Numpad3: 'gun', Digit4: 'armor', Numpad4: 'armor',
-        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair' };
+        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair', KeyF: 'flares' };
     const inPlay = () => screen === 'playing';
     document.addEventListener('keydown', e => {
         Sound.unlock();

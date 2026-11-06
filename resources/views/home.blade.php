@@ -77,7 +77,7 @@
 <section class="controls-help">
     <h2>Controls</h2>
     <ul>
-        <li><kbd>Arrows</kbd> / <kbd>WASD</kbd> fly &middot; <kbd>Space</kbd> shoot &middot; <kbd>B</kbd> bomb &middot; hold <kbd>Shift</kbd> for the jet booster (meter recharges after a pause)</li>
+        <li><kbd>Arrows</kbd> / <kbd>WASD</kbd> fly &middot; <kbd>Space</kbd> shoot &middot; <kbd>B</kbd> bomb &middot; hold <kbd>G</kbd> for the jet booster (meter recharges after a pause) &middot; <kbd>V</kbd> fires a homing air-to-air missile (four carried, rearm at base)</li>
         <li>Every wave raises the threat level: tougher armour, harder-hitting shells, a richer enemy war chest and a gunship every third wave.</li>
         <li><kbd>1</kbd> buy a soldier ($50) &middot; <kbd>2</kbd> buy a tank ($200) &middot; <kbd>3</kbd> upgrade guns &middot; <kbd>4</kbd> upgrade armour</li>
         <li>From wave 2, a starred VIP pays a big bonus, and wounded hostages (red cross) move slowly and only last 60 seconds once you land nearby.</li>

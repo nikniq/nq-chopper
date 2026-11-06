@@ -1413,7 +1413,7 @@
         let n = 0;
         for (const b of sim.shells) {
             if (n >= 3) break;
-            if (b.kind !== 'aa' && b.kind !== 'heli' && b.kind !== 'rocket' && b.kind !== 'missile' && b.kind !== 'shell') continue;
+            if (b.kind !== 'aa' && b.kind !== 'heli' && b.kind !== 'rocket' && b.kind !== 'missile' && b.kind !== 'aam' && b.kind !== 'shell') continue;
             if (sim.mode === 'versus' ? b.team === p.team : b.team !== AI) continue;
             let x = b.x, y = b.y, hit = false;
             for (let t = 0; t < 45 && !hit; t++) { x += b.vx; y += b.vy; hit = x > bx && x < bx + bw && y > by && y < by + bh; }
@@ -1503,7 +1503,7 @@
             ctx.fillStyle = b.team === AI ? '#f88' : '#ffe'; ctx.fillRect(b.x, b.y, b.width, b.height);
         });
         sim.shells.forEach(b => {
-            if (b.kind === 'rocket' || b.kind === 'missile') {
+            if (b.kind === 'rocket' || b.kind === 'missile' || b.kind === 'aam') {
                 if (!isVisible(b.x)) return;
                 ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
                 ctx.fillStyle = '#ddd'; rrect(-7, -2.5, 14, 5, 2); ctx.fill(); ctx.fillStyle = '#f44'; ctx.fillRect(4, -2.5, 3, 5); ctx.fillStyle = '#ff8'; ctx.fillRect(-11, -1.5, 4, 3);
@@ -1755,6 +1755,7 @@
             const hint = lm && lm.width > avail ? `[1-4, 8-0] BUY  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] TROOPS ${p.troops}` : long;
             ctx.fillText(hint, GAME_WIDTH / 2, 52, avail);
         }
+        ctx.fillStyle = p.aam ? '#9cf' : '#f66'; ctx.fillText('AIR MISSILES ' + p.aam + '/' + Sim.AAM.max, GAME_WIDTH / 2, 80 + rowShift);
         if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 66 + rowShift); }
         if (comboText(p)) { ctx.fillStyle = '#ff0'; ctx.font = 'bold 16px Arial'; ctx.fillText(comboText(p), GAME_WIDTH / 2, 100); }
         if (screen === 'playing' && p.alive && pct < 0.3 && Math.floor(frame / 15) % 2 === 0) {
@@ -1813,7 +1814,7 @@
             }
             if (blink) bigText(prompt + 'START', 310, 20, '#0f0');
             if (highScore > 0) bigText('BEST ' + highScore, 345, 14, '#ccc');
-            if (!isTouch) bigText('Hold SHIFT while flying to engage the jet booster', 362, 11, '#9cf');
+            if (!isTouch) bigText('Hold G while flying for the jet booster · V fires air-to-air missiles', 362, 11, '#9cf');
             loadBoard(); drawBoardPanel(GAME_WIDTH - 200, 8, daily ? 'TODAY\'S TOP PILOTS' : 'TOP PILOTS');
         } else if (screen === 'playing' && isTouch && shopOpen() && mode === 'solo') {
             bigText('SHOP · SLOW-MO', 84, 12, '#8f8');
@@ -1931,9 +1932,9 @@
     // =====================================================================
     // Input
     // =====================================================================
-    const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire', ShiftLeft: 'boost', ShiftRight: 'boost' };
+    const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire', KeyG: 'boost' };
     const BUYKEYS = { Digit1: 'soldier', Numpad1: 'soldier', Digit2: 'tank', Numpad2: 'tank', Digit3: 'gun', Numpad3: 'gun', Digit4: 'armor', Numpad4: 'armor',
-        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair', KeyF: 'flares' };
+        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair', KeyF: 'flares', KeyV: 'aam' };
     const inPlay = () => screen === 'playing';
     document.addEventListener('keydown', e => {
         Sound.unlock();
@@ -1983,6 +1984,7 @@
     bindControl(document.getElementById('btnShoot'), () => { if (!inPlay()) primaryAction(); input.fire = true; press('btnShoot', true); }, () => { input.fire = false; press('btnShoot', false); });
     bindControl(document.getElementById('btnBomb'), () => { if (inPlay()) { queueBomb(); buzz(15); } press('btnBomb', true); }, () => press('btnBomb', false));
     bindControl(document.getElementById('btnBoost'), () => { input.boost = true; press('btnBoost', true); }, () => { input.boost = false; press('btnBoost', false); });
+    bindControl(document.getElementById('btnAam'), () => { if (inPlay()) { queueBuy('aam'); buzz(15); } }, () => {});
     bindControl(document.getElementById('btnTroops'), () => { if (inPlay()) queueBuy('troops'); }, () => {});
     const setAutoAttr = () => { const b = document.getElementById('btnAuto'); if (b && b.setAttribute) b.setAttribute('aria-pressed', autoFire ? 'true' : 'false'); };
     setAutoAttr();

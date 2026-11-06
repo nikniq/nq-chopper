@@ -520,4 +520,20 @@ const calm = g => { g.units = g.units.filter(u => !u.ai); g.shells = []; g.ai.al
     for (let f = 0; f < 90; f++) { p.y = 150; p.vy = 0; Sim.step(g, [inp({})]); }
     assert.ok(p.health < hp, 'without flares it homes in and hits');
 }
+// Air-to-air missiles
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 160 });
+    const p = g.players[0], a = g.ai; g.units = []; p.invuln = 1e9; p.x = 1500; p.y = 150; p.landed = false; p.dir = 1;
+    a.alive = false; a.respawn = 0;
+    Sim.step(g, [inp({ buy: 'aam' })]);
+    assert.strictEqual(p.aam, Sim.AAM.max, 'no launch without an air target');
+    a.alive = true; a.x = 1800; a.y = 100; a.health = a.maxHealth = 1000;
+    Sim.step(g, [inp({ buy: 'aam' })]);
+    assert.strictEqual(p.aam, Sim.AAM.max - 1, 'missile launched');
+    for (let f = 0; f < 150; f++) { g.units = []; p.y = 150; p.vy = 0; Sim.step(g, [inp({})]); }
+    assert.strictEqual(a.health, 1000 - Sim.AAM.dmg, 'it homes in on the moving chopper');
+    p.x = 40; p.y = Sim.GROUND_Y - p.height; p.vy = 0; p.landed = true;
+    for (let f = 0; f < 70; f++) { g.units = []; g.shells = []; Sim.step(g, [inp({})]); }
+    assert.strictEqual(p.aam, Sim.AAM.max, 'rearms at base');
+}
 console.log('all sim tests passed');

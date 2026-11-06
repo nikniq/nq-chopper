@@ -33,7 +33,7 @@
     </div>
     <div id="score">Score: 0 | Rescued: 0</div>
     <div id="controls">
-        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>Shift</kbd> Boost &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>-<kbd>4</kbd> Buy &nbsp;·&nbsp; <kbd>5</kbd> Airstrike &nbsp;·&nbsp; <kbd>6</kbd> Hold/advance &nbsp;·&nbsp; <kbd>7</kbd> Load/drop troops &nbsp;·&nbsp; <kbd>8</kbd>/<kbd>9</kbd>/<kbd>0</kbd> Engine, bay, repair &nbsp;·&nbsp; <kbd>F</kbd> Flares &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
+        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>G</kbd> Boost &nbsp;·&nbsp; <kbd>V</kbd> Air missile &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>-<kbd>4</kbd> Buy &nbsp;·&nbsp; <kbd>5</kbd> Airstrike &nbsp;·&nbsp; <kbd>6</kbd> Hold/advance &nbsp;·&nbsp; <kbd>7</kbd> Load/drop troops &nbsp;·&nbsp; <kbd>8</kbd>/<kbd>9</kbd>/<kbd>0</kbd> Engine, bay, repair &nbsp;·&nbsp; <kbd>F</kbd> Flares &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
         <span id="touchHelp" style="display:none">Left thumb steers (let go to hover) &nbsp;·&nbsp; Right thumb: Fire, Bomb, Boost &nbsp;·&nbsp; Shop for troops</span>
         <button id="muteBtn" type="button" aria-pressed="false">Sound: On</button><button id="fullscreenBtn" type="button">Fullscreen</button>
     </div>
@@ -66,6 +66,7 @@
                 <div id="actionGroup">
                     <button class="touch-btn small" id="btnShop" type="button" aria-expanded="false" aria-controls="shop">Shop</button>
                     <button class="touch-btn small" id="btnTroops" type="button" aria-label="Load or drop troops">Troops</button>
+                    <button class="touch-btn small" id="btnAam" type="button" aria-label="Fire air-to-air missile">AAM</button>
                     <button class="touch-btn small" id="btnAuto" type="button" aria-pressed="false" aria-label="Auto-fire">Auto</button>
                     <button class="touch-btn" id="btnBomb" type="button">Bomb</button>
                     <button class="touch-btn" id="btnBoost" type="button" aria-label="Jet booster">Boost</button>

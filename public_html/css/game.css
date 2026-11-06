@@ -81,6 +81,7 @@ body.touch[data-mode="solo"][data-screen="playing"] #pauseBtn { display: inline-
 #btnBoost { right: 8px; bottom: 76px; width: 52px; height: 52px; }
 .touch-btn.small { min-width: 40px; width: auto; height: 40px; border-radius: 20px; padding: 0 7px; font-size: 11px; white-space: nowrap; }
 #btnAuto { right: 70px; bottom: 66px; }
+#btnAam { right: 66px; bottom: 112px; }
 #btnTroops { right: 118px; bottom: 60px; }
 #btnShop { right: 136px; bottom: 6px; }
 .touch-btn.active, .touch-btn:active { background: rgba(255,255,255,0.35); }
@@ -96,7 +97,7 @@ body.touch:not([data-screen="playing"]):not([data-screen="countdown"]) #stickBas
 body.touch:not([data-screen="playing"]) #actionGroup .touch-btn { pointer-events: none; }
 
 /* Shop drawer: above the right-hand cluster, clear of the thumbstick, wraps so every item shows */
-#shop.drawer { position: absolute; left: 42%; right: 10px; bottom: 146px; top: auto; max-height: calc(100% - 146px - 26%); margin: 0; display: none; flex-wrap: wrap; overflow-x: hidden; overflow-y: auto; justify-content: center; align-content: flex-end; gap: 6px; padding: 6px; background: rgba(8,12,20,0.9); border: 1px solid #fff3; border-radius: 12px; z-index: 5; -webkit-overflow-scrolling: touch; }
+#shop.drawer { position: absolute; left: 42%; right: 10px; bottom: 158px; top: auto; max-height: calc(100% - 158px - 22%); margin: 0; display: none; flex-wrap: wrap; overflow-x: hidden; overflow-y: auto; justify-content: center; align-content: flex-end; gap: 6px; padding: 6px; background: rgba(8,12,20,0.9); border: 1px solid #fff3; border-radius: 12px; z-index: 5; -webkit-overflow-scrolling: touch; }
 #shop.drawer.open { display: flex; }
 #shop.drawer .shop-btn { flex: 0 0 auto; min-height: 40px; padding: 4px 8px; font-size: 0.8rem; }
 #shop.drawer #shopHint, #shop.drawer #shopLabel, #shop.drawer #troopsBtn { display: none; }

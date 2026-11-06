@@ -15,7 +15,6 @@
             </form>
         @else
             <a href="{{ route('login') }}">Log in</a>
-            <a href="{{ route('register') }}" class="btn">Register</a>
         @endauth
     </div>
 </nav>

@@ -71,8 +71,9 @@ class AppExtrasTest extends TestCase
     public function test_sitemap_and_share_button(): void
     {
         $this->get('/sitemap.xml')->assertOk()->assertHeader('Content-Type', 'application/xml')
-            ->assertSee('<loc>'.route('multiplayer').'</loc>', false)->assertSee('daily=1');
-        $this->assertStringContainsString('Sitemap:', file_get_contents(public_path('robots.txt')));
+            ->assertSee('<loc>'.route('leaderboard').'</loc>', false)->assertSee('daily=1')
+            ->assertDontSee(route('multiplayer'), false);
+        $this->assertStringContainsString('Sitemap: https://', file_get_contents(public_path('robots.txt')));
         $this->get('/play')->assertSee('id="shareBtn"', false);
     }
 }

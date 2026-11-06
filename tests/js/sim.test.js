@@ -490,4 +490,17 @@ const calm = g => { g.units = g.units.filter(u => !u.ai); g.shells = []; g.ai.al
     Sim.step(w, [inp({})]);
     assert.ok(q.score >= sc + 1000, 'VIP pays its bonus');
 }
+// New helicopter upgrades: engine, bomb bay, auto-repair
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 140 });
+    const p = g.players[0]; g.units = []; g.ai.alive = false; g.ai.respawn = 0; p.invuln = 1e9; p.credits = 5000;
+    const sp = p.speed;
+    for (const b of ['engine', 'bay', 'repair']) Sim.step(g, [inp({ buy: b })]);
+    assert.ok(p.speed > sp && p.maxBombs === Sim.MAX_BOMBS + 2 && p.bombs === p.maxBombs && p.upgrades.repair === 1, 'upgrades apply');
+    p.x = 1500; p.y = 150; p.landed = false; p.health = 50;
+    for (let f = 0; f < 240; f++) { g.units = []; p.y = 150; p.vy = 0; Sim.step(g, [inp({})]); }
+    assert.ok(p.health >= 51 && p.health < 55, 'auto-repair mends slowly away from base: ' + p.health);
+    for (let k = 0; k < 3; k++) Sim.step(g, [inp({ buy: 'bay' })]);
+    assert.strictEqual(p.upgrades.bay, 3, 'bay caps at level 3');
+}
 console.log('all sim tests passed');

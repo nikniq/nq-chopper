@@ -63,7 +63,7 @@
     function announce(text) { if (announcer && text !== lastAnnounced) { lastAnnounced = text; announcer.textContent = text; } }
     const shopButtons = [
         [document.getElementById('buySoldier'), 'soldier'], [document.getElementById('buyTank'), 'tank'],
-        [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor'],
+        [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor'], [document.getElementById('buyEngine'), 'engine'], [document.getElementById('buyBay'), 'bay'], [document.getElementById('buyRepair'), 'repair'],
         [document.getElementById('buyStrike'), 'strike'], [document.getElementById('rallyBtn'), 'rally'], [document.getElementById('troopsBtn'), 'troops']
     ];
 
@@ -943,7 +943,12 @@
         const sx = GAME_WIDTH - 200 - cameraX * 0.02, sy = night ? 100 : 95;
         const glowSize = night ? 140 : 240;
         ctx.drawImage(cached('sunglow' + night, () => makeSprite(glowSize, (g, n) => { const r = g.createRadialGradient(n / 2, n / 2, n * 0.05, n / 2, n / 2, n / 2); r.addColorStop(0, night ? 'rgba(220,230,255,0.35)' : 'rgba(255,240,180,0.55)'); r.addColorStop(1, 'rgba(255,240,180,0)'); g.fillStyle = r; g.fillRect(0, 0, n, n); })), sx - glowSize / 2, sy - glowSize / 2);
-        ctx.fillStyle = night ? '#e8ecff' : '#ffe680';
+        if (!night && !lowDetail && bm.key !== 'volcanic') {
+            ctx.save(); ctx.translate(sx, sy); ctx.rotate(frame / 900); ctx.fillStyle = 'rgba(255,240,180,0.07)';
+            for (let i = 0; i < 7; i++) { ctx.rotate(Math.PI * 2 / 7); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-22, -240); ctx.lineTo(22, -240); ctx.closePath(); ctx.fill(); }
+            ctx.restore();
+        }
+        ctx.fillStyle = night ? '#e8ecff' : bm.key === 'volcanic' ? '#e8703a' : '#ffe680';
         ctx.beginPath(); ctx.arc(sx, sy, night ? 18 : 26, 0, Math.PI * 2); ctx.fill();
         if (night) { ctx.fillStyle = sky[0]; ctx.beginPath(); ctx.arc(sx + 8, sy - 4, 15, 0, Math.PI * 2); ctx.fill(); }
         if (!night && !lowDetail) {
@@ -963,6 +968,10 @@
             ctx.ellipse(x - c.w / 4, c.y + 4, c.w / 4, 10, 0, 0, Math.PI * 2);
             ctx.ellipse(x + c.w / 4, c.y + 3, c.w / 4, 11, 0, 0, Math.PI * 2);
             ctx.fill();
+            const cf = ctx.fillStyle;
+            ctx.fillStyle = 'rgba(70,90,130,0.22)'; ctx.beginPath(); ctx.ellipse(x, c.y + 7, c.w / 2.2, 5, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.ellipse(x - c.w / 8, c.y - 6, c.w / 4, 4, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = cf;
         });
     }
     // Snow caps or lava tips on the mountain peaks
@@ -1273,6 +1282,37 @@
         // Weapon pod and winch
         ctx.fillStyle = '#444'; rrect(d * -6 - 7, 8, 14, 4, 2); ctx.fill(); ctx.fillStyle = '#222'; ctx.fillRect(d * -6 - 5, 9, 2, 2); ctx.fillRect(d * -6 + 1, 9, 2, 2);
         ctx.fillStyle = '#333'; ctx.fillRect(d * 6 - 2, 10, 4, 3);
+        // Rim light along the top of the fuselage
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(d * 4, 0, 20.5, 10.5, 0, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+        // Fitted upgrades are visible on the airframe
+        const up = h.upgrades;
+        if (up) {
+            if (up.armor) { // bolted plates, more per level
+                ctx.fillStyle = '#5b6470';
+                for (let i = 0; i < up.armor; i++) { rrect(d * (-13 + i * 8) - 3.5, 1, 7, 7, 1.5); ctx.fill(); }
+                ctx.fillStyle = '#c5ccd6'; for (let i = 0; i < up.armor; i++) ctx.fillRect(d * (-13 + i * 8) - 0.7, 3.8, 1.4, 1.4);
+            }
+            if (up.gun) { // chin cannon: longer, then twin, then rotary
+                ctx.fillStyle = '#2a2a2a'; ctx.beginPath(); ctx.arc(d * 20, 8, 3.5, 0, Math.PI * 2); ctx.fill();
+                const len = 8 + up.gun * 3, bx = d === 1 ? 20 : -20 - len;
+                ctx.fillStyle = '#555'; ctx.fillRect(bx, 7, len, 1.8);
+                if (up.gun >= 2) ctx.fillRect(bx, 9.4, len, 1.8);
+                if (up.gun >= 3) { ctx.fillRect(bx, 4.8, len, 1.6); ctx.fillStyle = '#ffb347'; ctx.fillRect(d === 1 ? bx + len - 2 : bx, 4.8, 2, 6.4); }
+            }
+            if (up.bay) { // stub wing with a pylon of bombs
+                ctx.fillStyle = '#3a3f46'; ctx.fillRect(d * 2 - 12, 6, 24, 2.5);
+                ctx.fillStyle = '#c96a1a'; for (let i = 0; i < up.bay * 2; i++) { ctx.beginPath(); ctx.ellipse(d * 2 - 10 + i * 4, 10.5, 1.7, 2.8, 0, 0, Math.PI * 2); ctx.fill(); }
+            }
+            if (up.engine) { // turbine housing on the roof, with a hot exhaust
+                ctx.fillStyle = '#4a4f57'; rrect(d === 1 ? -14 : -6, -14, 20, 5, 2); ctx.fill();
+                ctx.fillStyle = up.engine >= 3 ? '#ff7a2a' : up.engine === 2 ? '#ffb347' : '#ffd27a';
+                ctx.globalAlpha *= 0.6 + 0.4 * Math.abs(Math.sin(frame / 3)); ctx.fillRect(d === 1 ? -17 : 6, -13, 3, 3); ctx.globalAlpha = flash ? 0.45 : 1;
+            }
+            if (up.repair) { // service drone light: green cross pulsing while it mends the hull
+                ctx.globalAlpha *= h.health < h.maxHealth ? 0.5 + 0.5 * Math.abs(Math.sin(frame / 8)) : 0.8;
+                ctx.fillStyle = '#5f5'; ctx.fillRect(d * -20 - 0.8, -3, 1.6, 5); ctx.fillRect(d * -20 - 2.5, -1.3, 5, 1.6); ctx.globalAlpha = flash ? 0.45 : 1;
+            }
+        }
         // Cockpit glass with frame
         ctx.fillStyle = glass; ctx.beginPath(); ctx.ellipse(d * 14, -2, 9, 7, 0, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(d * 14, -2, 9, 7, 0, 0, Math.PI * 2); ctx.stroke();
@@ -1291,6 +1331,8 @@
         const rw = 6 + 30 * Math.abs(Math.cos(frame * 0.55)), rw2 = 6 + 30 * Math.abs(Math.sin(frame * 0.55));
         ctx.fillStyle = 'rgba(230,230,230,0.85)'; ctx.fillRect(-rw, -18, rw * 2, 3);
         ctx.fillStyle = 'rgba(230,230,230,0.35)'; ctx.fillRect(-rw2, -18, rw2 * 2, 3);
+        ctx.fillStyle = '#ffd24a'; ctx.fillRect(-rw, -18, 3, 3); ctx.fillRect(rw - 3, -18, 3, 3); // blade tips
+        ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(0, -17, 3, 0, Math.PI * 2); ctx.fill(); // hub
         // Navigation lights
         const blink = frame % 40 < 6;
         ctx.fillStyle = blink ? '#f33' : 'rgba(255,60,60,0.3)'; ctx.fillRect(d === 1 ? -31 : 28, -13, 3, 3);
@@ -1482,6 +1524,7 @@
         ctx.globalAlpha = 1;
         rings.forEach(r => {
             const a = clamp(r.life, 0, 1);
+            if (r.fill && r.max > 15) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * 0.8; const gr = r.r * 3.2; ctx.drawImage(glowSprite('#ffa040'), r.x - gr, r.y - gr, gr * 2, gr * 2); ctx.restore(); }
             if (r.fill) { ctx.fillStyle = `rgba(${r.color},${a * 0.8})`; ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.fill(); }
             else { ctx.strokeStyle = `rgba(${r.color},${a})`; ctx.lineWidth = 3 * a + 1; ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.stroke(); }
         });
@@ -1623,7 +1666,8 @@
         if (!isTouch) { ctx.fillStyle = '#9cf'; ctx.font = 'bold 8px Arial'; ctx.fillText('JET', 36, 29); }
         ctx.font = 'bold 13px Arial';
         ctx.fillStyle = '#fff'; ctx.fillText('BOMBS', 14, 42);
-        for (let i = 0; i < MAX_BOMBS; i++) { ctx.fillStyle = i < p.bombs ? '#f90' : '#444'; ctx.beginPath(); ctx.arc(70 + i * 15, 38, 5, 0, Math.PI * 2); ctx.fill(); }
+        const bStep = Math.min(15, 80 / Math.max(1, p.maxBombs - 1)), bR = p.maxBombs > 5 ? 3.5 : 5;
+        for (let i = 0; i < p.maxBombs; i++) { ctx.fillStyle = i < p.bombs ? '#f90' : '#444'; ctx.beginPath(); ctx.arc(70 + i * bStep, 38, bR, 0, Math.PI * 2); ctx.fill(); }
         ctx.fillStyle = '#fff'; ctx.fillText('ABOARD', 14, 62);
         for (let i = 0; i < MAX_CARRY; i++) {
             ctx.fillStyle = i < p.carrying ? '#fd4' : '#444';
@@ -1699,7 +1743,7 @@
             const avail = GAME_WIDTH - 340;
             const long = `[1] SOLDIER $${UNITS.soldier.cost}  [2] TANK $${UNITS.tank.cost}  [3] GUNS ${gc === null ? 'MAX' : '$' + gc}  [4] ARMOR ${ac === null ? 'MAX' : '$' + ac}  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] ${p.landed ? 'LOAD' : 'DROP'} ${p.troops}/${Sim.MAX_TROOPS}`;
             const lm = ctx.measureText && ctx.measureText(long);
-            const hint = lm && lm.width > avail ? `[1-4] BUY  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] TROOPS ${p.troops}` : long;
+            const hint = lm && lm.width > avail ? `[1-4, 8-0] BUY  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] TROOPS ${p.troops}` : long;
             ctx.fillText(hint, GAME_WIDTH / 2, 52, avail);
         }
         if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 66 + rowShift); }
@@ -1860,6 +1904,11 @@
             drawParticles();
             drawFloatTexts();
             ctx.restore();
+            if (!lowDetail) {
+                ctx.fillStyle = 'rgba(8,10,14,0.75)'; ctx.beginPath(); ctx.moveTo(0, GAME_HEIGHT);
+                for (let x = 0; x <= GAME_WIDTH + 16; x += 16) { const w = x + cameraX * 1.4; ctx.lineTo(x, GAME_HEIGHT - 6 - 4 * Math.sin(w * 0.03) - 2.5 * Math.sin(w * 0.11)); }
+                ctx.lineTo(GAME_WIDTH + 16, GAME_HEIGHT); ctx.closePath(); ctx.fill();
+            }
             drawPost();
             if (screen !== 'title' && screen !== 'lobby' && screen !== 'gameover') { drawEdgeIndicators(); drawHUD(); drawCoach(); }
         } else {
@@ -1875,7 +1924,7 @@
     // =====================================================================
     const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire', ShiftLeft: 'boost', ShiftRight: 'boost' };
     const BUYKEYS = { Digit1: 'soldier', Numpad1: 'soldier', Digit2: 'tank', Numpad2: 'tank', Digit3: 'gun', Numpad3: 'gun', Digit4: 'armor', Numpad4: 'armor',
-        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops' };
+        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair' };
     const inPlay = () => screen === 'playing';
     document.addEventListener('keydown', e => {
         Sound.unlock();
@@ -2083,6 +2132,7 @@
             if (hash.indexOf('gameover') > 0) setTimeout(() => { const q = sim.players[0]; Object.assign(q.stats, { tanks: 7, aa: 1, soldiers: 4, helis: 2, bosses: 1, fullLoads: 3, perfectWaves: 1, maxCombo: 4, unitsBought: 5, troopsDropped: 2, strikes: 1, dmgTaken: 260 }); q.score = 18450; q.rescued = 23; sim.status = 'over'; }, 800);
             if (hash.indexOf('#autostart-demo') === 0) { // screenshot/demo helper: show troops near base
                 sim.players[0].credits = 1000; input.right = false;
+                if (hash.indexOf('maxed') > 0) { const q = sim.players[0]; q.upgrades = { gun: 3, armor: 3, engine: 3, bay: 3, repair: 3 }; q.maxBombs = q.bombs = 11; q.health = 60; input.up = false; setTimeout(() => { input.up = true; input.right = true; }, 200); setTimeout(() => { input.right = false; input.up = false; q.y = 200; q.vy = 0; }, 900); }
                 setTimeout(() => queueBuy('tank'), 300); setTimeout(() => queueBuy('soldier'), 600); setTimeout(() => queueBuy('soldier'), 900);
             }
         }

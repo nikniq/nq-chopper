@@ -37,14 +37,17 @@
     };
     const UPGRADES = {
         gun:   { name: 'GUNS',  costs: [150, 250, 400], cooldown: [9, 7, 5, 4], dmg: [35, 42, 50, 60] },
-        armor: { name: 'ARMOR', costs: [150, 250, 400], bonus: 40 }
+        armor: { name: 'ARMOR', costs: [150, 250, 400], bonus: 40 },
+        engine: { name: 'ENGINE', costs: [200, 350, 500], bonus: 0.4 },       // top speed
+        bay: { name: 'BOMB BAY', costs: [200, 350, 500], bonus: 2 },          // bomb capacity
+        repair: { name: 'AUTO-REPAIR', costs: [250, 400, 600], every: [0, 120, 60, 30] } // hull per N frames
     };
     const AI = -1; // team id of the computer opponent in solo mode
     const BOOST = { max: 100, drain: 1.1, regen: 0.3, regenDelay: 45, speedMul: 2.1 };
     // Threat multiplier: waves get tougher on a curve, not just by adding a tank
     const threat = s => 1 + Math.max(0, s.wave - 1) * 0.18 + Math.max(0, s.wave - 5) * 0.07;
     // Only accept known shop codes (inputs come from the network in online play)
-    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops'];
+    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops', 'engine', 'bay', 'repair'];
     const has = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 
     // ---------------------------------------------------------------------
@@ -85,9 +88,9 @@
     }
     function makePlayer(id, side, name) {
         return { id, team: id, side, name: name || ('P' + (id + 1)), x: 60, y: 200, width: 60, height: 24, vx: 0, vy: 0, dir: side,
-            speed: 3.4, carrying: 0, maxHealth: 100, health: 100, bombs: MAX_BOMBS, invuln: 0, landed: false, fireCooldown: 0, tilt: 0, spin: 0,
+            speed: 3.4, carrying: 0, maxHealth: 100, health: 100, bombs: MAX_BOMBS, maxBombs: MAX_BOMBS, invuln: 0, landed: false, fireCooldown: 0, tilt: 0, spin: 0,
             alive: true, respawn: 0, deaths: 0, score: 0, credits: 0, rescued: 0, lost: 0,
-            upgrades: { gun: 0, armor: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0, boost: BOOST.max, boosting: false, boostIdle: 0,
+            upgrades: { gun: 0, armor: 0, engine: 0, bay: 0, repair: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0, boost: BOOST.max, boosting: false, boostIdle: 0,
             // Per-run combat ledger for the debrief (integers only; gameplay never reads it)
             stats: { tanks: 0, aa: 0, soldiers: 0, helis: 0, bosses: 0, fullLoads: 0, perfectWaves: 0, maxCombo: 0, strikes: 0, troopsDropped: 0, unitsBought: 0, balloons: 0, dmgTaken: 0 } };
     }
@@ -147,7 +150,7 @@
         p.x = b.x + b.width / 2 - p.width / 2;
         p.y = GROUND_Y - p.height;
         p.vx = 0; p.vy = 0; p.dir = p.side; p.carrying = 0;
-        p.health = p.maxHealth; p.bombs = MAX_BOMBS;
+        p.health = p.maxHealth; p.bombs = p.maxBombs;
         p.invuln = 0; p.landed = true; p.fireCooldown = 0; p.tilt = 0; p.spin = 0; p.alive = true; p.respawn = 0;
     }
     function spawnHostageGroup(s, gx) {
@@ -383,6 +386,8 @@
         p.credits -= cost;
         p.upgrades[type]++;
         if (type === 'armor') { p.maxHealth += def.bonus; p.health += def.bonus; }
+        if (type === 'engine') p.speed += def.bonus;
+        if (type === 'bay') { p.maxBombs += def.bonus; p.bombs += def.bonus; }
         parts(s, x, cy(p), 14, { speed: 2.5, colors: ['#8f8', '#fff', '#ff0'], size: 3, life: 30 });
         text(s, x, y, def.name + ' LEVEL ' + p.upgrades[type] + '  -$' + cost, '#8f8', true);
         snd(s, 'dropoff', cx(p), p.team);
@@ -471,6 +476,7 @@
             p.y = GROUND_Y - p.height; p.vy = 0; p.vx *= 0.8; p.landed = true;
         } else p.landed = false;
         p.tilt += ((p.vx / p.speed) * (p.boosting ? 0.14 : 0.2) - p.tilt) * 0.1;
+        if (p.upgrades.repair && p.health < p.maxHealth && s.frame % UPGRADES.repair.every[p.upgrades.repair] === 0) p.health++;
         if (p.invuln > 0) p.invuln--;
         if (p.fireCooldown > 0) p.fireCooldown--;
         if (p.comboTimer > 0 && --p.comboTimer === 0) p.combo = 0;
@@ -505,7 +511,7 @@
                 snd(s, 'dropoff', cx(p), p.team);
             }
             if (p.health < p.maxHealth && s.frame % 6 === 0) { p.health++; if (s.frame % 30 === 0) snd(s, 'heal', cx(p), p.team); }
-            if (p.bombs < MAX_BOMBS && s.frame % 20 === 0) p.bombs++;
+            if (p.bombs < p.maxBombs && s.frame % 20 === 0) p.bombs++;
         }
     }
 
@@ -863,7 +869,7 @@
                 if (!p.alive || !overlap(p, box)) continue;
                 const def = PICKUPS[k.type];
                 if (k.type === 'health') { p.health = Math.min(p.maxHealth, p.health + def.amount); text(s, cx(p), p.y - 24, '+' + def.amount + ' HULL', def.color); }
-                else if (k.type === 'bombs') { p.bombs = MAX_BOMBS; text(s, cx(p), p.y - 24, 'BOMBS REARMED', def.color); }
+                else if (k.type === 'bombs') { p.bombs = p.maxBombs; text(s, cx(p), p.y - 24, 'BOMBS REARMED', def.color); }
                 else { earn(s, p, def.amount, cx(p), p.y - 24); }
                 parts(s, k.x, k.y, 10, { speed: 2, colors: [def.color, '#fff'], size: 3, life: 20 });
                 snd(s, 'pickup', cx(p), p.team);
@@ -1148,7 +1154,7 @@
         const STATUS = ['playing', 'dying', 'waveclear', 'over'], HSTATE = ['waiting', 'running', 'aboard', 'saved', 'dead'], TYPES = ['soldier', 'tank', 'aa'];
         mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.hostageTimer);
         const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0); mix(a.mode); mix(a.modeTimer);
-        s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.lost); });
+        s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.upgrades.engine); mix(p.upgrades.bay); mix(p.upgrades.repair); mix(p.maxBombs); mix(p.speed); mix(p.lost); });
         s.hostages.forEach(o => { mix(o.x); mix(HSTATE.indexOf(o.state)); mix(o.carrier); mix(o.blocked); mix(o.bleed); mix(o.vip ? 1 : 0); });
         s.units.forEach(u => { mix(u.y); mix(u.team); mix(TYPES.indexOf(u.type)); });
         s.bombs.forEach(b => { mix(b.x); mix(b.y); });

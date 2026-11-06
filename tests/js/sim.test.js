@@ -470,4 +470,24 @@ const calm = g => { g.units = g.units.filter(u => !u.ai); g.shells = []; g.ai.al
     p.credits = 1000; Sim.step(g, [inp({ buy: 'strike' })]);
     assert.ok(p.stats.unitsBought === 1 && p.stats.strikes === 1, 'purchases are counted');
 }
+// Gunship tactics, VIP and wounded hostages
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 130 });
+    const p = g.players[0]; p.invuln = 1e9; g.units = [];
+    g.ai.health = g.ai.maxHealth * 0.3; g.ai.x = 2000; p.x = 1800; p.y = 150; p.landed = false;
+    const x0 = g.ai.x; for (let f = 0; f < 120; f++) { g.units = []; p.y = 150; p.vy = 0; Sim.step(g, [inp({})]); }
+    assert.ok(g.ai.mode === 3 && g.ai.x > x0, 'a damaged chopper retreats toward its base');
+    const w = Sim.createGame({ mode: 'solo', seed: 131 });
+    w.status = 'waveclear'; w.statusTimer = 179; Sim.step(w, [inp({})]);
+    assert.strictEqual(w.wave, 2); assert.strictEqual(w.hostages.filter(h => h.vip).length, 1, 'one VIP on wave 2');
+    const q = w.players[0]; q.invuln = 1e9; w.units = []; w.ai.alive = false; w.ai.respawn = 0;
+    const h = w.hostages.find(o => !o.vip); h.wounded = true; h.bleed = 5; h.state = 'aboard'; h.carrier = 0; h.bleeding = true; q.carrying = 1;
+    const v = w.hostages.find(o => o.vip); v.state = 'aboard'; v.carrier = 0; q.carrying = 2;
+    q.x = 900; q.y = 100; q.landed = false;
+    for (let f = 0; f < 8; f++) { q.y = 100; q.vy = 0; Sim.step(w, [inp({})]); }
+    assert.ok(h.state === 'dead' && q.carrying === 1, 'a wounded hostage can die aboard and frees the seat');
+    q.x = 40; q.y = Sim.GROUND_Y - q.height; q.vy = 0; q.landed = true; const sc = q.score;
+    Sim.step(w, [inp({})]);
+    assert.ok(q.score >= sc + 1000, 'VIP pays its bonus');
+}
 console.log('all sim tests passed');

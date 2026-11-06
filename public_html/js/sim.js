@@ -23,6 +23,7 @@
     const GARRISON_RANGE = 170;
     const PICKUPS = { health: { amount: 35, color: '#f55' }, bombs: { amount: MAX_BOMBS, color: '#f90' }, credits: { amount: 60, color: '#8f8' } };
     const BOSS_EVERY = 3;
+    const WOUND_FRAMES = 3600;
     const COAX = { range: 140, rate: 25, dmg: 6 };         // AI tank coaxial MG vs low/landed choppers in front
     const HOSTAGE_ESCAPE = 2700;                          // frames blocked by an enemy-held hut before hostages flee on foot
     const BASE_SAFE = 400;                                // kills near your own base pay nothing (anti-camping)
@@ -114,7 +115,7 @@
             status: 'playing', statusTimer: 0, winner: null, endReason: '',
             wave: 0, waveRescued: 0, waveLost: 0, waveBonus: 0,
             players: [], bases: [], hostages: [], huts: [], units: [], bullets: [], shells: [], bombs: [], pickups: [], strikes: [], paras: [],
-            ai: { team: AI, x: 0, y: 120, width: 60, height: 24, vx: 0, vy: 0, dir: -1, speed: 2, shootCooldown: 0, maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0, patrolDir: -1, boss: false, burst: 0 },
+            ai: { team: AI, x: 0, y: 120, width: 60, height: 24, vx: 0, vy: 0, dir: -1, speed: 2, shootCooldown: 0, maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0, patrolDir: -1, boss: false, burst: 0, mode: 0, modeTimer: 0, repaired: false, evadeDir: 1, lastEvade: -999 },
             tankSpawnTimer: 0, soldierSpawnTimer: 0, hostageTimer: 0, lives: 0, aiCredits: 0, aiSpent: 0, aiThink: 0, balloons: [], fx: []
         };
         const names = opts.names || [];
@@ -152,12 +153,12 @@
     function spawnHostageGroup(s, gx) {
         s.huts.push({ x: gx, w: 54, h: 36, garrison: null, fireTimer: 0, warnTimer: 0, balloonTimer: 0 });
         const count = 3 + Math.floor(rnd(s) * 2);
-        for (let i = 0; i < count; i++) s.hostages.push({ x: gx + 60 + i * 14 + rand(s, -3, 3), state: 'waiting', dir: -1, anim: Math.floor(rnd(s) * 100), carrier: -1, blocked: 0, flee: false });
+        for (let i = 0; i < count; i++) s.hostages.push({ x: gx + 60 + i * 14 + rand(s, -3, 3), state: 'waiting', dir: -1, anim: Math.floor(rnd(s) * 100), carrier: -1, blocked: 0, flee: false, vip: false, wounded: false, bleed: 0, bleeding: false });
     }
     function spawnAiHeli(s) {
         const a = s.ai, base = s.bases[1];
         a.boss = s.wave % BOSS_EVERY === 0;
-        a.x = base.x - 80; a.y = 110; a.vx = -a.speed; a.dir = -1; a.shootCooldown = 90; a.burst = 0;
+        a.x = base.x - 80; a.y = 110; a.vx = -a.speed; a.dir = -1; a.shootCooldown = 90; a.burst = 0; a.mode = 0; a.modeTimer = 0; a.repaired = false; a.lastEvade = -999;
         const baseHp = 150 + (s.wave - 1) * 40, t = threat(s);
         a.maxHealth = Math.round(a.boss ? baseHp * 2.2 * Math.sqrt(t) : baseHp * t); a.health = a.maxHealth;
         a.speed = Math.min(4.2, 2 + (s.wave - 1) * 0.25 + (a.boss ? 0.4 : 0)); a.alive = true; a.respawn = 0;
@@ -193,6 +194,11 @@
             s.units.push(makeTank(s, AI, tx, pick(s, [-1, 1]) * (0.8 + n * 0.15)));
         }
         // Anti-air emplacements guard the approach to the enemy base from wave 3
+        // From wave 2: one VIP per wave, and a few wounded who only last 60 s once you land nearby
+        if (n >= 2) {
+            s.hostages[Math.floor(rnd(s) * s.hostages.length)].vip = true;
+            for (let i = Math.min(3, Math.floor(n / 2)); i > 0; i--) { const h = pick(s, s.hostages); if (!h.vip) { h.wounded = true; h.bleed = WOUND_FRAMES; } }
+        }
         const aaCount = n >= 3 ? Math.min(3, 1 + Math.floor((n - 3) / 2)) : 0;
         for (let i = 0; i < aaCount; i++) {
             let ax = rand(s, WORLD_WIDTH * 0.55, WORLD_WIDTH - 300), tries = 0;
@@ -485,7 +491,12 @@
         if (p.landed && overlap(p, b)) {
             if (p.carrying > 0) {
                 const n = p.carrying;
-                s.hostages.forEach(h => { if (h.state === 'aboard' && h.carrier === p.id) h.state = 'saved'; });
+                s.hostages.forEach(h => {
+                    if (h.state !== 'aboard' || h.carrier !== p.id) return;
+                    h.state = 'saved';
+                    if (h.vip) { p.score += 1000; earn(s, p, 150); text(s, cx(p), p.y - 64, 'VIP RESCUED +1000 +$150', '#ffd700', true); }
+                    if (h.wounded && h.bleed > WOUND_FRAMES / 2) { p.score += 150; text(s, cx(p), p.y - 80, 'SAVED IN TIME +150', '#8f8'); }
+                });
                 p.rescued += n; s.waveRescued += n;
                 let pts = n * 100; if (n === MAX_CARRY) { pts += 200; p.stats.fullLoads++; }
                 p.score += pts; p.carrying = 0;
@@ -505,6 +516,14 @@
         const landed = s.players.filter(p => p.alive && p.landed && p.carrying < MAX_CARRY);
         s.hostages.forEach(h => {
             h.anim++;
+            if (h.wounded && h.state !== 'saved' && h.state !== 'dead') {
+                if (!h.bleeding && landed.some(p => Math.abs(cx(p) - h.x) < 280)) h.bleeding = true;
+                if (h.bleeding && --h.bleed <= 0) {
+                    if (h.state === 'aboard' && s.players[h.carrier]) s.players[h.carrier].carrying--;
+                    killHostage(s, h, 'DIED OF WOUNDS');
+                    return;
+                }
+            }
             if (h.state !== 'waiting' && h.state !== 'running') return;
             let best = null, bestD = 280;
             const hut = h.flee ? null : hutOf(s, h.x);
@@ -528,7 +547,7 @@
             });
             if (best) {
                 const dx = cx(best) - h.x;
-                h.state = 'running'; h.dir = dx < 0 ? -1 : 1; h.x += h.dir * 1.3;
+                h.state = 'running'; h.dir = dx < 0 ? -1 : 1; h.x += h.dir * (h.wounded ? 0.6 : 1.3);
                 if (Math.abs(dx) < 8) {
                     h.state = 'aboard'; h.carrier = best.id; best.carrying++;
                     text(s, cx(best), best.y - 16, best.carrying + '/' + MAX_CARRY, '#ff0');
@@ -876,6 +895,24 @@
             targetX = a.x + a.patrolDir * 200;
             a.y += (110 + tri(s.frame, 377) * 20 - a.y) * 0.03;
         }
+        // Tactics: 0 hunt, 1 strafe a landed pilot, 2 jink out of the line of fire, 3 retreat to repair
+        if (a.modeTimer > 0) a.modeTimer--;
+        if (a.mode === 2 && a.modeTimer === 0) a.mode = 0;
+        if (a.mode !== 2 && s.frame % 20 === 0) {
+            const facing = p.alive && sign(a.x - p.x) === p.dir && Math.abs(cy(a) - cy(p)) < 14 && d < 420;
+            if (a.health < a.maxHealth * 0.35 && !a.repaired && !eb.destroyed) a.mode = 3;
+            else if (facing && s.frame - a.lastEvade > 150) { a.mode = 2; a.modeTimer = 60; a.lastEvade = s.frame; a.evadeDir = rnd(s) < 0.5 ? -1 : 1; }
+            else a.mode = p.alive && p.landed && p.carrying < MAX_CARRY && d < 900 ? 1 : 0;
+        }
+        if (a.mode === 1) { targetX = p.x - sign(dx || 1) * 120; a.y += (GROUND_Y - 110 - a.y) * 0.04; }
+        else if (a.mode === 2) a.y += a.evadeDir * 2.2;
+        else if (a.mode === 3) {
+            targetX = eb.x - 40; a.y += (90 - a.y) * 0.04;
+            if (Math.abs(a.x - targetX) < 60) {
+                a.health = Math.min(a.maxHealth, a.health + Math.ceil(a.maxHealth / 600));
+                if (a.health >= a.maxHealth * 0.7) { a.repaired = true; a.mode = 0; }
+            }
+        }
         const desiredVx = clamp((targetX - a.x) * 0.05, -a.speed, a.speed);
         a.vx += (desiredVx - a.vx) * 0.06;
         a.x += a.vx;
@@ -917,7 +954,7 @@
                 a.respawn = Math.max(420, 1000 - s.wave * 80) * (a.boss ? 2 : 1);
                 explosion(s, cx(a), cy(a), true);
                 if (a.boss) { explosion(s, cx(a) - 30, cy(a) + 10, false); explosion(s, cx(a) + 30, cy(a) - 10, false); }
-                if (by) { if (by.stats) by.stats[a.boss ? 'bosses' : 'helis']++; award(s, by, a.boss ? 1500 : 500, cx(a), a.y - 20, 0, true); earn(s, by, a.boss ? 300 : 120, cx(a), a.y - 40); }
+                if (by) { if (by.stats) by.stats[a.boss ? 'bosses' : 'helis']++; award(s, by, Math.round((a.boss ? 1500 : 500) * (a.mode === 3 ? 1.5 : 1)), cx(a), a.y - 20, 0, true); earn(s, by, a.boss ? 300 : 120, cx(a), a.y - 40); }
                 dropPickup(s, cx(a), cy(a), 'credits');
                 if (a.boss) { dropPickup(s, cx(a) - 30, cy(a), 'health'); dropPickup(s, cx(a) + 30, cy(a), 'bombs'); }
                 else maybeDrop(s, cx(a) + 20, cy(a), 0.5);
@@ -1110,14 +1147,14 @@
         s.huts.forEach(h => mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5));
         const STATUS = ['playing', 'dying', 'waveclear', 'over'], HSTATE = ['waiting', 'running', 'aboard', 'saved', 'dead'], TYPES = ['soldier', 'tank', 'aa'];
         mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.hostageTimer);
-        const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0);
+        const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0); mix(a.mode); mix(a.modeTimer);
         s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.lost); });
-        s.hostages.forEach(o => { mix(o.x); mix(HSTATE.indexOf(o.state)); mix(o.carrier); mix(o.blocked); });
+        s.hostages.forEach(o => { mix(o.x); mix(HSTATE.indexOf(o.state)); mix(o.carrier); mix(o.blocked); mix(o.bleed); mix(o.vip ? 1 : 0); });
         s.units.forEach(u => { mix(u.y); mix(u.team); mix(TYPES.indexOf(u.type)); });
         s.bombs.forEach(b => { mix(b.x); mix(b.y); });
         s.pickups.forEach(k => mix(k.x)); s.paras.forEach(k => { mix(k.x); mix(k.y); }); s.strikes.forEach(k => mix(k.x));
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
 });

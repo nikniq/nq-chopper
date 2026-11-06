@@ -820,7 +820,7 @@
             if (screen !== 'playing' || Math.abs(targetCam - cameraX) > GAME_WIDTH) { cameraX = targetCam; camV = 0; }
             else { camV += (targetCam - cameraX) * 0.02; camV *= 0.78; cameraX += camV; }
             cameraX = clamp(cameraX, 0, WORLD_WIDTH - GAME_WIDTH);
-            rescueTick(p);
+            rescueTick(p); medalTick(p);
             if (isTouch) feelTick(p);
             if (screen === 'playing' && p.alive && p.health / p.maxHealth < 0.3 && frame % 45 === 0) Sound.alarm();
         }
@@ -1151,6 +1151,11 @@
             if (h.state !== 'waiting' && h.state !== 'running' || !isVisible(h.x)) return;
             const running = h.state === 'running', near = Math.abs(px - h.x) < 320;
             groundShadow(h.x, 10);
+            if (h.vip) { ctx.fillStyle = '#ffd700'; ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillText('★', h.x, GROUND_Y - 30); ctx.textAlign = 'left'; }
+            if (h.wounded) {
+                ctx.fillStyle = '#f33'; ctx.fillRect(h.x - 1, GROUND_Y - 37, 2, 8); ctx.fillRect(h.x - 4, GROUND_Y - 34, 8, 2);
+                if (h.bleeding) { ctx.strokeStyle = '#f66'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(h.x, GROUND_Y - 33, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * h.bleed / Sim.WOUND_FRAMES); ctx.stroke(); }
+            }
             ctx.save();
             ctx.translate(h.x, GROUND_Y + (running ? Math.abs(Math.sin(h.anim * 0.5)) * -1.5 : 0));
             if (h.dir < 0) ctx.scale(-1, 1);
@@ -1417,7 +1422,7 @@
         });
     }
     function drawChoppers() {
-        if (sim.mode === 'solo' && sim.ai.alive) {
+        if (sim.mode !== 'versus' && sim.ai.alive) {
             const a = sim.ai, c = colorsOf(AI);
             drawShadow(a);
             if (a.boss) {
@@ -1558,6 +1563,16 @@
     }
     // First-run touch coach: one short contextual tip at a time until the rescue loop is learned
     // End-of-run combat debrief from the simulation's per-pilot ledger
+    // Wave medals (display only): measured from a client snapshot taken when each wave starts
+    let medalWave = 0, medalFrame = 0, medalDmg = 0;
+    function medalTick(p) { if (sim.wave !== medalWave) { medalWave = sim.wave; medalFrame = sim.frame; medalDmg = p.stats.dmgTaken; } }
+    function waveMedals() {
+        const p = local(), out = [];
+        if (sim.waveLost === 0) out.push('★ NO ONE LEFT BEHIND');
+        if (p.stats.dmgTaken === medalDmg) out.push('★ UNTOUCHED');
+        if (sim.frame - sim.statusTimer - medalFrame < 3600 + sim.wave * 600) out.push('★ SWIFT');
+        return out;
+    }
     function drawDebrief(p, y) {
         const st = p && p.stats; if (!st) return;
         const n = hudSize(12);
@@ -1761,6 +1776,8 @@
             bigText('GET READY FOR WAVE ' + (sim.wave + 1) + ((sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '  ·  GUNSHIP WAVE' : ''), 280, 16, (sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '#f66' : '#ccc');
             bigText('THREAT RISES TO x' + Sim.threat({ wave: sim.wave + 1 }).toFixed(1) + ' · tougher armour, harder hits, richer enemy', 302, 12, '#fc6');
             bigText('NEXT TERRAIN: ' + BIOMES[sim.wave % BIOMES.length].name, 322, 13, '#9cf');
+            const medals = waveMedals();
+            if (medals.length) bigText(medals.join('   '), 255, 15, '#ffd700');
         } else if (screen === 'gameover') {
             const p = local();
             overlay(Math.min(0.55, screenTimer / 40));

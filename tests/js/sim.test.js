@@ -611,3 +611,25 @@ console.log('solo spare choppers ok');
     assert.strictEqual(pl.carrying, 0);
 }
 console.log('forward LZ ok');
+
+// Held bunkers muster free soldiers who march on; plain houses do not
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 31 });
+    for (let f = 0; f < 5; f++) Sim.step(g, [inp({})]);
+    calm(g);
+    const [house, bunker] = g.huts;
+    house.garrison = { team: 0, count: 3 }; house.level = 0;
+    bunker.garrison = { team: 0, count: 3 }; bunker.level = 1; bunker.hp = Sim.HUT_HP[1]; bunker.troopTimer = 5;
+    const mine = () => g.units.filter(u => u.team === 0 && u.type === 'soldier').length;
+    const before = mine();
+    for (let f = 0; f < 10; f++) Sim.step(g, [inp({})]);
+    assert.strictEqual(mine(), before + 1, 'bunker mustered a soldier');
+    assert.strictEqual(bunker.garrison.count, 3, 'the garrison stays put');
+    const fresh = g.units.filter(u => u.team === 0 && u.type === 'soldier').pop();
+    const x0 = fresh.x; for (let f = 0; f < 60; f++) Sim.step(g, [inp({})]);
+    assert.ok(fresh.x > x0 && g.units.includes(fresh), 'the new soldier marches toward the enemy');
+    house.troopTimer = 1; bunker.troopTimer = 1e9;
+    const n = mine(); for (let f = 0; f < 5; f++) Sim.step(g, [inp({})]);
+    assert.ok(mine() <= n, 'a plain house musters nobody');
+}
+console.log('bunker reinforcements ok');

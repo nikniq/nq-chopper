@@ -24,7 +24,8 @@
     const PICKUPS = { health: { amount: 35, color: '#f55' }, bombs: { amount: MAX_BOMBS, color: '#f90' }, credits: { amount: 60, color: '#8f8' } };
     const BOSS_EVERY = 3;
     const SOLO_SPARES = 2, SOLO_MAX_SPARES = 4; // solo: spare choppers, plus one per gunship wave cleared
-    const HUT_HP = [100, 240, 320]; // house, bunker, bunker with AA gun; a bomb does 60
+    const HUT_HP = [100, 240, 320];
+    const BUNKER_TROOPS = [0, 1200, 900]; // frames between free soldiers from a held bunker (level 1, level 2 with AA) // house, bunker, bunker with AA gun; a bomb does 60
     const AAM = { max: 4, dmg: 150, speed: 6.5, range: 700, cooldown: 30, life: 150 }; // air-to-air missiles
     const WOUND_FRAMES = 3600;
     const COAX = { range: 140, rate: 25, dmg: 6 };         // AI tank coaxial MG vs low/landed choppers in front
@@ -162,7 +163,7 @@
         p.invuln = 0; p.landed = true; p.fireCooldown = 0; p.tilt = 0; p.spin = 0; p.alive = true; p.respawn = 0;
     }
     function spawnHostageGroup(s, gx) {
-        s.huts.push({ x: gx, w: 54, h: 36, garrison: null, fireTimer: 0, warnTimer: 0, balloonTimer: 0, level: 0, hp: HUT_HP[0], ruined: false, aaTimer: 60 });
+        s.huts.push({ x: gx, w: 54, h: 36, garrison: null, fireTimer: 0, warnTimer: 0, balloonTimer: 0, level: 0, hp: HUT_HP[0], ruined: false, aaTimer: 60, troopTimer: BUNKER_TROOPS[1] });
         const count = 3 + Math.floor(rnd(s) * 2);
         for (let i = 0; i < count; i++) s.hostages.push({ x: gx + 60 + i * 14 + rand(s, -3, 3), state: 'waiting', dir: -1, anim: Math.floor(rnd(s) * 100), carrier: -1, blocked: 0, flee: false, vip: false, wounded: false, bleed: 0, bleeding: false });
     }
@@ -850,7 +851,7 @@
                     // Full house: extra soldiers fortify it (house, then bunker, then bunker with AA gun)
                     const top = u.ai ? (s.wave >= 6 ? 2 : s.wave >= 4 ? 1 : 0) : 2;
                     if (h.level >= top) return false; // nothing left to build: march on
-                    h.level++; h.hp = HUT_HP[h.level];
+                    h.level++; h.hp = HUT_HP[h.level]; h.troopTimer = BUNKER_TROOPS[h.level];
                     text(s, hutDoor(h), GROUND_Y - h.h - 30, h.level === 1 ? 'BUNKER BUILT' : 'AA GUN INSTALLED', u.ai ? '#f66' : '#8f8', true);
                     snd(s, 'deploy', hutDoor(h));
                 }
@@ -880,6 +881,19 @@
                     snd(s, 'enemyShoot', dr);
                     h.aaTimer = AA.fireRate;
                 } else h.aaTimer = 10;
+            }
+            // Held bunkers muster a free soldier now and then, who marches on toward the enemy
+            if (h.level >= 1 && !h.ruined && --h.troopTimer <= 0) {
+                h.troopTimer = BUNKER_TROOPS[Math.min(2, h.level)];
+                const ai = g.team === AI;
+                const room = ai ? s.units.filter(u => u.ai && u.type === 'soldier').length < 10 : fielded(s, g.team) < MAX_ALLIES;
+                if (room) {
+                    const dir = marchDir(s, g.team), sol = makeSoldier(s, g.team, hutDoor(h) + dir * 22 - UNITS.soldier.width / 2, dir);
+                    sol.ai = ai;
+                    s.units.push(sol);
+                    text(s, hutDoor(h), GROUND_Y - h.h - 30, ai ? 'ENEMY REINFORCEMENT' : 'REINFORCEMENT', ai ? '#f66' : '#8f8');
+                    snd(s, 'deploy', hutDoor(h), g.team);
+                }
             }
             if (h.fireTimer > 0) { h.fireTimer--; return; }
             const door = hutDoor(h);
@@ -1247,7 +1261,7 @@
         mix(s.hostages.length); mix(s.bullets.length); mix(s.shells.length); mix(s.pickups.length); mix(s.lives); mix(s.strikes.length); mix(s.aiCredits); mix(s.balloons.length);
         s.players.forEach(p => { mix(p.rally === null ? -1 : p.rally); mix(p.strikeCooldown); mix(p.troops); mix(p.boost); });
         mix(s.paras.length);
-        s.huts.forEach(h => { mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5); mix(h.hp); mix(h.level); mix(h.ruined ? 1 : 0); mix(h.aaTimer); });
+        s.huts.forEach(h => { mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5); mix(h.hp); mix(h.level); mix(h.ruined ? 1 : 0); mix(h.aaTimer); mix(h.troopTimer); });
         const STATUS = ['playing', 'dying', 'waveclear', 'over'], HSTATE = ['waiting', 'running', 'aboard', 'saved', 'dead'], TYPES = ['soldier', 'tank', 'aa'];
         mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.hostageTimer);
         const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0); mix(a.mode); mix(a.modeTimer);

@@ -633,3 +633,20 @@ console.log('forward LZ ok');
     assert.ok(mine() <= n, 'a plain house musters nobody');
 }
 console.log('bunker reinforcements ok');
+
+// Wave clear pays a bonus per bunker held
+{
+    const mk = held => {
+        const g = Sim.createGame({ mode: 'solo', seed: 41 });
+        g.huts.slice(0, held).forEach(h => { h.garrison = { team: 0, count: 3 }; h.level = 1; });
+        g.huts[held].garrison = { team: Sim.AI, count: 2 }; g.huts[held].level = 1; // enemy bunkers do not count
+        g.hostages.forEach(h => { h.state = 'saved'; });
+        Sim.step(g, [inp({})]);
+        return g;
+    };
+    const none = mk(0), two = mk(2);
+    assert.ok(none.status === 'waveclear' && none.waveBunkers === 0);
+    assert.strictEqual(two.waveBunkers, 2);
+    assert.strictEqual(two.waveBonus - none.waveBonus, 500, 'two bunkers pay 2 x 250');
+}
+console.log('bunker wave bonus ok');

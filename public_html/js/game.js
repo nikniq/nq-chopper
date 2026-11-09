@@ -1815,7 +1815,8 @@
         if (sim.mode !== 'versus') {
             const remaining = sim.hostages.filter(h => h.state === 'waiting' || h.state === 'running' || h.state === 'aboard').length;
             const rescued = sim.mode === 'coop' ? sim.players.reduce((a, q) => a + q.rescued, 0) : p.rescued;
-            ctx.fillText(`RESCUED ${rescued}   LOST ${sim.waveLost}   REMAINING ${remaining}${p.upgrades.flares ? '   FLARES ' + p.flares : ''}`, GAME_WIDTH / 2, 36 + rowShift, GAME_WIDTH - 340);
+            const bunkers = sim.huts.filter(h => !h.ruined && h.level >= 1 && h.garrison && h.garrison.team === p.team).length;
+            ctx.fillText(`RESCUED ${rescued}   LOST ${sim.waveLost}   REMAINING ${remaining}   BUNKERS ${bunkers}/${sim.huts.length}${p.upgrades.flares ? '   FLARES ' + p.flares : ''}`, GAME_WIDTH / 2, 36 + rowShift, GAME_WIDTH - 340);
         } else {
             // Base hull bars
             const mine = sim.bases[localId], theirs = sim.bases[1 - localId];
@@ -1913,7 +1914,7 @@
             overlay(Math.min(0.5, sim.statusTimer / 60));
             bigText('WAVE ' + sim.wave + ' CLEAR', 150, 40, '#ff0');
             bigText(`RESCUED ${sim.waveRescued}   LOST ${sim.waveLost}`, 195, 18, '#fff');
-            bigText('BONUS +' + sim.waveBonus + (sim.waveLost === 0 ? '  PERFECT!' : ''), 225, 18, sim.waveLost === 0 ? '#0f0' : '#ff0');
+            bigText('BONUS +' + sim.waveBonus + (sim.waveBunkers ? '  (' + sim.waveBunkers + ' BUNKER' + (sim.waveBunkers > 1 ? 'S' : '') + ' HELD)' : '') + (sim.waveLost === 0 ? '  PERFECT!' : ''), 225, 18, sim.waveLost === 0 ? '#0f0' : '#ff0');
             bigText('GET READY FOR WAVE ' + (sim.wave + 1) + ((sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '  ·  GUNSHIP WAVE' : ''), 280, 16, (sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '#f66' : '#ccc');
             bigText('THREAT RISES TO x' + Sim.threat({ wave: sim.wave + 1 }).toFixed(1) + ' · tougher armour, harder hits, richer enemy', 302, 12, '#fc6');
             bigText('NEXT TERRAIN: ' + BIOMES[sim.wave % BIOMES.length].name, 322, 13, '#9cf');

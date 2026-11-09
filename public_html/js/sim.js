@@ -25,6 +25,7 @@
     const BOSS_EVERY = 3;
     const SOLO_SPARES = 2, SOLO_MAX_SPARES = 4; // solo: spare choppers, plus one per gunship wave cleared
     const HUT_HP = [100, 240, 320];
+    const BUNKER_BONUS = 250; // wave-clear points per bunker held
     const BUNKER_TROOPS = [0, 1200, 900]; // frames between free soldiers from a held bunker (level 1, level 2 with AA) // house, bunker, bunker with AA gun; a bomb does 60
     const AAM = { max: 4, dmg: 150, speed: 6.5, range: 700, cooldown: 30, life: 150 }; // air-to-air missiles
     const WOUND_FRAMES = 3600;
@@ -124,7 +125,7 @@
         const s = {
             mode, seed: opts.seed | 0, rs: opts.seed | 0, frame: 0,
             status: 'playing', statusTimer: 0, winner: null, endReason: '',
-            wave: 0, waveRescued: 0, waveLost: 0, waveBonus: 0,
+            wave: 0, waveRescued: 0, waveLost: 0, waveBonus: 0, waveBunkers: 0,
             players: [], bases: [], hostages: [], huts: [], units: [], bullets: [], shells: [], bombs: [], pickups: [], strikes: [], paras: [],
             ai: { team: AI, x: 0, y: 120, width: 60, height: 24, vx: 0, vy: 0, dir: -1, speed: 2, shootCooldown: 0, maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0, patrolDir: -1, boss: false, burst: 0, mode: 0, modeTimer: 0, repaired: false, evadeDir: 1, lastEvade: -999 },
             tankSpawnTimer: 0, soldierSpawnTimer: 0, hostageTimer: 0, lives: 0, aiCredits: 0, aiSpent: 0, aiThink: 0, balloons: [], fx: []
@@ -1209,7 +1210,9 @@
     function checkWaveClear(s) {
         if (s.status !== 'playing' || s.hostages.length === 0) return;
         if (s.hostages.every(h => h.state === 'saved' || h.state === 'dead') && s.players.every(p => p.carrying === 0)) {
-            s.waveBonus = s.waveRescued * 50 * s.wave + (s.waveLost === 0 ? 500 : 0);
+            // Each bunker the squad holds at the end of the wave pays out too
+            s.waveBunkers = s.huts.filter(h => !h.ruined && h.level >= 1 && h.garrison && h.garrison.team !== AI).length;
+            s.waveBonus = s.waveRescued * 50 * s.wave + (s.waveLost === 0 ? 500 : 0) + s.waveBunkers * BUNKER_BONUS;
             s.players.forEach(p => { p.score += s.waveBonus; if (s.waveLost === 0) p.stats.perfectWaves++; earn(s, p, Math.round((100 + (s.waveLost === 0 ? 100 : 0)) * threat(s))); });
             if (s.mode === 'solo' && s.wave % BOSS_EVERY === 0 && s.lives < SOLO_MAX_SPARES) { s.lives++; s.players.forEach(p => text(s, cx(p), p.y - 50, '+1 CHOPPER', '#8f8')); }
             if (s.mode === 'coop') { s.lives++; s.players.forEach(p => text(s, cx(p), p.y - 50, '+1 LIFE', '#8f8')); }

@@ -1701,6 +1701,14 @@
         if (sb && sb.classList && sb.classList.toggle) sb.classList.toggle('pulse', shopPulse);
         if (tip) bigText(tip, 146, 16, '#ff8');
     }
+    // What first appears on each wave (mirrors the wave gates in sim.js)
+    const NEW_THREATS = {
+        2: 'ENEMY INFANTRY · VIP AND WOUNDED HOSTAGES',
+        3: 'ANTI-AIR GUNS · TANKS LEAD THEIR SHOTS',
+        4: 'HEAVY TANKS · ENEMY BUNKERS',
+        5: 'HOMING MISSILE LAUNCHERS - FLARES HELP',
+        6: 'ENEMY AA BUNKERS · BIGGER GARRISONS'
+    };
     let hudFade = 1;
     function drawHUD() {
         if (local()) drawMissileWarning(local());
@@ -1883,6 +1891,8 @@
             bigText('GET READY FOR WAVE ' + (sim.wave + 1) + ((sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '  ·  GUNSHIP WAVE' : ''), 280, 16, (sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '#f66' : '#ccc');
             bigText('THREAT RISES TO x' + Sim.threat({ wave: sim.wave + 1 }).toFixed(1) + ' · tougher armour, harder hits, richer enemy', 302, 12, '#fc6');
             bigText('NEXT TERRAIN: ' + BIOMES[sim.wave % BIOMES.length].name, 322, 13, '#9cf');
+            const fresh = NEW_THREATS[sim.wave + 1];
+            if (fresh) bigText('NEW: ' + fresh, 344, 14, '#f88');
             const medals = waveMedals();
             if (medals.length) bigText(medals.join('   '), 255, 15, '#ffd700');
         } else if (screen === 'gameover') {

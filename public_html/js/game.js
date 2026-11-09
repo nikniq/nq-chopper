@@ -284,6 +284,7 @@
             rifle() { tone('square', 1400, 500, 0.04, 0.03); },
             shell() { noise(0.1, 0.15, 1800); tone('square', 300, 120, 0.1, 0.05); },
             denied() { tone('sawtooth', 200, 150, 0.12, 0.06); },
+            lock() { tone('square', 1320, 1320, 0.05, 0.06); tone('square', 1320, 1320, 0.05, 0.06, 0.08); },
             wave() { [392, 523, 659, 784].forEach((f, i) => tone('square', f, f, 0.2, 0.08, i * 0.12)); },
             die() { noise(0.9, 0.5, 600); tone('sawtooth', 220, 20, 1.0, 0.25); },
             alarm() { tone('square', 880, 880, 0.08, 0.05); tone('square', 660, 660, 0.08, 0.05, 0.1); },
@@ -1597,6 +1598,27 @@
     }
     function comboText(p) { return p.combo > 1 ? 'COMBO x' + Math.min(3, 1 + (p.combo - 1) * 0.25) : ''; }
     function ownBaseOf(p) { return sim.bases.find(b => b.team === p.team) || (sim.mode === 'coop' ? sim.bases[0] : null); }
+    // Enemy homing missiles closing on this pilot (display only: reads sim state, never changes it)
+    function incomingMissiles(p) {
+        const px = cx(p), py = cy(p);
+        return sim.shells.filter(k => k.kind === 'missile' && k.team !== p.team && Math.hypot(k.x - px, k.y - py) < 650
+            && ((px - k.x) * (k.vx || 0) + (py - k.y) * (k.vy || 0) > 0 || Math.hypot(k.x - px, k.y - py) < 120));
+    }
+    function drawMissileWarning(p) {
+        if (!p.alive || screen !== 'playing') return;
+        const inbound = incomingMissiles(p);
+        if (!inbound.length) return;
+        if (frame % 24 === 0) Sound.lock();
+        const blink = frame % 20 < 12;
+        ctx.save(); ctx.textAlign = 'center'; ctx.font = 'bold 18px Arial'; ctx.lineWidth = 4; ctx.strokeStyle = '#000';
+        const y = isTouch ? 150 : 124;
+        const msg = (inbound.length > 1 ? inbound.length + ' MISSILES' : 'MISSILE') + ' INBOUND';
+        if (blink) { ctx.fillStyle = '#f80'; ctx.strokeText('⚠ ' + msg, GAME_WIDTH / 2, y); ctx.fillText('⚠ ' + msg, GAME_WIDTH / 2, y); }
+        ctx.font = hudFont(12);
+        const tip = p.flares > 0 ? 'FLARES READY: ' + p.flares + ' (AUTO)' : p.upgrades.flares ? 'FLARES RELOADING - BREAK HARD' : (isTouch ? 'BREAK HARD - FLARES IN SHOP' : 'BREAK HARD - [F] BUYS FLARES');
+        ctx.fillStyle = p.flares > 0 ? '#ff0' : '#fbb'; ctx.lineWidth = 3; ctx.strokeText(tip, GAME_WIDTH / 2, y + 18); ctx.fillText(tip, GAME_WIDTH / 2, y + 18);
+        ctx.restore();
+    }
     // Chevrons at the screen edge for things that matter but are off-screen: hostages, home, the enemy chopper
     function drawEdgeIndicators() {
         const p = local();
@@ -1614,6 +1636,7 @@
         if (home && !home.destroyed && (p.carrying > 0 || p.health / p.maxHealth < 0.3)) marks.push({ x: cx(home), y: GROUND_Y - 40, color: '#8f8', label: 'BASE' });
         const foe = sim.mode === 'versus' ? sim.players.find(o => o.id !== localId && o.alive) : (sim.ai.alive ? sim.ai : null);
         if (foe && Math.abs(cx(foe) - cx(p)) < GAME_WIDTH * 1.5) marks.push({ x: cx(foe), y: cy(foe), color: '#f55', label: sim.ai && foe === sim.ai && sim.ai.boss ? 'GUNSHIP' : '!', pulse: true });
+        incomingMissiles(p).forEach(k => marks.unshift({ x: k.x, y: k.y, color: '#f80', label: 'MISSILE', pulse: true }));
         const used = { l: 0, r: 0 };
         ctx.save();
         marks.forEach(m => {
@@ -1679,6 +1702,7 @@
         if (tip) bigText(tip, 146, 16, '#ff8');
     }
     function drawHUD() {
+        if (local()) drawMissileWarning(local());
         const p = local();
         ctx.save();
         ctx.font = 'bold 13px Arial';
@@ -2162,6 +2186,7 @@
             const wm = /wave=(\d+)/.exec(hash); // screenshot helper: jump straight to a given wave
             if (wm && mode === 'solo') { sim.wave = Math.max(0, parseInt(wm[1], 10) - 1); sim.status = 'waveclear'; sim.statusTimer = 179; }
             if (hash.indexOf('shop') > 0 && shopEl && shopEl.classList) { shopEl.classList.add('open'); shopWave = sim.wave; }
+            if (hash.indexOf('missile') > 0) { const q = sim.players[0]; q.x = 900; q.y = 200; q.landed = false; [[q.x + 260, GROUND_Y - 40], [q.x + 1100, GROUND_Y - 60]].forEach(([x, y]) => sim.shells.push({ team: AI, x, y, vx: -2, vy: -2, width: 9, height: 9, dmg: 1, life: 99999, kind: 'missile' })); }
             if (hash.indexOf('forts') > 0) { sim.players[0].x = sim.huts[0].x - 200; const hs = sim.huts; if (hs[0]) { hs[0].ruined = true; hs[0].x = cameraX + 500; } if (hs[1]) { hs[1].x = hs[0].x + 150; hs[1].garrison = { team: 0, count: 3 }; hs[1].level = 1; hs[1].hp = 240; } if (hs[2]) { hs[2].x = hs[0].x + 300; hs[2].garrison = { team: AI, count: 2 }; hs[2].level = 2; hs[2].hp = 100; } }
             if (hash.indexOf('gameover') > 0) setTimeout(() => { const q = sim.players[0]; Object.assign(q.stats, { tanks: 7, aa: 1, soldiers: 4, helis: 2, bosses: 1, fullLoads: 3, perfectWaves: 1, maxCombo: 4, unitsBought: 5, troopsDropped: 2, strikes: 1, dmgTaken: 260 }); q.score = 18450; q.rescued = 23; sim.status = 'over'; }, 800);
             if (hash.indexOf('#autostart-demo') === 0) { // screenshot/demo helper: show troops near base

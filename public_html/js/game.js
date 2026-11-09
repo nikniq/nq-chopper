@@ -1701,6 +1701,7 @@
         if (sb && sb.classList && sb.classList.toggle) sb.classList.toggle('pulse', shopPulse);
         if (tip) bigText(tip, 146, 16, '#ff8');
     }
+    let hudFade = 1;
     function drawHUD() {
         if (local()) drawMissileWarning(local());
         const p = local();
@@ -1771,7 +1772,11 @@
         sim.players.forEach(o => { if (o.alive && o.id !== localId) { ctx.fillStyle = sim.mode === 'coop' ? '#9cf' : '#f0f'; ctx.fillRect(mx(o.x), ry + 2, 4, 4); } });
         ctx.fillStyle = '#0f0'; ctx.fillRect(mx(p.x), ry + 2, 4, rh - 4);
         ctx.strokeStyle = '#fff6'; ctx.lineWidth = 1; ctx.strokeRect(mx(cameraX), ry, (GAME_WIDTH / WORLD_WIDTH) * rw, rh);
-        // Centre lines
+        // Centre lines: fade them while a chopper flies underneath so they never hide it
+        const under = sim.players.concat(sim.mode !== 'versus' && sim.ai.alive ? [sim.ai] : [])
+            .some(c => c.alive !== false && c.y < 100 + rowShift && cx(c) - cameraX > 160 && cx(c) - cameraX < GAME_WIDTH - 160);
+        hudFade += ((under ? 0.25 : 1) - hudFade) * 0.2;
+        ctx.save(); ctx.globalAlpha = hudFade;
         ctx.fillStyle = '#fff'; ctx.font = hudFont(11); ctx.textAlign = 'center';
         if (sim.mode !== 'versus') {
             const remaining = sim.hostages.filter(h => h.state === 'waiting' || h.state === 'running' || h.state === 'aboard').length;
@@ -1801,8 +1806,10 @@
             const hint = lm && lm.width > avail ? `[1-4, 8-0] BUY  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] TROOPS ${p.troops}` : long;
             ctx.fillText(hint, GAME_WIDTH / 2, 52, avail);
         }
-        ctx.fillStyle = p.aam ? '#9cf' : '#f66'; ctx.fillText('AIR MISSILES ' + p.aam + '/' + Sim.AAM.max, GAME_WIDTH / 2, 80 + rowShift);
+        // Air missiles only need a line once some are spent
+        if (p.aam < Sim.AAM.max) { ctx.fillStyle = p.aam ? '#9cf' : '#f66'; ctx.fillText('AIR MISSILES ' + p.aam + '/' + Sim.AAM.max, GAME_WIDTH / 2, 80 + rowShift); }
         if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 66 + rowShift); }
+        ctx.restore();
         if (comboText(p)) { ctx.fillStyle = '#ff0'; ctx.font = 'bold 16px Arial'; ctx.fillText(comboText(p), GAME_WIDTH / 2, 100); }
         if (screen === 'playing' && p.alive && pct < 0.3 && Math.floor(frame / 15) % 2 === 0) {
             const home = ownBaseOf(p), dx = home ? cx(home) - cx(p) : 0;

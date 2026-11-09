@@ -858,7 +858,7 @@
         if (!p || screen === 'title' || screen === 'lobby') {
             scoreDiv.textContent = mode === 'solo' ? (daily ? `Daily Challenge ${daily.day} | Best: ${highScore}` : `Best: ${highScore}`) : `Online match ${match.code}`;
         } else if (mode === 'solo') {
-            scoreDiv.textContent = `Wave ${sim.wave} | Score: ${p.score} | Credits: $${p.credits} | Rescued: ${p.rescued} | Lost: ${p.lost} | Best: ${highScore}`;
+            scoreDiv.textContent = `Wave ${sim.wave} | Spares: ${sim.lives} | Score: ${p.score} | Credits: $${p.credits} | Rescued: ${p.rescued} | Lost: ${p.lost} | Best: ${highScore}`;
         } else if (sim.mode === 'coop') {
             const o = sim.players[1 - localId];
             scoreDiv.textContent = `Co-op Wave ${sim.wave} | Lives ${sim.lives} | ${p.name} ${p.score} + ${o.name} ${o.score} | Credits: $${p.credits}`;
@@ -1717,7 +1717,7 @@
         ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
         ctx.fillText(String(p.score).padStart(6, '0'), GAME_WIDTH - 14, 26);
         ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#ccc';
-        if (sim.mode === 'solo') { ctx.fillText('BEST ' + highScore, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + ' · ' + biome().name, GAME_WIDTH - 14, 62); }
+        if (sim.mode === 'solo') { ctx.fillText('BEST ' + highScore, GAME_WIDTH - 14, 44); ctx.textAlign = 'left'; ctx.fillStyle = sim.lives ? '#8f8' : '#f88'; ctx.fillText('🚁 x' + sim.lives, GAME_WIDTH - 150, 26); ctx.textAlign = 'right'; ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + ' · ' + biome().name, GAME_WIDTH - 14, 62); }
         else if (sim.mode === 'coop') { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('WAVE ' + sim.wave + ' · ' + biome().name + '  LIVES ' + sim.lives, GAME_WIDTH - 14, 62); }
         else { const o = sim.players[1 - localId]; ctx.fillText(o.name.toUpperCase().slice(0, 10) + ' ' + o.score, GAME_WIDTH - 14, 44); ctx.fillStyle = '#ff0'; ctx.fillText('DOWNED ' + p.deaths + ' / ' + o.deaths, GAME_WIDTH - 14, 62); }
         ctx.fillStyle = '#8f8'; ctx.font = 'bold 18px Arial'; ctx.fillText('$' + p.credits, GAME_WIDTH - 14, 84);
@@ -1785,7 +1785,7 @@
             const dir = Math.abs(dx) < GAME_WIDTH / 2 ? '' : (dx < 0 ? ' ◄ ' : ' ► ') + (Math.abs(dx) / GAME_WIDTH).toFixed(1) + 'x';
             ctx.fillStyle = '#f44'; ctx.font = 'bold 14px Arial'; ctx.fillText('HULL CRITICAL - RETURN TO BASE' + dir, GAME_WIDTH / 2, isTouch ? 120 : GAME_HEIGHT - 14);
         }
-        if (sim.mode !== 'solo' && !p.alive && screen === 'playing') {
+        if (!p.alive && screen === 'playing' && (sim.mode !== 'solo' || p.canRespawn)) {
             ctx.fillStyle = '#f88'; ctx.font = 'bold 16px Arial';
             ctx.fillText(p.canRespawn === false ? 'NO LIVES LEFT - YOUR PARTNER FIGHTS ON' : 'SHOT DOWN - REDEPLOYING IN ' + Math.max(0, Math.ceil((301 - p.respawn) / 60)), GAME_WIDTH / 2, 130);
         }

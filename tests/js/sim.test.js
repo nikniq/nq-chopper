@@ -321,6 +321,7 @@ const calm = g => { g.units = g.units.filter(u => !u.ai); g.shells = []; g.ai.al
 // Dying with the last hostages aboard is a death, not a wave clear (solo resurrect / co-op soft-lock)
 {
     const g = Sim.createGame({ mode: 'solo', seed: 101 });
+    g.lives = 0; // no spare choppers left
     for (let f = 0; f < 30; f++) Sim.step(g, [inp({})]);
     const p = g.players[0]; calm(g);
     g.hostages.forEach((h, i) => { if (i < 2) { h.state = 'aboard'; h.carrier = 0; } else h.state = 'saved'; });
@@ -556,3 +557,37 @@ const calm = g => { g.units = g.units.filter(u => !u.ai); g.shells = []; g.ai.al
     assert.ok(q.health < hp, 'the AA gun hits an enemy chopper');
 }
 console.log('all sim tests passed');
+
+// Solo spare choppers: two spares, redeploy at base, the last crash ends the run, gunship waves award one
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 11 });
+    const pl = g.players[0];
+    assert.strictEqual(g.lives, 2, 'solo starts with two spare choppers');
+    const kill = () => { calm(g); pl.x = 1500; pl.y = 150; pl.landed = false; pl.health = 5; pl.invuln = 0; g.shells.push({ team: Sim.AI, x: pl.x + pl.width / 2, y: pl.y + pl.height / 2, vx: 0, vy: 0, width: 7, height: 7, dmg: 999, life: 5, kind: 'heli' }); Sim.step(g, [inp({})]); };
+    kill();
+    assert.ok(!pl.alive && g.status === 'playing' && g.lives === 1, 'first crash spends a spare: ' + g.status + ' ' + g.lives);
+    for (let f = 0; f < 400 && !pl.alive; f++) Sim.step(g, [inp({})]);
+    assert.ok(pl.alive && pl.health === pl.maxHealth && pl.landed, 'redeployed at base with a full hull');
+    kill(); for (let f = 0; f < 400 && !pl.alive; f++) Sim.step(g, [inp({})]);
+    assert.ok(pl.alive && g.lives === 0, 'second spare used');
+    kill(); for (let f = 0; f < 200 && g.status !== 'over'; f++) Sim.step(g, [inp({})]);
+    assert.strictEqual(g.status, 'over', 'crash with no spares ends the run');
+
+    const b = Sim.createGame({ mode: 'solo', seed: 12 });
+    b.wave = 3; b.hostages.forEach(h => { h.state = 'saved'; });
+    Sim.step(b, [inp({})]);
+    assert.ok(b.status === 'waveclear' && b.lives === 3, 'clearing a gunship wave adds a spare: ' + b.lives);
+
+    // Shot down carrying the last hostages with a spare left: the wave ends and the pilot redeploys next wave
+    const w = Sim.createGame({ mode: 'solo', seed: 101 });
+    for (let f = 0; f < 30; f++) Sim.step(w, [inp({})]);
+    const wp = w.players[0]; calm(w);
+    w.hostages.forEach((h, i) => { if (i < 2) { h.state = 'aboard'; h.carrier = 0; } else h.state = 'saved'; });
+    wp.carrying = 2; wp.x = 1500; wp.y = 150; wp.landed = false; wp.health = 5; wp.invuln = 0;
+    w.shells.push({ team: Sim.AI, x: wp.x + wp.width / 2, y: wp.y + wp.height / 2, vx: 0, vy: 0, width: 7, height: 7, dmg: 999, life: 5, kind: 'heli' });
+    Sim.step(w, [inp({})]);
+    assert.ok(!wp.alive && w.lives === 1, 'spare spent');
+    for (let f = 0; f < 900 && !(w.wave === 2 && wp.alive); f++) Sim.step(w, [inp({})]);
+    assert.ok(w.wave === 2 && wp.alive && w.status === 'playing', 'redeployed in the next wave: wave ' + w.wave + ' alive ' + wp.alive);
+}
+console.log('solo spare choppers ok');

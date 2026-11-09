@@ -45,6 +45,7 @@ solo.key('ArrowUp'); solo.key('ArrowRight'); solo.frames(120); solo.key('ArrowUp
 assert.ok(solo.nq.sim.players[0].x > 200, 'chopper flies');
 solo.key('KeyP'); assert.strictEqual(solo.nq.screen, 'paused'); solo.key('KeyP'); assert.strictEqual(solo.nq.screen, 'playing');
 // Crash it: zero hull then take a hit from a hard landing
+solo.nq.sim.lives = 0; // last chopper
 const p = solo.nq.sim.players[0]; p.health = 5; p.invuln = 0; p.y = 100; p.vy = 5; p.landed = false;
 solo.key('ArrowDown'); solo.frames(400); solo.key('ArrowDown', true);
 assert.strictEqual(solo.nq.screen, 'gameover', 'solo reaches game over: ' + solo.nq.screen);

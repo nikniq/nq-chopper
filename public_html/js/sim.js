@@ -23,6 +23,7 @@
     const GARRISON_RANGE = 170;
     const PICKUPS = { health: { amount: 35, color: '#f55' }, bombs: { amount: MAX_BOMBS, color: '#f90' }, credits: { amount: 60, color: '#8f8' } };
     const BOSS_EVERY = 3;
+    const SOLO_SPARES = 2, SOLO_MAX_SPARES = 4; // solo: spare choppers, plus one per gunship wave cleared
     const HUT_HP = [100, 240, 320]; // house, bunker, bunker with AA gun; a bomb does 60
     const AAM = { max: 4, dmg: 150, speed: 6.5, range: 700, cooldown: 30, life: 150 }; // air-to-air missiles
     const WOUND_FRAMES = 3600;
@@ -146,6 +147,7 @@
         } else {
             s.bases.push(makeBase(AI, -1));
             s.players[0].credits = 100;
+            s.lives = SOLO_SPARES;
             setupWave(s, 1);
         }
         return s;
@@ -455,7 +457,10 @@
         s.hostages.forEach(h => { if (h.state === 'aboard' && h.carrier === p.id) { h.state = 'dead'; p.lost++; s.waveLost++; } });
         p.carrying = 0;
         if (p.troops > 0) { text(s, cx(p), p.y - 70, p.troops + ' TROOPS LOST', '#f88'); p.troops = 0; }
-        if (s.mode === 'solo') { s.status = 'dying'; s.statusTimer = 0; return; }
+        if (s.mode === 'solo') {
+            if (s.lives > 0) { s.lives--; p.canRespawn = true; text(s, cx(p), p.y - 56, s.lives === 0 ? 'LAST CHOPPER' : s.lives + (s.lives === 1 ? ' SPARE CHOPPER' : ' SPARE CHOPPERS'), '#fc6'); return; }
+            p.canRespawn = false; s.status = 'dying'; s.statusTimer = 0; return;
+        }
         if (s.status === 'playing') text(s, cx(p), p.y - 40, p.name + ' DOWN', '#f66', true);
         if (s.mode === 'coop') {
             if (s.lives > 0) { s.lives--; p.canRespawn = true; text(s, cx(p), p.y - 56, s.lives + (s.lives === 1 ? ' LIFE LEFT' : ' LIVES LEFT'), '#fc6'); }
@@ -472,14 +477,14 @@
             p.y = GROUND_Y - p.height; p.vy = 0; p.vx = 0;
             if (p.respawn <= 120) { explosion(s, cx(p), cy(p), true); p.respawn = 121; }
         }
-        if (s.mode !== 'solo' && p.canRespawn && p.respawn >= 121 + 180) {
+        if (p.canRespawn && p.respawn >= 121 + 180) {
             resetPlayer(s, p);
             p.invuln = 90; p.canRespawn = false;
             text(s, cx(p), p.y - 30, 'REDEPLOYED', '#8f8');
         }
     }
     function updatePlayer(s, p, inp) {
-        if (!p.alive) { if (s.mode !== 'solo') updateDyingPlayer(s, p); return; }
+        if (!p.alive) { if (s.mode !== 'solo' || p.canRespawn) updateDyingPlayer(s, p); return; }
         // Jet booster: hold to sprint across the map while the meter lasts; it recharges after a pause
         const wantBoost = !!inp.bo && (inp.l || inp.r) && p.boost > 0 && !p.landed;
         if (wantBoost) { p.boost = Math.max(0, p.boost - BOOST.drain); p.boostIdle = 0; }
@@ -1186,6 +1191,7 @@
         if (s.hostages.every(h => h.state === 'saved' || h.state === 'dead') && s.players.every(p => p.carrying === 0)) {
             s.waveBonus = s.waveRescued * 50 * s.wave + (s.waveLost === 0 ? 500 : 0);
             s.players.forEach(p => { p.score += s.waveBonus; if (s.waveLost === 0) p.stats.perfectWaves++; earn(s, p, Math.round((100 + (s.waveLost === 0 ? 100 : 0)) * threat(s))); });
+            if (s.mode === 'solo' && s.wave % BOSS_EVERY === 0 && s.lives < SOLO_MAX_SPARES) { s.lives++; s.players.forEach(p => text(s, cx(p), p.y - 50, '+1 CHOPPER', '#8f8')); }
             if (s.mode === 'coop') { s.lives++; s.players.forEach(p => text(s, cx(p), p.y - 50, '+1 LIFE', '#8f8')); }
             s.status = 'waveclear'; s.statusTimer = 0;
             snd(s, 'dropoff');

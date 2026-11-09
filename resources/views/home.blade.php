@@ -25,7 +25,7 @@
     <div class="feature"><h3>Rescue</h3><p>Land near the huts and hostages run aboard. Four seats, then back to base.</p></div>
     <div class="feature"><h3>Fight</h3><p>Guns for the enemy chopper, bombs for the tanks. Base repairs and rearms you.</p></div>
     <div class="feature"><h3>Command</h3><p>Buy soldiers and tanks with credits. They march across the field and destroy the enemy base.</p></div>
-    <div class="feature"><h3>Survive</h3><p>Every third wave brings a gunship. Destroyed enemies drop hull, bombs and credits.</p></div>
+    <div class="feature"><h3>Survive</h3><p>Every third wave brings a gunship. Destroyed enemies drop hull, bombs and credits. You fly with two spare choppers and earn another for each gunship wave cleared.</p></div>
     <div class="feature"><h3>Duel</h3><p>Challenge a friend to 1v1 online. Same map, two bases, armies marching at each other.</p></div>
 </section>
 
@@ -79,6 +79,7 @@
     <ul>
         <li><kbd>Arrows</kbd> / <kbd>WASD</kbd> fly &middot; <kbd>Space</kbd> shoot &middot; <kbd>B</kbd> bomb &middot; hold <kbd>G</kbd> for the jet booster (meter recharges after a pause) &middot; <kbd>V</kbd> fires a homing air-to-air missile (four carried, rearm at base)</li>
         <li>Every wave raises the threat level: tougher armour, harder-hitting shells, a richer enemy war chest and a gunship every third wave.</li>
+        <li>Solo runs start with two spare choppers. Crash and you redeploy at base (anyone aboard is lost); clearing a gunship wave earns another spare, up to four.</li>
         <li><kbd>1</kbd> buy a soldier ($50) &middot; <kbd>2</kbd> buy a tank ($200) &middot; <kbd>3</kbd> upgrade guns &middot; <kbd>4</kbd> upgrade armour</li>
         <li>From wave 2, a starred VIP pays a big bonus, and wounded hostages (red cross) move slowly and only last 60 seconds once you land nearby.</li>
         <li>Chain kills quickly for a combo multiplier of up to 3&times; points.</li>

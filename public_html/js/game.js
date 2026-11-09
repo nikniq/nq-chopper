@@ -269,7 +269,32 @@
             if (!route(a, g, t + dur)) return;
             src.start(t, Math.random() * Math.max(0, 1 - dur), dur);
         }
+        // Continuous rotor: looping noise, low-passed, chopped by an LFO. Level/rate follow the flight.
+        let rotor = null;
+        function rotorUpdate(level, rate) {
+            const a = ac; if (!a || a.state !== 'running') return;
+            if (!rotor) {
+                if (level <= 0) return;
+                try {
+                    if (!noiseBuf) { noiseBuf = a.createBuffer(1, a.sampleRate, a.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+                    const src = a.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+                    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320; lp.Q.value = 2;
+                    const vca = a.createGain(); vca.gain.value = 0.5;
+                    const lfo = a.createOscillator(); lfo.type = 'triangle'; lfo.frequency.value = 12;
+                    const depth = a.createGain(); depth.gain.value = 0.5; lfo.connect(depth).connect(vca.gain);
+                    const lvl = a.createGain(); lvl.gain.value = 0;
+                    src.connect(lp).connect(vca).connect(lvl).connect(out(a));
+                    src.start(); lfo.start();
+                    rotor = { lfo, lvl, lp };
+                } catch (e) { rotor = null; return; }
+            }
+            const t = a.currentTime, v = muted ? 0 : level;
+            rotor.lvl.gain.setTargetAtTime(v, t, 0.15);
+            rotor.lfo.frequency.setTargetAtTime(rate, t, 0.2);
+            rotor.lp.frequency.setTargetAtTime(260 + rate * 10, t, 0.2);
+        }
         return {
+            rotor: rotorUpdate,
             unlock,
             resumeQuiet() { if (ac && ac.state !== 'running' && ac.state !== 'closed') { try { const r = ac.resume(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* ignore */ } } },
             shoot() { tone('square', 900, 250, 0.07, 0.06); },
@@ -2173,7 +2198,15 @@
     const STEP = 1000 / 60;
     let last = performance.now(), acc = 0, slowFrames = 0;
     let lowDetail = reducedMotion;
+    function updateRotorSound() {
+        const p = sim && local();
+        const flying = p && p.alive && screen === 'playing' && document.visibilityState !== 'hidden';
+        if (!flying) { Sound.rotor(0, 10); return; }
+        const speed = Math.abs(p.vx || 0);
+        Sound.rotor(p.landed ? 0.06 : 0.16 + (p.boosting ? 0.06 : 0), (p.landed ? 9 : 13) + speed * 0.9 + ((p.vy || 0) < -0.5 ? 2 : 0) + (p.boosting ? 5 : 0));
+    }
     function loop(now) {
+        try { updateRotorSound(); } catch (e) { /* audio is optional */ }
         const dt = Math.min(now - last, 100);
         acc += dt;
         last = now;

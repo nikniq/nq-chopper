@@ -483,6 +483,21 @@
             text(s, cx(p), p.y - 30, 'REDEPLOYED', '#8f8');
         }
     }
+    function unloadHostages(s, p) {
+        const n = p.carrying;
+        s.hostages.forEach(h => {
+            if (h.state !== 'aboard' || h.carrier !== p.id) return;
+            h.state = 'saved';
+            if (h.vip) { p.score += 1000; earn(s, p, 150); text(s, cx(p), p.y - 64, 'VIP RESCUED +1000 +$150', '#ffd700', true); }
+            if (h.wounded && h.bleed > WOUND_FRAMES / 2) { p.score += 150; text(s, cx(p), p.y - 80, 'SAVED IN TIME +150', '#8f8'); }
+        });
+        p.rescued += n; s.waveRescued += n;
+        let pts = n * 100; if (n === MAX_CARRY) { pts += 200; p.stats.fullLoads++; }
+        p.score += pts; p.carrying = 0;
+        text(s, cx(p), p.y - 24, '+' + pts + (n === MAX_CARRY ? ' FULL LOAD' : ''), '#ff0', true);
+        earn(s, p, n * Math.round(40 * threat(s)), cx(p), p.y - 44);
+        snd(s, 'dropoff', cx(p), p.team);
+    }
     function updatePlayer(s, p, inp) {
         if (!p.alive) { if (s.mode !== 'solo' || p.canRespawn) updateDyingPlayer(s, p); return; }
         // Jet booster: hold to sprint across the map while the meter lasts; it recharges after a pause
@@ -525,24 +540,15 @@
             else if (inp.buy === 'aam') fireAam(s, p);
         }
         if (p.health < p.maxHealth * 0.4 && s.frame % 5 === 0) parts(s, cx(p) + rand(s, -6, 6), p.y + 6, 1, { speed: 0.3, colors: ['#444'], size: 5, life: 40, up: 0.8 });
+        // Forward landing zone: a bunker your troops hold takes hostages off your hands (no repair or rearm)
+        if (p.landed && p.carrying > 0) {
+            const lz = s.huts.find(h => !h.ruined && h.level >= 1 && h.garrison && !hostile(s, h.garrison.team, p.team) && Math.abs(cx(p) - hutDoor(h)) < 70);
+            if (lz) { unloadHostages(s, p); text(s, cx(p), p.y - 100, 'FORWARD LZ', '#9cf'); }
+        }
         // At own base: unload, repair, rearm
         const b = ownBase(s, p.team);
         if (p.landed && overlap(p, b)) {
-            if (p.carrying > 0) {
-                const n = p.carrying;
-                s.hostages.forEach(h => {
-                    if (h.state !== 'aboard' || h.carrier !== p.id) return;
-                    h.state = 'saved';
-                    if (h.vip) { p.score += 1000; earn(s, p, 150); text(s, cx(p), p.y - 64, 'VIP RESCUED +1000 +$150', '#ffd700', true); }
-                    if (h.wounded && h.bleed > WOUND_FRAMES / 2) { p.score += 150; text(s, cx(p), p.y - 80, 'SAVED IN TIME +150', '#8f8'); }
-                });
-                p.rescued += n; s.waveRescued += n;
-                let pts = n * 100; if (n === MAX_CARRY) { pts += 200; p.stats.fullLoads++; }
-                p.score += pts; p.carrying = 0;
-                text(s, cx(p), p.y - 24, '+' + pts + (n === MAX_CARRY ? ' FULL LOAD' : ''), '#ff0', true);
-                earn(s, p, n * Math.round(40 * threat(s)), cx(p), p.y - 44);
-                snd(s, 'dropoff', cx(p), p.team);
-            }
+            if (p.carrying > 0) unloadHostages(s, p);
             if (p.health < p.maxHealth && s.frame % 6 === 0) { p.health++; if (s.frame % 30 === 0) snd(s, 'heal', cx(p), p.team); }
             if (p.bombs < p.maxBombs && s.frame % 20 === 0) p.bombs++;
             if (p.aam < AAM.max && s.frame % 60 === 0) p.aam++;

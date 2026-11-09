@@ -1204,7 +1204,8 @@
                 }
                 ctx.strokeStyle = '#333'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(h.x + 16, GROUND_Y - h.h + 15); ctx.lineTo(h.x + 24, GROUND_Y - h.h + 13); ctx.stroke();
                 ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center';
-                ctx.fillText(h.garrison.count + ' HELD', door, GROUND_Y - h.h - 44); ctx.textAlign = 'left';
+                const lz = h.level >= 1 && local() && h.garrison.team === local().team;
+                ctx.fillText(h.garrison.count + ' HELD' + (lz ? ' · LZ' : ''), door, GROUND_Y - h.h - 44); ctx.textAlign = 'left';
             }
         });
     }

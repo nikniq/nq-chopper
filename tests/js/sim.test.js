@@ -591,3 +591,23 @@ console.log('all sim tests passed');
     assert.ok(w.wave === 2 && wp.alive && w.status === 'playing', 'redeployed in the next wave: wave ' + w.wave + ' alive ' + wp.alive);
 }
 console.log('solo spare choppers ok');
+
+// Forward LZ: landing beside a bunker your troops hold unloads hostages; a plain house or enemy bunker does not
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 21 });
+    for (let f = 0; f < 5; f++) Sim.step(g, [inp({})]);
+    const pl = g.players[0], h = g.huts[0];
+    calm(g); g.hostages.forEach(x => { x.state = 'saved'; });
+    const hs = g.hostages.slice(0, 2);
+    const tryAt = (level, team) => {
+        h.level = level; h.ruined = false; h.garrison = { team, count: 3 };
+        hs.forEach(x => { x.state = 'aboard'; x.carrier = 0; });
+        pl.carrying = 2; pl.x = h.x + h.w / 2 - pl.width / 2; pl.y = Sim.GROUND_Y - pl.height; pl.vy = 0; pl.landed = true; pl.invuln = 1e9;
+        const before = pl.rescued; Sim.step(g, [inp({})]); return pl.rescued - before;
+    };
+    assert.strictEqual(tryAt(0, 0), 0, 'a plain held house is not an LZ');
+    assert.strictEqual(tryAt(1, Sim.AI), 0, 'an enemy bunker is not an LZ');
+    assert.strictEqual(tryAt(1, 0), 2, 'your bunker is a forward LZ');
+    assert.strictEqual(pl.carrying, 0);
+}
+console.log('forward LZ ok');

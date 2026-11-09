@@ -1,10 +1,6 @@
-# Run this site on PHP 8.3 (Laravel 13 and the Composer dependencies need >= 8.3).
-# cPanel / EasyApache handler. If your host uses a different name, swap this line for
-# the one its PHP selector writes, e.g. "AddHandler application/x-httpd-php83 .php"
-# (CloudLinux / LiteSpeed / Hostinger) or "AddHandler application/x-lsphp83 .php".
-<IfModule mime_module>
-    AddHandler application/x-httpd-ea-php83 .php .php8 .phtml
-</IfModule>
+# PHP version for this site, as the host's PHP selector writes it (Laravel 13 needs PHP >= 8.3).
+# Keep this line: without it the site falls back to the server's older default PHP.
+AddHandler application/x-httpd-php84 .php .php5 .php4 .php3
 
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>

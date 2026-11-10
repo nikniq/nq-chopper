@@ -18,6 +18,15 @@
 
     const WORLD_WIDTH = 3600, GROUND_Y = 380, MAX_CARRY = 4, MAX_BOMBS = 5, GRAVITY = 0.25;
     const MAX_ALLIES = 12;
+    // Command phase: from this wave the fight turns into a ground war. Smashing the enemy base wins the
+    // wave, armies grow, there are fewer hostages, and bunkers matter more.
+    const COMMAND_WAVE = 7;
+    const commandPhase = s => s.mode !== 'versus' && s.wave >= COMMAND_WAVE;
+    const allyCap = s => MAX_ALLIES + (commandPhase(s) ? Math.min(12, (s.wave - COMMAND_WAVE + 1) * 3) : 0);
+    // Veteran troops: in the command phase your units scale with the threat so a ground war is winnable
+    const veteran = s => commandPhase(s) ? Math.sqrt(threat(s)) * 1.2 : 1;
+    const AI_COMMAND_INCOME = 0.4; // the enemy war chest grows slower once it is a ground war
+    const TERRITORY = { every: 600, pay: [0, 10, 15] }; // held bunkers pay their owner every 10 s
     const GARRISON_CAP = { player: 3, ai: 2 };
     const aiGarrisonCap = s => s.wave >= 6 ? 3 : GARRISON_CAP.ai;
     const GARRISON_RANGE = 170;
@@ -105,9 +114,9 @@
         // From wave 4 a growing share of enemy armour is heavy: tougher, harder-hitting, slower
         const heavy = team === AI && s.wave >= 4 && rnd(s) < Math.min(0.5, (s.wave - 3) * 0.12);
         if (heavy) vx = vx * 0.7;
-        const hp = team === AI ? Math.round((30 + s.wave * 6) * threat(s) * (heavy ? 2.5 : 1)) : def.health;
+        const hp = team === AI ? Math.round((30 + s.wave * 6) * threat(s) * (heavy ? 2.5 : 1)) : Math.round(def.health * veteran(s));
         return { team, type: 'tank', x, y: GROUND_Y - def.height, width: def.width, height: def.height, vx: vx || 0, dir: vx ? sign(vx) : 1,
-            speed: def.speed, health: hp, maxHealth: hp, range: def.range, fireTimer: rand(s, 60, 160), angle: -Math.PI / 2, anim: 0, moving: true, ai: team === AI, coaxTimer: COAX.rate, heavy };
+            speed: def.speed, health: hp, maxHealth: hp, range: def.range, fireTimer: rand(s, 60, 160), angle: -Math.PI / 2, anim: 0, moving: true, ai: team === AI, coaxTimer: COAX.rate, heavy, vet: team === AI ? 1 : veteran(s) };
     }
     function makeAA(s, x) {
         return { team: AI, type: 'aa', x, y: GROUND_Y - AA.height, width: AA.width, height: AA.height, vx: 0, dir: -1, speed: 0,
@@ -115,8 +124,9 @@
     }
     function makeSoldier(s, team, x, dir) {
         const def = UNITS.soldier;
-        return { team, type: 'soldier', x, y: GROUND_Y - def.height, width: def.width, height: def.height, vx: 0, dir,
-            speed: def.speed * rand(s, 0.9, 1.1), health: def.health, maxHealth: def.health, range: def.range, fireTimer: rand(s, 10, def.fireRate), angle: 0, anim: 0, moving: true, ai: false };
+        const hp = team === AI ? def.health : Math.round(def.health * veteran(s));
+        return { team, type: 'soldier', x, y: GROUND_Y - def.height, width: def.width, height: def.height, vx: 0, dir, vet: team === AI ? 1 : veteran(s),
+            speed: def.speed * rand(s, 0.9, 1.1), health: hp, maxHealth: hp, range: def.range, fireTimer: rand(s, 10, def.fireRate), angle: 0, anim: 0, moving: true, ai: false };
     }
 
     function createGame(opts) {
@@ -125,7 +135,7 @@
         const s = {
             mode, seed: opts.seed | 0, rs: opts.seed | 0, frame: 0,
             status: 'playing', statusTimer: 0, winner: null, endReason: '',
-            wave: 0, waveRescued: 0, waveLost: 0, waveBonus: 0, waveBunkers: 0,
+            wave: 0, waveRescued: 0, waveLost: 0, waveBonus: 0, waveBunkers: 0, waveAssault: false,
             players: [], bases: [], hostages: [], huts: [], units: [], bullets: [], shells: [], bombs: [], pickups: [], strikes: [], paras: [],
             ai: { team: AI, x: 0, y: 120, width: 60, height: 24, vx: 0, vy: 0, dir: -1, speed: 2, shootCooldown: 0, maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0, patrolDir: -1, boss: false, burst: 0, mode: 0, modeTimer: 0, repaired: false, evadeDir: 1, lastEvade: -999 },
             tankSpawnTimer: 0, soldierSpawnTimer: 0, hostageTimer: 0, lives: 0, aiCredits: 0, aiSpent: 0, aiThink: 0, balloons: [], fx: []
@@ -197,7 +207,7 @@
             if (s.mode === 'coop' && !p.alive && !p.canRespawn && s.lives > 0) { s.lives--; p.canRespawn = true; resetPlayer(s, p); p.invuln = 90; text(s, cx(p), p.y - 30, 'REDEPLOYED', '#8f8'); }
             else if (p.alive) resetPlayer(s, p);
         });
-        const groups = Math.min(2 + n, 7);
+        const groups = s.mode !== 'versus' && n >= COMMAND_WAVE ? 3 : Math.min(2 + n, 7);
         const span = (WORLD_WIDTH - 900) / groups;
         for (let g = 0; g < groups; g++) spawnHostageGroup(s, 480 + g * span + rand(s, 40, span - 120));
         const tankCount = 2 + n + (s.mode === 'coop' ? 1 : 0);
@@ -220,7 +230,8 @@
             if (n >= 5 && i % 2 === 0) gun.sam = true; // from wave 5, homing missile launchers
             s.units.push(gun);
         }
-        const news = { 3: 'ANTI-AIR GUNS AHEAD', 4: 'HEAVY ARMOUR SIGHTED', 5: 'HOMING MISSILES: BOOST OR USE FLARES' }[n];
+        const news = { 3: 'ANTI-AIR GUNS AHEAD', 4: 'HEAVY ARMOUR SIGHTED', 5: 'HOMING MISSILES: BOOST OR USE FLARES' }[n]
+            || (s.mode !== 'versus' && n >= COMMAND_WAVE ? 'COMMAND PHASE: DESTROY THE ENEMY BASE' : null);
         if (news) s.players.forEach(p => text(s, p.x + 30, p.y - 60, news, '#f66', true));
         spawnAiHeli(s);
         s.players.forEach(p => text(s, p.x + 30, p.y - 30, 'WAVE ' + n, '#ff0', true));
@@ -295,7 +306,7 @@
         const def = has(UNITS, type) ? UNITS[type] : null;
         if (!def || !p.alive) return false;
         const mine = fielded(s, p.team);
-        if (p.credits < def.cost || mine >= MAX_ALLIES) {
+        if (p.credits < def.cost || mine >= allyCap(s)) {
             text(s, cx(p), p.y - 30, p.credits < def.cost ? 'NEED $' + def.cost : 'TROOP LIMIT', '#f66');
             snd(s, 'denied', cx(p), p.team);
             return false;
@@ -676,7 +687,7 @@
     function fireAt(s, u, target) {
         const def = UNITS[u.type], ux = cx(u);
         if (u.type === 'soldier') {
-            s.shells.push({ team: u.team, x: ux + u.dir * 6, y: u.y + 7, vx: u.dir * 6, vy: 0, width: 5, height: 2, dmg: def.dmg, life: 40, kind: 'rifle' });
+            s.shells.push({ team: u.team, x: ux + u.dir * 6, y: u.y + 7, vx: u.dir * 6, vy: 0, width: 5, height: 2, dmg: Math.round(def.dmg * (u.vet || 1)), life: 40, kind: 'rifle' });
             snd(s, 'rifle', ux);
         } else if (u.sam && target.kind === 'heli') {
             s.shells.push({ team: u.team, x: ux, y: u.y - 6, vx: 0, vy: -3, width: 9, height: 9, dmg: Math.round(26 * threat(s)), life: 240, kind: 'missile' });
@@ -692,7 +703,7 @@
             snd(s, 'enemyShoot', ux);
         } else {
             const dir = target.x < ux ? -1 : 1;
-            s.shells.push({ team: u.team, x: ux + dir * 16, y: u.y + 6, vx: dir * 4.5, vy: 0, width: 6, height: 6, dmg: u.ai ? Math.round(14 * threat(s) * (u.heavy ? 1.5 : 1)) : def.dmg, life: 90, kind: 'shell' });
+            s.shells.push({ team: u.team, x: ux + dir * 16, y: u.y + 6, vx: dir * 4.5, vy: 0, width: 6, height: 6, dmg: u.ai ? Math.round(14 * threat(s) * (u.heavy ? 1.5 : 1)) : Math.round(def.dmg * (u.vet || 1)), life: 90, kind: 'shell' });
             snd(s, u.ai ? 'enemyShoot' : 'shell');
         }
     }
@@ -767,13 +778,13 @@
     function updateAiEconomy(s) {
         const eb = s.bases[1];
         if (eb.destroyed) return;
-        s.aiCredits = Math.min(s.aiCredits + (0.09 + s.wave * 0.035) * threat(s) * (s.mode === 'coop' ? 1.35 : 1), Math.round((600 + 300 * s.wave) * threat(s)));
+        s.aiCredits = Math.min(s.aiCredits + (0.09 + s.wave * 0.035) * threat(s) * (s.mode === 'coop' ? 1.35 : 1) * (commandPhase(s) ? AI_COMMAND_INCOME : 1), Math.round((600 + 300 * s.wave) * threat(s)));
         if (++s.aiThink < 45) return;
         s.aiThink = 0;
         const tanks = s.units.filter(u => u.ai && u.type === 'tank').length;
         const soldiers = s.units.filter(u => u.ai && u.type === 'soldier').length
             + s.huts.reduce((n, h) => n + (h.garrison && h.garrison.team === AI ? h.garrison.count : 0), 0);
-        const tankCap = Math.round((3 + s.wave * 2) * Math.min(1.6, threat(s))), soldierCap = s.wave >= 2 ? Math.min(8, 1 + s.wave) : 0;
+        const tankCap = commandPhase(s) ? 8 + (s.wave - COMMAND_WAVE) * 2 : Math.round((3 + s.wave * 2) * Math.min(1.6, threat(s))), soldierCap = s.wave >= 2 ? Math.min(commandPhase(s) ? 16 : 8, 1 + s.wave) : 0;
         const wantSoldier = soldierCap > soldiers && (tanks >= tankCap || rnd(s) < 0.35);
         if (wantSoldier && s.aiCredits >= UNITS.soldier.cost) {
             s.aiCredits -= UNITS.soldier.cost; s.aiSpent += UNITS.soldier.cost;
@@ -883,11 +894,17 @@
                     h.aaTimer = AA.fireRate;
                 } else h.aaTimer = 10;
             }
+            // Territory: held bunkers pay their owner
+            if (h.level >= 1 && !h.ruined && s.frame % TERRITORY.every === 0) {
+                const pay = Math.round(TERRITORY.pay[Math.min(2, h.level)] * threat(s));
+                if (g.team === AI) s.aiCredits += pay;
+                else { const owner = s.players.find(q => q.team === g.team && q.alive) || s.players.find(q => q.team === g.team); if (owner) { owner.credits += pay; text(s, hutDoor(h), GROUND_Y - h.h - 60, '+$' + pay, '#8f8'); } }
+            }
             // Held bunkers muster a free soldier now and then, who marches on toward the enemy
             if (h.level >= 1 && !h.ruined && --h.troopTimer <= 0) {
                 h.troopTimer = BUNKER_TROOPS[Math.min(2, h.level)];
                 const ai = g.team === AI;
-                const room = ai ? s.units.filter(u => u.ai && u.type === 'soldier').length < 10 : fielded(s, g.team) < MAX_ALLIES;
+                const room = ai ? s.units.filter(u => u.ai && u.type === 'soldier').length < 10 : fielded(s, g.team) < allyCap(s);
                 if (room) {
                     const dir = marchDir(s, g.team), sol = makeSoldier(s, g.team, hutDoor(h) + dir * 22 - UNITS.soldier.width / 2, dir);
                     sol.ai = ai;
@@ -1208,8 +1225,13 @@
         });
     }
     function checkWaveClear(s) {
-        if (s.status !== 'playing' || s.hostages.length === 0) return;
-        if (s.hostages.every(h => h.state === 'saved' || h.state === 'dead') && s.players.every(p => p.carrying === 0)) {
+        if (s.status !== 'playing' || (s.hostages.length === 0 && !commandPhase(s))) return;
+        // Command phase: destroying the enemy base takes the sector; hostages aboard count as rescued
+        const assault = commandPhase(s) && s.bases[1].destroyed;
+        if (assault) s.players.forEach(p => { if (p.alive && p.carrying > 0) unloadHostages(s, p); });
+        const rescuesDone = !commandPhase(s) && s.hostages.every(h => h.state === 'saved' || h.state === 'dead') && s.players.every(p => p.carrying === 0);
+        if (assault || rescuesDone) {
+            s.waveAssault = assault;
             // Each bunker the squad holds at the end of the wave pays out too
             s.waveBunkers = s.huts.filter(h => !h.ruined && h.level >= 1 && h.garrison && h.garrison.team !== AI).length;
             s.waveBonus = s.waveRescued * 50 * s.wave + (s.waveLost === 0 ? 500 : 0) + s.waveBunkers * BUNKER_BONUS;
@@ -1276,5 +1298,5 @@
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
 });

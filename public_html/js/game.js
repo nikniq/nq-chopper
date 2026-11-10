@@ -909,7 +909,7 @@
         shopButtons.forEach(([btn, type]) => {
             if (!btn) return;
             if (UNITS[type]) {
-                btn.disabled = !playing || p.credits < UNITS[type].cost || sim.units.filter(u => u.team === p.team).length >= MAX_ALLIES;
+                btn.disabled = !playing || p.credits < UNITS[type].cost || sim.units.filter(u => u.team === p.team).length >= Sim.allyCap(sim);
             } else if (type === 'strike') {
                 const cd = p ? p.strikeCooldown : 0;
                 btn.disabled = !playing || cd > 0 || p.credits < Sim.AIRSTRIKE.cost;
@@ -1733,7 +1733,8 @@
         3: 'ANTI-AIR GUNS · TANKS LEAD THEIR SHOTS',
         4: 'HEAVY TANKS · ENEMY BUNKERS',
         5: 'HOMING MISSILE LAUNCHERS - FLARES HELP',
-        6: 'ENEMY AA BUNKERS · BIGGER GARRISONS'
+        6: 'ENEMY AA BUNKERS · BIGGER GARRISONS',
+        7: 'COMMAND PHASE: DESTROY THE ENEMY BASE TO TAKE THE SECTOR · BIGGER ARMIES · BUNKERS PAY'
     };
     let hudFade = 1;
     function drawHUD() {
@@ -1782,7 +1783,7 @@
         ctx.fillStyle = '#8f8'; ctx.font = 'bold 18px Arial'; ctx.fillText('$' + p.credits, GAME_WIDTH - 14, 84);
         ctx.textAlign = 'left'; ctx.font = hudFont(11);
         ctx.fillText('CREDITS', GAME_WIDTH - 152, 84);
-        ctx.fillStyle = '#ccc'; ctx.fillText('TROOPS ' + myUnits + '/' + MAX_ALLIES, GAME_WIDTH - 152, yB);
+        ctx.fillStyle = '#ccc'; ctx.fillText('TROOPS ' + myUnits + '/' + Sim.allyCap(sim), GAME_WIDTH - 152, yB);
         if (sim.mode !== 'versus') {
             const fmtK = n => n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n);
             ctx.fillStyle = '#fc6'; ctx.fillText('THREAT x' + Sim.threat(sim).toFixed(1), GAME_WIDTH - 152, yC, 66);
@@ -1840,6 +1841,14 @@
             const lm = ctx.measureText && ctx.measureText(long);
             const hint = lm && lm.width > avail ? `[1-4, 8-0] BUY  [5] AIRSTRIKE ${cd}  [6] ${p.rally !== null ? 'RELEASE' : 'HOLD'}  [7] TROOPS ${p.troops}` : long;
             ctx.fillText(hint, GAME_WIDTH / 2, 52, avail);
+        }
+        // Command phase: the strategic picture, your army against theirs and the objective
+        if (Sim.commandPhase(sim)) {
+            const army = t => sim.units.filter(u => (t === AI ? u.team === AI : u.team !== AI) && u.type !== 'aa').length
+                + sim.huts.reduce((n, h) => n + (h.garrison && !h.ruined && (t === AI ? h.garrison.team === AI : h.garrison.team !== AI) ? h.garrison.count : 0), 0);
+            const mine = army(0), theirs = army(AI), eb = sim.bases[1];
+            ctx.fillStyle = mine >= theirs ? '#8f8' : '#fc6';
+            ctx.fillText(`COMMAND PHASE · ARMY ${mine} vs ${theirs} · ENEMY BASE ${Math.max(0, Math.round(100 * eb.health / eb.maxHealth))}%`, GAME_WIDTH / 2, 66 + rowShift + (Sound.muted ? 14 : 0));
         }
         // Air missiles only need a line once some are spent
         if (p.aam < Sim.AAM.max) { ctx.fillStyle = p.aam ? '#9cf' : '#f66'; ctx.fillText('AIR MISSILES ' + p.aam + '/' + Sim.AAM.max, GAME_WIDTH / 2, 80 + rowShift); }
@@ -1912,7 +1921,7 @@
             if (!isTouch) bigText('PRESS P TO RESUME', 230, 16, '#ccc');
         } else if (screen === 'playing' && sim.status === 'waveclear' && sim.mode !== 'versus') {
             overlay(Math.min(0.5, sim.statusTimer / 60));
-            bigText('WAVE ' + sim.wave + ' CLEAR', 150, 40, '#ff0');
+            bigText(sim.waveAssault ? 'SECTOR TAKEN' : 'WAVE ' + sim.wave + ' CLEAR', 150, 40, '#ff0');
             bigText(`RESCUED ${sim.waveRescued}   LOST ${sim.waveLost}`, 195, 18, '#fff');
             bigText('BONUS +' + sim.waveBonus + (sim.waveBunkers ? '  (' + sim.waveBunkers + ' BUNKER' + (sim.waveBunkers > 1 ? 'S' : '') + ' HELD)' : '') + (sim.waveLost === 0 ? '  PERFECT!' : ''), 225, 18, sim.waveLost === 0 ? '#0f0' : '#ff0');
             bigText('GET READY FOR WAVE ' + (sim.wave + 1) + ((sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '  ·  GUNSHIP WAVE' : ''), 280, 16, (sim.wave + 1) % Sim.BOSS_EVERY === 0 ? '#f66' : '#ccc');

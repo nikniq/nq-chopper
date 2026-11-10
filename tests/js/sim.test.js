@@ -650,3 +650,35 @@ console.log('bunker reinforcements ok');
     assert.strictEqual(two.waveBonus - none.waveBonus, 500, 'two bunkers pay 2 x 250');
 }
 console.log('bunker wave bonus ok');
+
+// Command phase (wave 7+): fewer hostages, bigger army cap, destroying the enemy base takes the sector
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 51 });
+    assert.ok(!Sim.commandPhase(g) && Sim.allyCap(g) === Sim.MAX_ALLIES);
+    g.wave = Sim.COMMAND_WAVE - 1; g.status = 'waveclear'; g.statusTimer = 179;
+    Sim.step(g, [inp({})]);
+    assert.ok(g.wave === Sim.COMMAND_WAVE && g.status === 'playing' && Sim.commandPhase(g), 'entered the command phase');
+    assert.strictEqual(g.huts.length, 3, 'three hostage groups in the command phase');
+    assert.strictEqual(Sim.allyCap(g), Sim.MAX_ALLIES + 3, 'army cap grows');
+    const pl = g.players[0];
+    g.hostages[0].state = 'aboard'; g.hostages[0].carrier = 0; pl.carrying = 1;
+    const before = pl.rescued;
+    g.bases[1].health = 0; g.bases[1].destroyed = true;
+    Sim.step(g, [inp({})]);
+    assert.ok(g.status === 'waveclear' && g.waveAssault, 'base destroyed takes the sector');
+    assert.ok(pl.rescued === before + 1 && pl.carrying === 0, 'hostages aboard count as rescued');
+
+    // Before the command phase a destroyed base does not end the wave
+    const e = Sim.createGame({ mode: 'solo', seed: 52 });
+    e.bases[1].health = 0; e.bases[1].destroyed = true;
+    Sim.step(e, [inp({})]);
+    assert.strictEqual(e.status, 'playing');
+
+    // Territory income from a held bunker
+    const t = Sim.createGame({ mode: 'solo', seed: 53 });
+    t.huts[0].garrison = { team: 0, count: 3 }; t.huts[0].level = 1; t.huts[0].troopTimer = 1e9;
+    const c0 = t.players[0].credits;
+    for (let f = 0; f < Sim.TERRITORY.every; f++) Sim.step(t, [inp({})]);
+    assert.ok(t.players[0].credits >= c0 + Sim.TERRITORY.pay[1], 'bunker paid territory income: ' + (t.players[0].credits - c0));
+}
+console.log('command phase ok');

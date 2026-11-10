@@ -26,16 +26,18 @@
     // Veteran troops: in the command phase your units scale with the threat so a ground war is winnable
     const veteran = s => commandPhase(s) ? Math.sqrt(threat(s)) * 1.2 : 1;
     const AI_COMMAND_INCOME = 0.4; // the enemy war chest grows slower once it is a ground war
-    const TERRITORY = { every: 600, pay: [0, 10, 15] }; // held bunkers pay their owner every 10 s
+    const TERRITORY = { every: 600, pay: [0, 10, 15, 20, 26] }; // held bunkers pay their owner every 10 s
     const GARRISON_CAP = { player: 3, ai: 2 };
     const aiGarrisonCap = s => s.wave >= 6 ? 3 : GARRISON_CAP.ai;
     const GARRISON_RANGE = 170;
     const PICKUPS = { health: { amount: 35, color: '#f55' }, bombs: { amount: MAX_BOMBS, color: '#f90' }, credits: { amount: 60, color: '#8f8' } };
     const BOSS_EVERY = 3;
     const SOLO_SPARES = 2, SOLO_MAX_SPARES = 4; // solo: spare choppers, plus one per gunship wave cleared
-    const HUT_HP = [100, 240, 320];
+    const HUT_HP = [100, 240, 320, 440, 560];
+    const FORT = { max: 4, cost: [0, 150, 250, 400, 600] }; // buy a held house up a level: bunker, AA gun, fortress, citadel
+    const FORT_CODES = [0, 1, 2, 3, 4, 5, 6, 7].map(i => 'fort' + i);
     const BUNKER_BONUS = 250; // wave-clear points per bunker held
-    const BUNKER_TROOPS = [0, 1200, 900]; // frames between free soldiers from a held bunker (level 1, level 2 with AA) // house, bunker, bunker with AA gun; a bomb does 60
+    const BUNKER_TROOPS = [0, 1200, 900, 700, 540]; // frames between free soldiers from a held bunker (level 1, level 2 with AA) // house, bunker, bunker with AA gun; a bomb does 60
     const AAM = { max: 4, dmg: 150, speed: 6.5, range: 700, cooldown: 30, life: 150 }; // air-to-air missiles
     const WOUND_FRAMES = 3600;
     const COAX = { range: 140, rate: 25, dmg: 6 };         // AI tank coaxial MG vs low/landed choppers in front
@@ -62,7 +64,7 @@
     // Threat multiplier: waves get tougher on a curve, not just by adding a tank
     const threat = s => 1 + Math.max(0, s.wave - 1) * 0.18 + Math.max(0, s.wave - 5) * 0.07;
     // Only accept known shop codes (inputs come from the network in online play)
-    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops', 'engine', 'bay', 'repair', 'flares', 'aam'];
+    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops', 'engine', 'bay', 'repair', 'flares', 'aam'].concat(FORT_CODES);
     const has = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 
     // ---------------------------------------------------------------------
@@ -551,6 +553,7 @@
             else if (inp.buy === 'rally') toggleRally(s, p);
             else if (inp.buy === 'troops') loadOrDrop(s, p);
             else if (inp.buy === 'aam') fireAam(s, p);
+            else if (FORT_CODES.includes(inp.buy)) fortify(s, p, +inp.buy.slice(4));
         }
         if (p.health < p.maxHealth * 0.4 && s.frame % 5 === 0) parts(s, cx(p) + rand(s, -6, 6), p.y + 6, 1, { speed: 0.3, colors: ['#444'], size: 5, life: 40, up: 0.8 });
         // Forward landing zone: a bunker your troops hold takes hostages off your hands (no repair or rearm)
@@ -838,6 +841,29 @@
     }
     // A soldier reaching a hut door moves in. Friendly huts fill up to a cap; enemy-held huts are
     // stormed one defender per attacker. Garrisoned soldiers cannot be hurt by anything else.
+    // Pay to build up a house your troops hold (works anywhere on the map)
+    function fortify(s, p, i) {
+        const h = s.huts[i];
+        if (!h || h.ruined || !h.garrison || h.garrison.team !== p.team || !p.alive) return false;
+        const x = hutDoor(h), y = GROUND_Y - h.h - 30;
+        if (h.level >= FORT.max) { text(s, x, y, 'FULLY FORTIFIED', '#fc6'); snd(s, 'denied', x, p.team); return false; }
+        const cost = FORT.cost[h.level + 1];
+        if (p.credits < cost) { text(s, x, y, 'NEED $' + cost, '#f66'); snd(s, 'denied', x, p.team); return false; }
+        p.credits -= cost; h.level++; h.hp = HUT_HP[h.level]; h.troopTimer = Math.min(h.troopTimer, BUNKER_TROOPS[h.level]);
+        text(s, x, y, ['', 'BUNKER BUILT', 'AA GUN INSTALLED', 'FORTRESS BUILT', 'CITADEL BUILT'][h.level], '#8f8', true);
+        snd(s, 'deploy', x, p.team);
+        return true;
+    }
+    function damageHut(s, h, dmg, owner) {
+        h.hp -= dmg;
+        parts(s, hutDoor(h), GROUND_Y - h.h / 2, 8, { speed: 2, colors: ['#b08050', '#888', '#ff0'], size: 3, life: 25 });
+        if (h.hp <= 0) {
+            h.hp = 0; h.garrison = null; h.ruined = true; h.level = 0;
+            explosion(s, hutDoor(h), GROUND_Y - 14, true);
+            if (owner) award(s, owner, 200, hutDoor(h), GROUND_Y - h.h - 30, 30, true);
+            else text(s, hutDoor(h), GROUND_Y - h.h - 30, 'BUNKER LOST', '#f66', true);
+        }
+    }
     function tryEnterHut(s, i) {
         const u = s.units[i], ux = cx(u);
         for (const h of s.huts) {
@@ -891,18 +917,18 @@
                 if (prey) {
                     s.shells.push({ team: g.team, x: dr, y: gy, vx: (cx(prey) - dr) / pd * 5.5, vy: (cy(prey) - gy) / pd * 5.5, width: 7, height: 7, dmg: Math.round(AA.dmg * threat(s)), life: 140, kind: 'aa' });
                     snd(s, 'enemyShoot', dr);
-                    h.aaTimer = AA.fireRate;
+                    h.aaTimer = AA.fireRate - (h.level - 2) * 18;
                 } else h.aaTimer = 10;
             }
             // Territory: held bunkers pay their owner
             if (h.level >= 1 && !h.ruined && s.frame % TERRITORY.every === 0) {
-                const pay = Math.round(TERRITORY.pay[Math.min(2, h.level)] * threat(s));
+                const pay = Math.round(TERRITORY.pay[h.level] * threat(s));
                 if (g.team === AI) s.aiCredits += pay;
                 else { const owner = s.players.find(q => q.team === g.team && q.alive) || s.players.find(q => q.team === g.team); if (owner) { owner.credits += pay; text(s, hutDoor(h), GROUND_Y - h.h - 60, '+$' + pay, '#8f8'); } }
             }
             // Held bunkers muster a free soldier now and then, who marches on toward the enemy
             if (h.level >= 1 && !h.ruined && --h.troopTimer <= 0) {
-                h.troopTimer = BUNKER_TROOPS[Math.min(2, h.level)];
+                h.troopTimer = BUNKER_TROOPS[h.level];
                 const ai = g.team === AI;
                 const room = ai ? s.units.filter(u => u.ai && u.type === 'soldier').length < 10 : fielded(s, g.team) < allyCap(s);
                 if (room) {
@@ -992,8 +1018,13 @@
         }
         const p = nearestPlayer(s, a.x) || s.players[0];
         const dx = p.x - a.x, dy = p.y - a.y, d = Math.abs(dx);
-        let targetX;
-        if (d < 480 && p.alive) {
+        let targetX, raid = null;
+        // No pilot nearby: raid the player's bunker closest to the enemy base
+        if (!(d < 480 && p.alive) && a.mode !== 3) s.huts.forEach((h, i) => { if (!h.ruined && h.level >= 1 && h.garrison && h.garrison.team !== AI && (!raid || hutDoor(h) > hutDoor(raid.h))) raid = { h, i }; });
+        if (raid) {
+            const hx = hutDoor(raid.h);
+            targetX = hx + 170; a.y += (GROUND_Y - 150 - a.y) * 0.03;
+        } else if (d < 480 && p.alive) {
             targetX = p.x - sign(dx || 1) * 150;
             a.y += clamp(dy, -1.6, 1.6) * 0.8;
         } else {
@@ -1029,7 +1060,13 @@
         if (Math.abs(a.vx) > 0.3) a.dir = a.vx < 0 ? -1 : 1;
         a.tilt += ((a.vx / a.speed) * 0.2 - a.tilt) * 0.1;
         a.shootCooldown--;
-        if (a.shootCooldown <= 0 && d < (a.boss ? 460 : 380) && p.alive) {
+        if (raid && a.shootCooldown <= 0 && Math.abs(cx(a) - hutDoor(raid.h)) < 300) {
+            const sx = cx(a), sy = cy(a), tx = hutDoor(raid.h), ty = GROUND_Y - raid.h.h / 2, mag = dist(tx - sx, ty - sy) || 1;
+            s.shells.push({ team: AI, x: sx, y: sy, vx: (tx - sx) / mag * 6, vy: (ty - sy) / mag * 6, width: 7, height: 7, dmg: Math.round((a.boss ? 24 : 12) * threat(s)), life: 200, kind: 'heli', hut: raid.i });
+            a.shootCooldown = Math.max(40, 80 - s.wave * 4);
+            snd(s, 'enemyShoot', sx);
+            if (s.frame - (a.raidWarn || -9999) > 600) { a.raidWarn = s.frame; text(s, tx, GROUND_Y - raid.h.h - 60, 'BUNKER UNDER AIR ATTACK', '#f66', true); }
+        } else if (a.shootCooldown <= 0 && d < (a.boss ? 460 : 380) && p.alive) {
             const sx = cx(a), sy = cy(a), tx = cx(p) + p.vx * 10, ty = cy(p);
             const mag = dist(tx - sx, ty - sy) || 1;
             if (a.boss && a.burst > 0) {
@@ -1121,13 +1158,7 @@
         // Bombs batter enemy-held houses and bunkers; when one falls its garrison dies and ruins remain
         s.huts.forEach(h => {
             if (!h.garrison || !hostile(s, h.garrison.team, b.team) || Math.abs(hutDoor(h) - x) > 50) return;
-            h.hp -= 60;
-            parts(s, hutDoor(h), GROUND_Y - h.h / 2, 8, { speed: 2, colors: ['#b08050', '#888', '#ff0'], size: 3, life: 25 });
-            if (h.hp <= 0) {
-                h.hp = 0; h.garrison = null; h.ruined = true; h.level = 0;
-                explosion(s, hutDoor(h), GROUND_Y - 14, true);
-                if (owner) award(s, owner, 200, hutDoor(h), GROUND_Y - h.h - 30, 30, true);
-            }
+            damageHut(s, h, 60, owner);
         });
         const eb = enemyBase(s, b.team);
         if (eb && dist(cx(eb) - x, cy(eb) - y) < 80) damageBase(s, eb, 60, x, y, owner);
@@ -1186,6 +1217,7 @@
                 const u = s.units[j];
                 if (hostile(s, u.team, b.team) && overlap(u, box)) { damageUnit(s, j, b.dmg, owner ? { player: owner, direct: false } : null); gone = true; break; }
             }
+            if (!gone && b.hut !== undefined) { const h = s.huts[b.hut]; if (h && h.garrison && hostile(s, h.garrison.team, b.team) && Math.abs(b.x - hutDoor(h)) < h.w / 2 + 4 && b.y > GROUND_Y - h.h - 8) { damageHut(s, h, b.dmg, owner); gone = true; } }
             if (!gone && b.kind !== 'heli' && b.kind !== 'aa' && b.kind !== 'rocket' && b.kind !== 'missile' && b.kind !== 'aam') { const eb = enemyBase(s, b.team); if (eb && overlap(eb, box)) { damageBase(s, eb, b.dmg, b.x, b.y, owner); gone = true; } }
             if (gone) {
                 if (b.kind === 'shell' && b.y < GROUND_Y + 1) parts(s, b.x, Math.min(b.y, GROUND_Y), 5, { speed: 1.5, colors: ['#ff0', '#f80'], size: 3, life: 15 });
@@ -1298,5 +1330,5 @@
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
 });

@@ -1187,6 +1187,15 @@
                 ctx.fillStyle = '#333'; ctx.fillRect(gx - 6, gy, 12, 4); ctx.strokeStyle = '#777'; ctx.lineWidth = 2;
                 const sw = Math.sin(frame / 40) * 0.5; ctx.beginPath(); ctx.moveTo(gx - 2, gy); ctx.lineTo(gx - 2 + sw * 12, gy - 12); ctx.moveTo(gx + 2, gy); ctx.lineTo(gx + 2 + sw * 12, gy - 12); ctx.stroke();
             }
+            if (h.level >= 3) { // fortress: sandbag wall and a second, heavier gun
+                ctx.fillStyle = '#9a8a60'; for (let i = 0; i < 3; i++) { ctx.fillRect(h.x - 44 + i * 13, GROUND_Y - 8, 12, 8); ctx.fillRect(h.x + h.w + 6 + i * 13, GROUND_Y - 8, 12, 8); }
+                ctx.fillStyle = '#4a4f56'; ctx.fillRect(h.x + 4, GROUND_Y - h.h - 16, h.w - 8, 10);
+                ctx.strokeStyle = '#999'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(h.x + h.w - 14, GROUND_Y - h.h - 14); ctx.lineTo(h.x + h.w - 14 + Math.cos(frame / 50) * 10, GROUND_Y - h.h - 26); ctx.stroke();
+            }
+            if (h.level >= 4) { // citadel: watchtower and radar
+                ctx.fillStyle = '#555b62'; ctx.fillRect(h.x + 2, GROUND_Y - h.h - 34, 10, 20);
+                ctx.strokeStyle = '#ccc'; ctx.lineWidth = 2; ctx.beginPath(); const ra = frame / 20; ctx.moveTo(h.x + 7 - Math.cos(ra) * 7, GROUND_Y - h.h - 38); ctx.lineTo(h.x + 7 + Math.cos(ra) * 7, GROUND_Y - h.h - 38); ctx.stroke();
+            }
             if (h.garrison && h.hp < Sim.HUT_HP[h.level]) {
                 const pc = clamp(h.hp / Sim.HUT_HP[h.level], 0, 1);
                 ctx.fillStyle = '#0008'; ctx.fillRect(h.x - 1, GROUND_Y - 6, h.w + 2, 5); ctx.fillStyle = `hsl(${pc * 110},80%,50%)`; ctx.fillRect(h.x, GROUND_Y - 5, Math.round(h.w * pc), 3);
@@ -1205,7 +1214,13 @@
                 ctx.strokeStyle = '#333'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(h.x + 16, GROUND_Y - h.h + 15); ctx.lineTo(h.x + 24, GROUND_Y - h.h + 13); ctx.stroke();
                 ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center';
                 const lz = h.level >= 1 && local() && h.garrison.team === local().team;
-                ctx.fillText(h.garrison.count + ' HELD' + (lz ? ' · LZ' : ''), door, GROUND_Y - h.h - 44); ctx.textAlign = 'left';
+                ctx.fillText(h.garrison.count + ' HELD' + (lz ? ' · LZ' : ''), door, GROUND_Y - h.h - 44);
+                if (local() && h.garrison.team === local().team) { // upgrade offer
+                    const next = h.level < Sim.FORT.max ? Sim.FORT.cost[h.level + 1] : 0;
+                    ctx.font = 'bold 9px Arial'; ctx.fillStyle = !next ? '#fc6' : local().credits >= next ? '#8f8' : '#999';
+                    ctx.fillText(next ? 'LV' + h.level + ' · TAP $' + next : 'LV' + h.level + ' MAX', door, GROUND_Y - h.h - 56);
+                }
+                ctx.textAlign = 'left';
             }
         });
     }
@@ -2162,6 +2177,17 @@
         else window.prompt('Copy your score', text);
     });
 
+    // Tap a house or bunker your troops hold to build it up a level
+    function tapFortify(e) {
+        const me = local();
+        if (!sim || !me || !canvas.getBoundingClientRect) return false;
+        const r = canvas.getBoundingClientRect(), dpr = view.dpr || 1;
+        const wx = ((e.clientX - r.left) * dpr - view.ox) / view.scale + cameraX, wy = ((e.clientY - r.top) * dpr - view.oy) / view.scale;
+        const i = sim.huts.findIndex(h => !h.ruined && h.garrison && h.garrison.team === me.team && wx > h.x - 10 && wx < h.x + h.w + 10 && wy > GROUND_Y - h.h - 60 && wy < GROUND_Y + 10);
+        if (i < 0 || i >= Sim.FORT_CODES.length) return false;
+        queueBuy(Sim.FORT_CODES[i]);
+        return true;
+    }
     // Canvas gestures: drag to steer, tap to shoot/start, long-press to bomb
     (function () {
         let pid = null, sx = 0, sy = 0, st = 0, moved = false, lpTimer = null;
@@ -2189,7 +2215,7 @@
             e.preventDefault();
             const dt = Date.now() - st, d = Math.hypot(e.clientX - sx, e.clientY - sy);
             if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
-            if (!moved && dt < TAP_TIME && d < TAP_DIST) { if (!inPlay()) primaryAction(); else if (!isTouch) tapFireFrames = 3; }
+            if (!moved && dt < TAP_TIME && d < TAP_DIST) { if (!inPlay()) primaryAction(); else if (!tapFortify(e)) { if (!isTouch) tapFireFrames = 3; } }
             if (!isTouch) input.left = input.right = input.up = input.down = false;
             pid = null;
         }

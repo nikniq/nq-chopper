@@ -682,3 +682,31 @@ console.log('bunker wave bonus ok');
     assert.ok(t.players[0].credits >= c0 + Sim.TERRITORY.pay[1], 'bunker paid territory income: ' + (t.players[0].credits - c0));
 }
 console.log('command phase ok');
+
+// Paid bunker upgrades and enemy choppers raiding bunkers
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 61 });
+    const pl = g.players[0], h = g.huts[0];
+    h.garrison = { team: 0, count: 3 }; h.level = 2; h.hp = Sim.HUT_HP[2];
+    pl.credits = 1000;
+    Sim.step(g, [inp({ buy: 'fort0' })]);
+    assert.strictEqual(h.level, 3, 'tap buys a fortress');
+    assert.strictEqual(pl.credits, 1000 - Sim.FORT.cost[3]);
+    Sim.step(g, [inp({ buy: 'fort0' })]);
+    Sim.step(g, [inp({ buy: 'fort0' })]);
+    assert.strictEqual(h.level, Sim.FORT.max, 'capped at citadel');
+    // An enemy hut cannot be bought
+    g.huts[1] && (g.huts[1].garrison = { team: Sim.AI, count: 2 });
+    if (g.huts[1]) { const c = pl.credits; Sim.step(g, [inp({ buy: 'fort1' })]); assert.strictEqual(pl.credits, c); }
+
+    // The enemy heli shells a lone player bunker
+    const r = Sim.createGame({ mode: 'solo', seed: 62 });
+    r.wave = 3; const b = r.huts[0];
+    b.garrison = { team: 0, count: 3 }; b.level = 1; b.hp = Sim.HUT_HP[1]; b.troopTimer = 1e9;
+    r.ai.alive = true; r.ai.x = b.x + 400; r.ai.y = 200;
+    r.players[0].alive = false; r.players[0].respawn = 1e9;
+    let hp = b.hp;
+    for (let f = 0; f < 900 && !b.ruined; f++) Sim.step(r, [inp({})]);
+    assert.ok(b.ruined || b.hp < hp, 'enemy chopper damaged the bunker: ' + b.hp);
+}
+console.log('bunker upgrades and air raids ok');

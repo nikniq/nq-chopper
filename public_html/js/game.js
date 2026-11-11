@@ -564,8 +564,22 @@
         if (bombQueued > 0) bombQueued--;
         if (tapFireFrames > 0) tapFireFrames--;
         // Touch thumbstick, unless the keyboard was used in the last 8 s
-        if (stick.enabled && stick.lastTouch >= stick.lastKey && Date.now() - stick.lastKey > 8000) {
+        if (mouseFire) o.f = 1;
+        // Mouse: hold the left button and the chopper flies toward the pointer; let go and it hovers there
+        if (!isTouch && mstick.engaged && mstick.lastUse > stick.lastKey) {
             const p = local();
+            if (p && p.alive && mstick.active) {
+                const w = clientToWorld(mstick.cx, mstick.cy), pp = predictLocal(p);
+                mstick.x = clamp((w.x - (pp.x + p.width / 2)) / 160, -1, 1);
+                mstick.y = clamp((w.y - (pp.y + p.height / 2)) / 90, -1, 1);
+            } else { mstick.x = 0; mstick.y = 0; }
+            driveStick(o, mstick, p);
+        }
+        else if (stick.enabled && stick.lastTouch >= stick.lastKey && Date.now() - stick.lastKey > 8000) driveStick(o, stick, local());
+        return o;
+    }
+    function driveStick(o, stick, p) {
+        {
             if (p && p.alive) { const v = touchVertical(stick, predictLocal(p), p.height); o.u = v.u; o.d = v.d; }
             else { stick.holdY = null; o.u = o.d = 0; }
             let hx = stick.active ? clamp((Math.abs(stick.x) - 0.18) / 0.7, 0, 1) : 0;
@@ -576,7 +590,12 @@
             // Boost with the stick centred: sprint the way the chopper is facing
             if (input.boost && hx === 0 && p && !p.landed) { if (p.dir < 0) o.l = 1; else o.r = 1; }
         }
-        return o;
+    }
+    const mstick = { engaged: false, active: false, x: 0, y: 0, accX: 0, holdY: null, wasLocked: false, tie: 0, cx: 0, cy: 0, lastUse: 0 };
+    let mouseFire = false;
+    function clientToWorld(x, y) {
+        const r = canvas.getBoundingClientRect(), dpr = view.dpr || 1;
+        return { x: ((x - r.left) * dpr - view.ox) / view.scale + cameraX, y: ((y - r.top) * dpr - view.oy) / view.scale };
     }
     const packInput = i => [(i.l ? 1 : 0) | (i.r ? 2 : 0) | (i.u ? 4 : 0) | (i.d ? 8 : 0) | (i.f ? 16 : 0) | (i.b ? 32 : 0) | (i.bo ? 64 : 0), i.buy || 0];
     const unpackInput = a => { const k = (Array.isArray(a) ? a[0] : 0) | 0, code = Array.isArray(a) ? a[1] : null;
@@ -2181,8 +2200,7 @@
     function tapFortify(e) {
         const me = local();
         if (!sim || !me || !canvas.getBoundingClientRect) return false;
-        const r = canvas.getBoundingClientRect(), dpr = view.dpr || 1;
-        const wx = ((e.clientX - r.left) * dpr - view.ox) / view.scale + cameraX, wy = ((e.clientY - r.top) * dpr - view.oy) / view.scale;
+        const { x: wx, y: wy } = clientToWorld(e.clientX, e.clientY);
         const i = sim.huts.findIndex(h => !h.ruined && h.garrison && h.garrison.team === me.team && wx > h.x - 10 && wx < h.x + h.w + 10 && wy > GROUND_Y - h.h - 60 && wy < GROUND_Y + 10);
         if (i < 0 || i >= Sim.FORT_CODES.length) return false;
         queueBuy(Sim.FORT_CODES[i]);
@@ -2190,10 +2208,28 @@
     }
     // Canvas gestures: drag to steer, tap to shoot/start, long-press to bomb
     (function () {
-        let pid = null, sx = 0, sy = 0, st = 0, moved = false, lpTimer = null;
+        let pid = null, sx = 0, sy = 0, st = 0, moved = false, lpTimer = null, lastWheelBomb = 0;
         const TAP_DIST = 12, TAP_TIME = 300, LONG_PRESS = 450, MOVE = 15;
-        canvasReset = () => { pid = null; if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } if (!isTouch) input.left = input.right = input.up = input.down = false; };
+        canvasReset = () => { pid = null; mstick.active = false; if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } if (!isTouch) input.left = input.right = input.up = input.down = false; };
+        // Mouse: left = fly toward the pointer (click = shoot, or upgrade a bunker you hold), right = fire, middle or wheel = bomb
+        function mouseDown(e) {
+            e.preventDefault();
+            if (!inPlay()) { if (e.button === 0) primaryAction(); return; }
+            if (e.button === 2) { mouseFire = true; return; }
+            if (e.button === 1) { queueBomb(); return; }
+            if (e.button !== 0) return;
+            pid = e.pointerId; sx = e.clientX; sy = e.clientY; st = Date.now();
+            try { if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+            Object.assign(mstick, { engaged: true, active: true, cx: e.clientX, cy: e.clientY, lastUse: Date.now(), holdY: null });
+        }
+        function mouseUp(e) {
+            if (e.button === 2) { mouseFire = false; return; }
+            if (e.button !== 0 || e.pointerId !== pid) return;
+            mstick.active = false; mstick.lastUse = Date.now(); mstick.holdY = null; pid = null;
+            if (Date.now() - st < TAP_TIME && Math.hypot(e.clientX - sx, e.clientY - sy) < TAP_DIST && !tapFortify(e)) tapFireFrames = 3;
+        }
         function down(e) {
+            if (e.pointerType === 'mouse' && !isTouch) return mouseDown(e);
             e.preventDefault();
             if (pid !== null) { if (e.isPrimary && e.pointerId !== pid) canvasReset(); else return; }
             pid = e.pointerId; sx = e.clientX; sy = e.clientY; st = Date.now(); moved = false;
@@ -2203,6 +2239,7 @@
             if (!isTouch) lpTimer = setTimeout(() => { if (!moved && inPlay()) queueBomb(); lpTimer = null; }, LONG_PRESS);
         }
         function move(e) {
+            if (e.pointerType === 'mouse' && !isTouch) { mstick.cx = e.clientX; mstick.cy = e.clientY; if (mstick.active) mstick.lastUse = Date.now(); canvas.style.cursor = inPlay() ? 'crosshair' : ''; return; }
             if (e.pointerId !== pid) return;
             e.preventDefault();
             if (e.pointerType === 'mouse' && !e.buttons) { canvasReset(); return; } // release was missed
@@ -2211,6 +2248,7 @@
             if (inPlay() && !isTouch) { input.left = dx < -MOVE; input.right = dx > MOVE; input.up = dy < -MOVE; input.down = dy > MOVE; }
         }
         function up(e) {
+            if (e.pointerType === 'mouse' && !isTouch) return mouseUp(e);
             if (e.pointerId !== pid) return;
             e.preventDefault();
             const dt = Date.now() - st, d = Math.hypot(e.clientX - sx, e.clientY - sy);
@@ -2227,6 +2265,8 @@
         canvas.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
         canvas.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
         canvas.addEventListener('contextmenu', e => e.preventDefault());
+        canvas.addEventListener('wheel', e => { if (!inPlay()) return; e.preventDefault(); if (e.deltaY > 0 && Date.now() - lastWheelBomb > 250) { lastWheelBomb = Date.now(); queueBomb(); } }, { passive: false });
+        window.addEventListener('blur', () => { mouseFire = false; mstick.active = false; });
     })();
 
     // =====================================================================

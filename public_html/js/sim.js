@@ -40,6 +40,9 @@
     // From wave 3 enemy supply trucks run from the base to the enemy's front-line bunker: each one
     // delivered funds the enemy and patches the bunker; each one destroyed pays a bounty
     const CONVOY = { wave: 3, every: 1500, max: 2, width: 30, height: 18, speed: 0.9, health: 60, cash: 140, repair: 80, pts: 300, bounty: 80 };
+    // Fortresses and citadels lob mortar rounds at enemy ground units; any held bunker patches up nearby friendly troops
+    const MORTAR = { level: 3, range: 420, reload: [0, 0, 0, 200, 140], flight: 60, dmg: 70, radius: 44 };
+    const FIELD_HOSPITAL = { range: 90, every: 30, heal: 2 };
     const BUNKER_TROOPS = [0, 1200, 900, 700, 540]; // frames between free soldiers from a held bunker (level 1, level 2 with AA) // house, bunker, bunker with AA gun; a bomb does 60
     const AAM = { max: 4, dmg: 150, speed: 6.5, range: 700, cooldown: 30, life: 150 }; // air-to-air missiles
     const WOUND_FRAMES = 3600;
@@ -959,6 +962,24 @@
                     h.aaTimer = AA.fireRate - (h.level - 2) * 18;
                 } else h.aaTimer = 10;
             }
+            // Mortar: arcing rounds at the nearest enemy ground unit, led to where it will be
+            if (h.level >= MORTAR.level) {
+                h.mortarTimer = (h.mortarTimer || MORTAR.reload[h.level]) - 1;
+                if (h.mortarTimer <= 0) {
+                    const dr = hutDoor(h);
+                    let prey = null, pd = MORTAR.range;
+                    s.units.forEach(u => { if (!hostile(s, u.team, g.team)) return; const m = Math.abs(cx(u) - dr); if (m < pd && m > 40) { pd = m; prey = u; } });
+                    if (prey) {
+                        const T = MORTAR.flight, y0 = GROUND_Y - h.h - 14, tx = cx(prey) + (prey.moving ? prey.vx || (prey.dir * prey.speed) : 0) * T;
+                        s.bombs.push({ team: g.team, x: dr, y: y0, vx: (tx - dr) / T, vy: (GROUND_Y - 4 - y0 - 0.14 * T * (T + 1)) / T, mortar: true });
+                        parts(s, dr, y0, 5, { speed: 1, colors: ['#ccc', '#ff0'], size: 3, life: 20, up: 1 });
+                        snd(s, 'bomb', dr);
+                        h.mortarTimer = MORTAR.reload[h.level];
+                    } else h.mortarTimer = 20;
+                }
+            }
+            // Field hospital: wounded friendly troops near a held bunker heal up
+            if (h.level >= 1 && s.frame % FIELD_HOSPITAL.every === 0) s.units.forEach(u => { if (!hostile(s, u.team, g.team) && u.type !== 'truck' && !u.fixed && u.health < u.maxHealth && Math.abs(cx(u) - hutDoor(h)) < FIELD_HOSPITAL.range) u.health = Math.min(u.maxHealth, u.health + FIELD_HOSPITAL.heal); });
             // Territory: held bunkers pay their owner
             if (h.level >= 1 && !h.ruined && s.frame % TERRITORY.every === 0) {
                 const pay = Math.round(TERRITORY.pay[h.level] * threat(s));
@@ -1187,6 +1208,13 @@
     function explodeBomb(s, b, x, y) {
         explosion(s, x, y, false);
         const owner = playerByTeam(s, b.team);
+        if (b.mortar) { // mortar round: hurts enemy ground units only
+            for (let i = s.units.length - 1; i >= 0; i--) {
+                const u = s.units[i];
+                if (hostile(s, u.team, b.team) && Math.abs(cx(u) - x) < MORTAR.radius) damageUnit(s, i, Math.round(MORTAR.dmg * threat(s)), owner ? { player: owner, direct: false } : null);
+            }
+            return;
+        }
         for (let i = s.units.length - 1; i >= 0; i--) {
             const u = s.units[i];
             const friendly = !hostile(s, u.team, b.team);
@@ -1276,7 +1304,7 @@
             let boom = b.y >= GROUND_Y - 4;
             const box = { x: b.x - 6, y: b.y - 6, width: 12, height: 12 };
             if (!boom && s.units.some(u => hostile(s, u.team, b.team) && overlap(u, box))) boom = true;
-            if (!boom && choppers(s).some(c => hostile(s, c.team, b.team) && overlap(c, box))) boom = true;
+            if (!boom && !b.mortar && choppers(s).some(c => hostile(s, c.team, b.team) && overlap(c, box))) boom = true;
             if (boom) { s.bombs.splice(i, 1); explodeBomb(s, b, b.x, Math.min(b.y, GROUND_Y - 4)); }
         }
     }
@@ -1365,7 +1393,7 @@
         mix(s.paras.length);
         s.huts.forEach(h => { mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5); mix(h.hp); mix(h.level); mix(h.ruined ? 1 : 0); mix(h.aaTimer); mix(h.troopTimer); });
         const STATUS = ['playing', 'dying', 'waveclear', 'over'], HSTATE = ['waiting', 'running', 'aboard', 'saved', 'dead'], TYPES = ['soldier', 'tank', 'aa'];
-        mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.convoyTimer); mix(s.hostageTimer);
+        mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.convoyTimer); s.huts.forEach(h => mix(h.mortarTimer || 0)); mix(s.hostageTimer);
         const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0); mix(a.mode); mix(a.modeTimer);
         s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.upgrades.engine); mix(p.upgrades.bay); mix(p.upgrades.repair); mix(p.flares); mix(p.aam); mix(p.aamCooldown); mix(p.maxBombs); mix(p.speed); mix(p.lost); });
         s.hostages.forEach(o => { mix(o.x); mix(HSTATE.indexOf(o.state)); mix(o.carrier); mix(o.blocked); mix(o.bleed); mix(o.vip ? 1 : 0); });
@@ -1375,5 +1403,5 @@
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, CONVOY, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
 });

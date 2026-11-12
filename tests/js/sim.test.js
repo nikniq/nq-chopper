@@ -737,3 +737,19 @@ console.log('bunker upgrades and air raids ok');
     assert.ok(b.hp > 100, 'pilot repaired the bunker: ' + b.hp);
 }
 console.log('convoys and field repairs ok');
+
+// Fortress mortars and field hospitals
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 81 });
+    g.units = []; g.ai.alive = false; g.ai.respawn = 0;
+    const h = g.huts[0], door = h.x + h.w / 2;
+    h.garrison = { team: 0, count: 3 }; h.level = 3; h.hp = Sim.HUT_HP[3]; h.troopTimer = 1e9;
+    const Unit = (team, x, ai) => ({ team, type: 'soldier', x, y: Sim.GROUND_Y - 20, width: 8, height: 20, vx: 0, dir: 1, speed: 0, health: 500, maxHealth: 500, range: 0, fireTimer: 1e9, angle: 0, anim: 0, moving: false, ai, vet: 1 });
+    const foe = Unit(Sim.AI, door + 250, true); foe.fixed = true;
+    const pal = Unit(0, door + 10, false); pal.health = 100; pal.fixed = false;
+    g.units.push(foe, pal);
+    for (let f = 0; f < 400; f++) Sim.step(g, [inp({})]);
+    assert.ok(foe.health < 500 || !g.units.includes(foe), 'mortar hit the enemy: ' + foe.health);
+    assert.ok(!g.units.includes(pal) || pal.health > 100, 'field hospital healed the soldier');
+}
+console.log('mortars and field hospital ok');

@@ -1611,6 +1611,7 @@
             ctx.fillStyle = col; ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI * 2); ctx.fill();
         });
         sim.bombs.forEach(b => {
+            if (b.mortar) { ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(b.x, b.y, 3.5, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#fc6'; ctx.fillRect(b.x - 1, b.y - 1, 2, 2); return; }
             ctx.fillStyle = '#333'; ctx.beginPath(); ctx.ellipse(b.x, b.y, 4, 7, 0, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = '#f90'; ctx.fillRect(b.x - 3, b.y - 9, 6, 3);
         });

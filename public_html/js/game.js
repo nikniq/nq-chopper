@@ -1278,7 +1278,7 @@
         sim.units.forEach(u => {
             if (!isVisible(u.x)) return;
             const c = colorsOf(u.team);
-            groundShadow(cx(u), u.type === 'tank' ? 30 : u.type === 'aa' ? 32 : 10);
+            groundShadow(cx(u), u.type === 'tank' || u.type === 'truck' ? 30 : u.type === 'aa' ? 32 : 10);
             ctx.save();
             if (u.type === 'aa') {
                 ctx.translate(u.x, u.y);
@@ -1292,6 +1292,16 @@
                 ctx.restore();
                 ctx.fillStyle = '#f33'; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(frame / 8); ctx.fillRect(2, 2, 2, 2); ctx.globalAlpha = 1;
                 if (u.fireTimer > Math.max(40, Sim.AA.fireRate) - 4) { ctx.fillStyle = '#ff6'; ctx.fillRect(13 + Math.cos(u.angle) * 17 - 2, 6 + Math.sin(u.angle) * 17 - 2, 4, 4); }
+            } else if (u.type === 'truck') {
+                ctx.translate(u.x, u.y);
+                ctx.fillStyle = '#5a5f3a'; ctx.fillRect(8, 0, 22, 13);
+                ctx.fillStyle = '#4a4f2e'; for (let i = 0; i < 3; i++) ctx.fillRect(10 + i * 7, 1, 1.5, 11);
+                ctx.fillStyle = '#6b2a2a'; ctx.fillRect(0, 4, 9, 9);
+                ctx.fillStyle = '#9cf'; ctx.fillRect(1, 5, 4, 3);
+                ctx.fillStyle = '#fc6'; ctx.fillRect(18, 4, 6, 5);
+                ctx.fillStyle = '#222'; [5, 15, 25].forEach(wx => { ctx.beginPath(); ctx.arc(wx, 15, 3, 0, Math.PI * 2); ctx.fill(); });
+                if (u.health < u.maxHealth) { const pc = clamp(u.health / u.maxHealth, 0, 1); ctx.fillStyle = '#0008'; ctx.fillRect(0, -6, 30, 3); ctx.fillStyle = '#fc6'; ctx.fillRect(0, -6, 30 * pc, 3); }
+                if (frame % 8 === 0) emit({ x: u.x + 31, y: GROUND_Y - 4, vx: 0.3, vy: -0.3, life: 40, maxLife: 40, color: '#666', size: 2, gravity: -0.003, grow: 0.05 });
             } else if (u.type === 'soldier') {
                 const bob = u.moving ? Math.abs(Math.sin(u.anim * 0.4)) * -1.2 : 0;
                 ctx.translate(cx(u), GROUND_Y + bob);
@@ -1764,7 +1774,7 @@
     // What first appears on each wave (mirrors the wave gates in sim.js)
     const NEW_THREATS = {
         2: 'ENEMY INFANTRY · VIP AND WOUNDED HOSTAGES',
-        3: 'ANTI-AIR GUNS · TANKS LEAD THEIR SHOTS',
+        3: 'ANTI-AIR GUNS · ENEMY SUPPLY TRUCKS',
         4: 'HEAVY TANKS · ENEMY BUNKERS',
         5: 'HOMING MISSILE LAUNCHERS - FLARES HELP',
         6: 'ENEMY AA BUNKERS · BIGGER GARRISONS',

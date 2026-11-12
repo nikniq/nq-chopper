@@ -710,3 +710,30 @@ console.log('command phase ok');
     assert.ok(b.ruined || b.hp < hp, 'enemy chopper damaged the bunker: ' + b.hp);
 }
 console.log('bunker upgrades and air raids ok');
+
+// Enemy supply convoys and field repairs
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 71 });
+    g.wave = 3; g.units = [];
+    const h = g.huts[0];
+    h.garrison = { team: Sim.AI, count: 2 }; h.level = 1; h.hp = 100; h.troopTimer = 1e9;
+    g.players[0].alive = false; g.players[0].respawn = 1e9; g.ai.alive = false; g.ai.respawn = 0;
+    g.convoyTimer = 1;
+    Sim.step(g, [inp({})]);
+    const t = g.units.find(u => u.type === 'truck');
+    assert.ok(t, 'a supply truck set out');
+    t.x = h.x + h.w / 2 - t.width / 2 + 2;
+    const cr = g.aiCredits;
+    for (let f = 0; f < 10; f++) Sim.step(g, [inp({})]);
+    assert.ok(!g.units.some(u => u.type === 'truck'), 'truck delivered');
+    assert.ok(h.hp > 100 && g.aiCredits > cr, 'delivery repaired the bunker and paid the enemy');
+
+    // Landing at your own bunker repairs it
+    const r = Sim.createGame({ mode: 'solo', seed: 72 });
+    const b = r.huts[0], p = r.players[0];
+    b.garrison = { team: 0, count: 3 }; b.level = 1; b.hp = 100; b.troopTimer = 1e9;
+    p.x = b.x + b.w / 2 - p.width / 2; p.y = Sim.GROUND_Y - p.height; p.landed = true; p.vy = 0;
+    for (let f = 0; f < 120; f++) Sim.step(r, [inp({})]);
+    assert.ok(b.hp > 100, 'pilot repaired the bunker: ' + b.hp);
+}
+console.log('convoys and field repairs ok');

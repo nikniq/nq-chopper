@@ -30,7 +30,9 @@
     const GARRISON_CAP = { player: 3, ai: 2 };
     const aiGarrisonCap = s => s.wave >= 6 ? 3 : GARRISON_CAP.ai;
     const GARRISON_RANGE = 170;
-    const PICKUPS = { health: { amount: 35, color: '#f55' }, bombs: { amount: MAX_BOMBS, color: '#f90' }, credits: { amount: 60, color: '#8f8' } };
+    const PICKUPS = { health: { amount: 35, color: '#f55' }, bombs: { amount: MAX_BOMBS, color: '#f90' }, credits: { amount: 60, color: '#8f8' }, supply: { amount: 150, color: '#fd4' } };
+    // From wave 2 a supply crate parachutes into no man's land: a chopper that grabs it is repaired, rearmed and paid; enemy troops who reach it first seize it
+    const SUPPLY = { wave: 2, every: 2400, fall: 0.7, life: 1800 };
     const BOSS_EVERY = 3;
     const SOLO_SPARES = 2, SOLO_MAX_SPARES = 4; // solo: spare choppers, plus one per gunship wave cleared
     const HUT_HP = [100, 240, 320, 440, 560];
@@ -153,7 +155,7 @@
             wave: 0, waveRescued: 0, waveLost: 0, waveBonus: 0, waveBunkers: 0, waveAssault: false,
             players: [], bases: [], hostages: [], huts: [], units: [], bullets: [], shells: [], bombs: [], pickups: [], strikes: [], paras: [],
             ai: { team: AI, x: 0, y: 120, width: 60, height: 24, vx: 0, vy: 0, dir: -1, speed: 2, shootCooldown: 0, maxHealth: 150, health: 150, alive: false, respawn: 0, tilt: 0, patrolDir: -1, boss: false, burst: 0, mode: 0, modeTimer: 0, repaired: false, evadeDir: 1, lastEvade: -999 },
-            tankSpawnTimer: 0, soldierSpawnTimer: 0, hostageTimer: 0, lives: 0, aiCredits: 0, aiSpent: 0, aiThink: 0, convoyTimer: CONVOY.every, balloons: [], fx: []
+            tankSpawnTimer: 0, soldierSpawnTimer: 0, hostageTimer: 0, lives: 0, aiCredits: 0, aiSpent: 0, aiThink: 0, convoyTimer: CONVOY.every, supplyTimer: SUPPLY.every, balloons: [], fx: []
         };
         const names = opts.names || [];
         s.players.push(makePlayer(0, 1, names[0]));
@@ -208,7 +210,7 @@
         const keep = [];
         s.huts.forEach(h => { const g = h.garrison; if (g && g.team !== AI) for (let i = 0; i < g.count; i++) keep.push(makeSoldier(s, g.team, Math.max(150, hutDoor(h) - 30 - i * 12), marchDir(s, g.team))); });
         s.paras.forEach(k => { if (k.team !== AI) keep.push(makeSoldier(s, k.team, k.x - UNITS.soldier.width / 2, k.dir)); });
-        s.convoyTimer = CONVOY.every;
+        s.convoyTimer = CONVOY.every; s.supplyTimer = SUPPLY.every;
         s.wave = n; s.waveRescued = 0; s.waveLost = 0; s.waveBonus = 0;
         s.hostages = []; s.huts = []; s.bullets = []; s.shells = []; s.bombs = []; s.pickups = []; s.strikes = []; s.paras = [];
         s.units = s.units.filter(u => u.team !== AI).concat(keep);
@@ -1053,17 +1055,34 @@
         dropPickup(s, x, y, pick(s, ['health', 'bombs', 'credits', 'credits']));
     }
     function updatePickups(s) {
+        if (s.mode !== 'versus' && s.wave >= SUPPLY.wave && --s.supplyTimer <= 0) {
+            s.supplyTimer = SUPPLY.every;
+            const x = Math.round(WORLD_WIDTH * rand(s, 0.3, 0.7));
+            s.pickups.push({ type: 'supply', x, y: -20, vy: 0, life: SUPPLY.life, bob: 0, chute: true });
+            text(s, x, 60, 'SUPPLY DROP', PICKUPS.supply.color, true);
+            snd(s, 'pickup', x);
+        }
         for (let i = s.pickups.length - 1; i >= 0; i--) {
             const k = s.pickups[i];
-            k.vy += 0.15; k.y += k.vy; k.bob++;
-            if (k.y > GROUND_Y - 14) { k.y = GROUND_Y - 14; k.vy = 0; }
+            k.vy += 0.15; if (k.chute) k.vy = Math.min(k.vy, SUPPLY.fall); k.y += k.vy; k.bob++;
+            if (k.y > GROUND_Y - 14) { k.y = GROUND_Y - 14; k.vy = 0; k.chute = false; }
             if (--k.life <= 0) { s.pickups.splice(i, 1); continue; }
+            if (k.type === 'supply' && !k.chute && s.units.some(u => u.ai && u.type !== 'truck' && Math.abs(cx(u) - k.x) < 12)) {
+                s.aiCredits += Math.round(PICKUPS.supply.amount * threat(s));
+                text(s, k.x, k.y - 30, 'ENEMY SEIZED THE SUPPLIES', '#f66', true);
+                s.pickups.splice(i, 1); continue;
+            }
             const box = { x: k.x - 7, y: k.y - 7, width: 14, height: 14 };
             for (const p of s.players) {
                 if (!p.alive || !overlap(p, box)) continue;
                 const def = PICKUPS[k.type];
                 if (k.type === 'health') { p.health = Math.min(p.maxHealth, p.health + def.amount); text(s, cx(p), p.y - 24, '+' + def.amount + ' HULL', def.color); }
                 else if (k.type === 'bombs') { p.bombs = p.maxBombs; text(s, cx(p), p.y - 24, 'BOMBS REARMED', def.color); }
+                else if (k.type === 'supply') {
+                    p.health = p.maxHealth; p.bombs = p.maxBombs; p.aam = AAM.max;
+                    earn(s, p, Math.round(def.amount * threat(s)), cx(p), p.y - 40);
+                    text(s, cx(p), p.y - 24, 'SUPPLIES! REPAIRED AND REARMED', def.color, true);
+                }
                 else { earn(s, p, def.amount, cx(p), p.y - 24); }
                 parts(s, k.x, k.y, 10, { speed: 2, colors: [def.color, '#fff'], size: 3, life: 20 });
                 snd(s, 'pickup', cx(p), p.team);
@@ -1393,7 +1412,7 @@
         mix(s.paras.length);
         s.huts.forEach(h => { mix(h.garrison ? h.garrison.team * 10 + h.garrison.count : -5); mix(h.hp); mix(h.level); mix(h.ruined ? 1 : 0); mix(h.aaTimer); mix(h.troopTimer); });
         const STATUS = ['playing', 'dying', 'waveclear', 'over'], HSTATE = ['waiting', 'running', 'aboard', 'saved', 'dead'], TYPES = ['soldier', 'tank', 'aa'];
-        mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.convoyTimer); s.huts.forEach(h => mix(h.mortarTimer || 0)); mix(s.hostageTimer);
+        mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.convoyTimer); mix(s.supplyTimer); s.huts.forEach(h => mix(h.mortarTimer || 0)); mix(s.hostageTimer);
         const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0); mix(a.mode); mix(a.modeTimer);
         s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.upgrades.engine); mix(p.upgrades.bay); mix(p.upgrades.repair); mix(p.flares); mix(p.aam); mix(p.aamCooldown); mix(p.maxBombs); mix(p.speed); mix(p.lost); });
         s.hostages.forEach(o => { mix(o.x); mix(HSTATE.indexOf(o.state)); mix(o.carrier); mix(o.blocked); mix(o.bleed); mix(o.vip ? 1 : 0); });
@@ -1403,5 +1422,5 @@
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
 });

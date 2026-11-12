@@ -753,3 +753,17 @@ console.log('convoys and field repairs ok');
     assert.ok(!g.units.includes(pal) || pal.health > 100, 'field hospital healed the soldier');
 }
 console.log('mortars and field hospital ok');
+
+// Supply drops
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 91 });
+    g.wave = 2; g.supplyTimer = 1;
+    Sim.step(g, [inp({})]);
+    const k = g.pickups.find(q => q.type === 'supply');
+    assert.ok(k && k.chute, 'a crate is parachuting in');
+    const p = g.players[0]; p.health = 10; p.bombs = 0;
+    k.chute = false; k.y = p.y + p.height / 2; k.x = p.x + p.width / 2; k.vy = 0;
+    Sim.step(g, [inp({})]);
+    assert.ok(p.health === p.maxHealth && p.bombs === p.maxBombs && !g.pickups.includes(k), 'grabbing the crate repairs and rearms');
+}
+console.log('supply drops ok');

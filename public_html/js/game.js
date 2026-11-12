@@ -1488,6 +1488,17 @@
             const def = Sim.PICKUPS[k.type], y = k.y + Math.sin(k.bob / 10) * 2;
             const fade = k.life < 120 && Math.floor(k.life / 6) % 2 === 0;
             if (fade) return;
+            if (k.type === 'supply') { // big crate, under a parachute while falling
+                const cy0 = k.chute ? k.y : y;
+                if (k.chute) {
+                    ctx.fillStyle = '#e8e8d8'; ctx.beginPath(); ctx.arc(k.x, cy0 - 30, 16, Math.PI, 0); ctx.fill();
+                    ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(k.x - 16, cy0 - 30); ctx.lineTo(k.x - 6, cy0 - 7); ctx.moveTo(k.x + 16, cy0 - 30); ctx.lineTo(k.x + 6, cy0 - 7); ctx.stroke();
+                } else { ctx.drawImage(glowSprite(def.color), k.x - 8, cy0 - 8); groundShadow(k.x, 18); }
+                ctx.fillStyle = '#8a6a3a'; ctx.fillRect(k.x - 9, cy0 - 7, 18, 14);
+                ctx.strokeStyle = '#5a4020'; ctx.lineWidth = 1.5; ctx.strokeRect(k.x - 9, cy0 - 7, 18, 14); ctx.beginPath(); ctx.moveTo(k.x - 9, cy0 - 7); ctx.lineTo(k.x + 9, cy0 + 7); ctx.stroke();
+                ctx.fillStyle = def.color; ctx.fillRect(k.x - 3, cy0 - 3, 6, 6);
+                return;
+            }
             ctx.drawImage(glowSprite(def.color), k.x - 8, y - 8);
             groundShadow(k.x, 10);
             ctx.fillStyle = '#eee'; rrect(k.x - 6, y - 6, 12, 12, 2); ctx.fill();

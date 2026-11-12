@@ -62,6 +62,7 @@
     const UPGRADES = {
         gun:   { name: 'GUNS',  costs: [150, 250, 400], cooldown: [9, 7, 5, 4], dmg: [35, 42, 50, 60] },
         armor: { name: 'ARMOR', costs: [150, 250, 400], bonus: 40 },
+        missiles: { name: 'MISSILES', costs: [200, 300, 450, 600], bonus: 2 },   // +2 missiles in the rack per level
         flares: { name: 'FLARES', costs: [150, 250, 350], bonus: 2 },          // auto-decoy homing missiles
         engine: { name: 'ENGINE', costs: [200, 350, 500], bonus: 0.4 },       // top speed
         bay: { name: 'BOMB BAY', costs: [200, 350, 500], bonus: 2 },          // bomb capacity
@@ -72,7 +73,7 @@
     // Threat multiplier: waves get tougher on a curve, not just by adding a tank
     const threat = s => 1 + Math.max(0, s.wave - 1) * 0.18 + Math.max(0, s.wave - 5) * 0.07;
     // Only accept known shop codes (inputs come from the network in online play)
-    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops', 'engine', 'bay', 'repair', 'flares', 'aam'].concat(FORT_CODES);
+    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops', 'engine', 'bay', 'repair', 'flares', 'aam', 'missiles'].concat(FORT_CODES);
     const has = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 
     // ---------------------------------------------------------------------
@@ -115,7 +116,7 @@
         return { id, team: id, side, name: name || ('P' + (id + 1)), x: 60, y: 200, width: 60, height: 24, vx: 0, vy: 0, dir: side,
             speed: 3.4, carrying: 0, maxHealth: 100, health: 100, bombs: MAX_BOMBS, maxBombs: MAX_BOMBS, invuln: 0, landed: false, fireCooldown: 0, tilt: 0, spin: 0,
             alive: true, respawn: 0, deaths: 0, score: 0, credits: 0, rescued: 0, lost: 0,
-            aam: AAM.max, aamCooldown: 0, flares: 0, upgrades: { gun: 0, armor: 0, engine: 0, bay: 0, repair: 0, flares: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0, boost: BOOST.max, boosting: false, boostIdle: 0,
+            aam: AAM.max, aamCooldown: 0, flares: 0, upgrades: { gun: 0, armor: 0, engine: 0, bay: 0, repair: 0, flares: 0, missiles: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0, boost: BOOST.max, boosting: false, boostIdle: 0,
             // Per-run combat ledger for the debrief (integers only; gameplay never reads it)
             stats: { tanks: 0, aa: 0, soldiers: 0, helis: 0, bosses: 0, fullLoads: 0, perfectWaves: 0, maxCombo: 0, strikes: 0, troopsDropped: 0, unitsBought: 0, balloons: 0, dmgTaken: 0 } };
     }
@@ -187,7 +188,7 @@
         p.x = b.x + b.width / 2 - p.width / 2;
         p.y = GROUND_Y - p.height;
         p.vx = 0; p.vy = 0; p.dir = p.side; p.carrying = 0;
-        p.health = p.maxHealth; p.bombs = p.maxBombs; p.aam = AAM.max; p.aamCooldown = 0; p.flares = p.upgrades.flares * UPGRADES.flares.bonus;
+        p.health = p.maxHealth; p.bombs = p.maxBombs; p.aam = aamMax(p); p.aamCooldown = 0; p.flares = p.upgrades.flares * UPGRADES.flares.bonus;
         p.invuln = 0; p.landed = true; p.fireCooldown = 0; p.tilt = 0; p.spin = 0; p.alive = true; p.respawn = 0;
     }
     function spawnHostageGroup(s, gx) {
@@ -240,12 +241,12 @@
             s.hostages[Math.floor(rnd(s) * s.hostages.length)].vip = true;
             for (let i = Math.min(3, Math.floor(n / 2)); i > 0; i--) { const h = pick(s, s.hostages); if (!h.vip) { h.wounded = true; h.bleed = WOUND_FRAMES; } }
         }
-        const aaCount = n >= 3 ? Math.min(3, 1 + Math.floor((n - 3) / 2)) : 0;
+        const aaCount = n >= 3 ? Math.min(n >= 7 ? 6 : 3, 1 + Math.floor((n - 3) / 2)) : 0;
         for (let i = 0; i < aaCount; i++) {
             let ax = rand(s, WORLD_WIDTH * 0.55, WORLD_WIDTH - 300), tries = 0;
             while (tries++ < 20 && (s.huts.some(h => Math.abs(h.x + 40 - ax) < 140) || s.units.some(u => u.type === 'aa' && Math.abs(u.x - ax) < 160))) ax = rand(s, WORLD_WIDTH * 0.55, WORLD_WIDTH - 300);
             const gun = makeAA(s, ax);
-            if (n >= 5 && i % 2 === 0) gun.sam = true; // from wave 5, homing missile launchers
+            if (n >= 5 && (i % 2 === 0 || n >= 8)) gun.sam = true; // from wave 5, homing missile launchers
             s.units.push(gun);
         }
         const news = { 3: 'ANTI-AIR GUNS AHEAD', 4: 'HEAVY ARMOUR SIGHTED', 5: 'HOMING MISSILES: BOOST OR USE FLARES' }[n]
@@ -431,6 +432,7 @@
         if (type === 'armor') { p.maxHealth += def.bonus; p.health += def.bonus; }
         if (type === 'engine') p.speed += def.bonus;
         if (type === 'flares') p.flares = p.upgrades.flares * def.bonus;
+        if (type === 'missiles') p.aam += def.bonus;
         if (type === 'bay') { p.maxBombs += def.bonus; p.bombs += def.bonus; }
         parts(s, x, cy(p), 14, { speed: 2.5, colors: ['#8f8', '#fff', '#ff0'], size: 3, life: 30 });
         text(s, x, y, def.name + ' LEVEL ' + p.upgrades[type] + '  -$' + cost, '#8f8', true);
@@ -453,14 +455,22 @@
         choppers(s).forEach(c => { if (!hostile(s, c.team, team)) return; const m = dist(cx(c) - x, cy(c) - y); if (m < bd) { bd = m; best = c; } });
         return best ? { c: best, d: bd } : null;
     }
+    const aamMax = p => AAM.max + (p.upgrades.missiles || 0) * UPGRADES.missiles.bonus;
+    function nearestGround(s, team, x, y) {
+        let best = null, bd = Infinity;
+        s.units.forEach(u => { if (!hostile(s, u.team, team)) return; const m = dist(cx(u) - x, cy(u) - y); if (m < bd) { bd = m; best = u; } });
+        return best ? { c: best, d: bd } : null;
+    }
     function fireAam(s, p) {
         if (p.aamCooldown > 0) return;
         const x = cx(p), y = p.y - 30;
         if (p.aam <= 0) { text(s, x, y, 'NO MISSILES - REARM AT BASE', '#f66'); snd(s, 'denied', x, p.team); return; }
         const t = nearestAir(s, p.team, x, cy(p));
-        if (!t || t.d > AAM.range) { text(s, x, y, 'NO AIR TARGET', '#f66'); snd(s, 'denied', x, p.team); return; }
+        // No aircraft in range: the missile goes for the nearest enemy ground unit instead
+        const g = !t || t.d > AAM.range ? nearestGround(s, p.team, x, cy(p)) : null;
+        if ((!t || t.d > AAM.range) && (!g || g.d > AAM.range)) { text(s, x, y, 'NO TARGET', '#f66'); snd(s, 'denied', x, p.team); return; }
         p.aam--; p.aamCooldown = AAM.cooldown;
-        s.shells.push({ team: p.team, owner: p.id, x: x + p.dir * 20, y: p.y + p.height + 3, vx: p.dir * 3 + p.vx, vy: 0.5, width: 9, height: 9, dmg: AAM.dmg, life: AAM.life, kind: 'aam' });
+        s.shells.push({ team: p.team, owner: p.id, x: x + p.dir * 20, y: p.y + p.height + 3, vx: p.dir * 3 + p.vx, vy: 0.5, width: 9, height: 9, dmg: AAM.dmg, life: AAM.life, kind: g ? 'agm' : 'aam' });
         snd(s, 'bomb', x, p.team);
     }
     function dropBomb(s, p) {
@@ -591,7 +601,7 @@
             if (p.carrying > 0) unloadHostages(s, p);
             if (p.health < p.maxHealth && s.frame % 6 === 0) { p.health++; if (s.frame % 30 === 0) snd(s, 'heal', cx(p), p.team); }
             if (p.bombs < p.maxBombs && s.frame % 20 === 0) p.bombs++;
-            if (p.aam < AAM.max && s.frame % 60 === 0) p.aam++;
+            if (p.aam < aamMax(p) && s.frame % 60 === 0) p.aam++;
             if (p.flares < p.upgrades.flares * UPGRADES.flares.bonus && s.frame % 60 === 0) p.flares++;
         }
     }
@@ -1079,7 +1089,7 @@
                 if (k.type === 'health') { p.health = Math.min(p.maxHealth, p.health + def.amount); text(s, cx(p), p.y - 24, '+' + def.amount + ' HULL', def.color); }
                 else if (k.type === 'bombs') { p.bombs = p.maxBombs; text(s, cx(p), p.y - 24, 'BOMBS REARMED', def.color); }
                 else if (k.type === 'supply') {
-                    p.health = p.maxHealth; p.bombs = p.maxBombs; p.aam = AAM.max;
+                    p.health = p.maxHealth; p.bombs = p.maxBombs; p.aam = aamMax(p);
                     earn(s, p, Math.round(def.amount * threat(s)), cx(p), p.y - 40);
                     text(s, cx(p), p.y - 24, 'SUPPLIES! REPAIRED AND REARMED', def.color, true);
                 }
@@ -1161,6 +1171,12 @@
                 const vx = (tx - sx) / mag * sp, vy = (ty - sy) / mag * sp;
                 s.shells.push({ team: AI, x: sx + a.dir * 20, y: sy + 8, vx: vx - vy * spread, vy: vy + vx * spread, width: 9, height: 9, dmg: 30, life: 160, kind: 'rocket' });
                 a.shootCooldown = a.burst > 0 ? 7 : Math.max(60, 120 - s.wave * 5);
+                snd(s, 'bomb', sx);
+            } else if (s.wave >= 6 && s.frame - (a.lastMissile || -9999) > Math.max(240, 600 - s.wave * 30)) {
+                // Later waves: the gunship looses a homing missile now and then
+                a.lastMissile = s.frame;
+                s.shells.push({ team: AI, x: sx, y: sy + 8, vx: a.dir * 2, vy: 0.5, width: 9, height: 9, dmg: Math.round(26 * threat(s)), life: 240, kind: 'missile' });
+                a.shootCooldown = 40;
                 snd(s, 'bomb', sx);
             } else {
                 const sp = 6;
@@ -1285,6 +1301,10 @@
             const b = s.shells[i], owner = b.owner !== undefined && s.players[b.owner] ? s.players[b.owner] : playerByTeam(s, b.team);
             if (b.kind === 'aam') {
                 const t = nearestAir(s, b.team, b.x, b.y);
+                if (t) { b.vx += ((cx(t.c) - b.x) / (t.d || 1) * AAM.speed - b.vx) * 0.12; b.vy += ((cy(t.c) - b.y) / (t.d || 1) * AAM.speed - b.vy) * 0.12; }
+            }
+            if (b.kind === 'agm') {
+                const t = nearestGround(s, b.team, b.x, b.y);
                 if (t) { b.vx += ((cx(t.c) - b.x) / (t.d || 1) * AAM.speed - b.vx) * 0.12; b.vy += ((cy(t.c) - b.y) / (t.d || 1) * AAM.speed - b.vy) * 0.12; }
             }
             if (b.kind === 'missile') {
@@ -1414,7 +1434,7 @@
         const STATUS = ['playing', 'dying', 'waveclear', 'over'], HSTATE = ['waiting', 'running', 'aboard', 'saved', 'dead'], TYPES = ['soldier', 'tank', 'aa'];
         mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.convoyTimer); mix(s.supplyTimer); s.huts.forEach(h => mix(h.mortarTimer || 0)); mix(s.hostageTimer);
         const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0); mix(a.mode); mix(a.modeTimer);
-        s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.upgrades.engine); mix(p.upgrades.bay); mix(p.upgrades.repair); mix(p.flares); mix(p.aam); mix(p.aamCooldown); mix(p.maxBombs); mix(p.speed); mix(p.lost); });
+        s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.upgrades.engine); mix(p.upgrades.bay); mix(p.upgrades.repair); mix(p.upgrades.missiles || 0); mix(p.flares); mix(p.aam); mix(p.aamCooldown); mix(p.maxBombs); mix(p.speed); mix(p.lost); });
         s.hostages.forEach(o => { mix(o.x); mix(HSTATE.indexOf(o.state)); mix(o.carrier); mix(o.blocked); mix(o.bleed); mix(o.vip ? 1 : 0); });
         s.units.forEach(u => { mix(u.y); mix(u.team); mix(TYPES.indexOf(u.type)); });
         s.bombs.forEach(b => { mix(b.x); mix(b.y); });
@@ -1422,5 +1442,5 @@
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, aamMax, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
 });

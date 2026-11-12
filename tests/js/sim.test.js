@@ -767,3 +767,19 @@ console.log('mortars and field hospital ok');
     assert.ok(p.health === p.maxHealth && p.bombs === p.maxBombs && !g.pickups.includes(k), 'grabbing the crate repairs and rearms');
 }
 console.log('supply drops ok');
+
+// Missile upgrades and missiles that hit ground targets
+{
+    const g = Sim.createGame({ mode: 'solo', seed: 101 });
+    const p = g.players[0]; p.credits = 5000;
+    const before = Sim.aamMax(p);
+    Sim.step(g, [inp({ buy: 'missiles' })]);
+    assert.strictEqual(Sim.aamMax(p), before + 2, 'missile rack grew');
+    assert.strictEqual(p.aam, before + 2, 'new missiles loaded');
+    g.ai.alive = false; g.ai.respawn = 0;
+    g.units = [{ team: Sim.AI, type: 'tank', x: p.x + 200, y: Sim.GROUND_Y - 22, width: 26, height: 22, vx: 0, dir: -1, speed: 0, health: 100, maxHealth: 100, range: 0, fireTimer: 1e9, angle: 0, anim: 0, moving: false, ai: true, fixed: true }];
+    p.y = Sim.GROUND_Y - 120; p.landed = false; p.aamCooldown = 0;
+    Sim.step(g, [inp({ buy: 'aam' })]);
+    assert.ok(g.shells.some(b => b.kind === 'agm'), 'missile locked on a ground target');
+}
+console.log('missile upgrades ok');

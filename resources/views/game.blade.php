@@ -47,6 +47,7 @@
         <button id="buyBay" class="shop-btn upgrade" type="button" disabled>Bomb bay<span class="lvl"></span> <span class="price">$200</span></button>
         <button id="buyRepair" class="shop-btn upgrade" type="button" disabled>Auto-repair<span class="lvl"></span> <span class="price">$250</span></button>
         <button id="buyFlares" class="shop-btn upgrade" type="button" disabled>Flares<span class="lvl"></span> <span class="price">$150</span></button>
+        <button id="buyMissiles" class="shop-btn upgrade" type="button" disabled>Missiles<span class="lvl"></span> <span class="price">$200</span></button>
         <button id="buyStrike" class="shop-btn ability" type="button" disabled>Airstrike <span class="price">$250</span></button>
         <button id="rallyBtn" class="shop-btn ability" type="button" disabled>Hold troops</button>
         <button id="troopsBtn" class="shop-btn ability" type="button" disabled><span class="lbl">Load / drop troops</span> <span class="price">0/4</span></button>

@@ -46,6 +46,14 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI', '/auth/google/callback'),
     ],
 
+    // Sign in with a nikniq.com account. Register NQ Chopper on the portal (/admin/games) as a
+    // confidential client with redirect URI https://chopper.nikniq.com/auth/nikniq/callback.
+    'nikniq' => [
+        'url' => env('NIKNIQ_URL', 'https://nikniq.com'),
+        'client_id' => env('NIKNIQ_CLIENT_ID'),
+        'client_secret' => env('NIKNIQ_CLIENT_SECRET'),
+    ],
+
     // Optional TURN relay for online matches (comma-separated urls). Without TURN,
     // players behind symmetric/carrier NAT fall back to relaying inputs via this server.
     'turn' => [

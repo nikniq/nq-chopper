@@ -26,10 +26,10 @@ class NikniqAutoSignOn
             && ! $request->user()
             && ! $request->ajax() && ! $request->expectsJson() && ! $request->prefetch()
             && ! $request->session()->get('nikniq_optout')
-            && time() - (int) $request->session()->get('nikniq_checked', 0) >= self::RECHECK
+            && now()->timestamp - (int) $request->session()->get('nikniq_checked', 0) >= self::RECHECK
             && ! $request->is(...self::SKIP)
             && ! preg_match('/bot|crawl|spider|slurp|preview|facebookexternalhit|curl|wget|lighthouse/i', (string) $request->userAgent())) {
-            $request->session()->put('nikniq_checked', time());
+            $request->session()->put('nikniq_checked', now()->timestamp);
             $request->session()->put('url.intended', $request->fullUrl());
 
             return redirect()->route('auth.nikniq', ['silent' => 1]);

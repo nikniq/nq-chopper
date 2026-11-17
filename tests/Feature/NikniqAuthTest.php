@@ -23,7 +23,7 @@ class NikniqAuthTest extends TestCase
         $this->get('/auth/nikniq')->assertNotFound();
     }
 
-    public function test_guest_is_silently_checked_once_per_session(): void
+    public function test_guest_is_silently_checked_and_rechecked(): void
     {
         $this->enable();
         $this->get('/leaderboard')->assertRedirect(route('auth.nikniq', ['silent' => 1]));
@@ -33,6 +33,9 @@ class NikniqAuthTest extends TestCase
         $this->get('/auth/nikniq/callback?error=login_required&state='.$state)->assertRedirect(url('/leaderboard'));
         $this->assertGuest();
         $this->get('/leaderboard')->assertOk();
+        // ...but they are checked again a little later, in case they have since logged in on nikniq.com
+        $this->travel(3)->minutes();
+        $this->get('/leaderboard')->assertRedirect(route('auth.nikniq', ['silent' => 1]));
     }
 
     public function test_bots_are_never_redirected(): void

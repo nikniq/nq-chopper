@@ -52,7 +52,7 @@ class LoginController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
-        $request->session()->put('nikniq_checked', true); // don't sign straight back in via nikniq.com
+        $request->session()->put('nikniq_optout', true); // don't sign straight back in via nikniq.com
 
         return redirect()->route('home');
     }

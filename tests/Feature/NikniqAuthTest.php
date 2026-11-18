@@ -13,7 +13,7 @@ class NikniqAuthTest extends TestCase
 
     private function enable(): void
     {
-        config(['services.nikniq.url' => 'https://nikniq.test', 'services.nikniq.client_id' => 'cid', 'services.nikniq.client_secret' => 'secret']);
+        config(['services.nikniq.url' => 'https://nikniq.test', 'services.nikniq.client_id' => 'cid', 'services.nikniq.client_secret' => 'secret', 'services.nikniq.redirect' => 'http://localhost/auth/callback']);
     }
 
     public function test_off_until_configured(): void
@@ -55,7 +55,7 @@ class NikniqAuthTest extends TestCase
 
         $this->assertAuthenticatedAs($existing);
         $this->assertSame('42', $existing->fresh()->nikniq_id);
-        Http::assertSent(fn ($r) => $r['client_secret'] === 'secret' && $r['code'] === 'abc' && $r['redirect_uri'] === route('auth.nikniq.callback'));
+        Http::assertSent(fn ($r) => $r['client_secret'] === 'secret' && $r['code'] === 'abc' && $r['redirect_uri'] === 'http://localhost/auth/callback' && strlen($r['code_verifier']) === 64);
     }
 
     public function test_new_portal_player_gets_an_account(): void
@@ -66,6 +66,23 @@ class NikniqAuthTest extends TestCase
         $this->get('/auth/nikniq/callback?code=abc&state='.session('nikniq_state'));
         $this->assertAuthenticated();
         $this->assertSame('New Pilot', User::where('nikniq_id', '7')->value('name'));
+    }
+
+    public function test_public_client_uses_pkce_without_a_secret(): void
+    {
+        config(['services.nikniq.url' => 'https://nikniq.test', 'services.nikniq.client_id' => 'cid', 'services.nikniq.client_secret' => null, 'services.nikniq.redirect' => 'http://localhost/auth/callback']);
+        Http::fake(['nikniq.test/api/sso/token' => Http::response(['player' => ['id' => 9, 'name' => 'Pk', 'email' => 'pk@example.com']])]);
+
+        $location = $this->get('/auth/nikniq')->headers->get('Location');
+        parse_str((string) parse_url($location, PHP_URL_QUERY), $q);
+        $this->assertSame('S256', $q['code_challenge_method']);
+        $this->assertSame('http://localhost/auth/callback', $q['redirect_uri']);
+        $verifier = session('nikniq_verifier');
+        $this->assertSame(rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='), $q['code_challenge']);
+
+        $this->get('/auth/callback?code=abc&state='.$q['state'])->assertRedirect(route('game'));
+        $this->assertAuthenticated();
+        Http::assertSent(fn ($r) => ! isset($r['client_secret']) && $r['code_verifier'] === $verifier);
     }
 
     public function test_bad_state_is_rejected(): void

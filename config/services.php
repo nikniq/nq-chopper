@@ -46,12 +46,14 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI', '/auth/google/callback'),
     ],
 
-    // Sign in with a nikniq.com account. Register NQ Chopper on the portal (/admin/games) as a
-    // confidential client with redirect URI https://chopper.nikniq.com/auth/nikniq/callback.
+    // Sign in with a nikniq.com account. Copy Chopper's client id from the portal (/admin/games).
+    // The portal registers https://chopper.nikniq.com/auth/callback as a public (PKCE) client by
+    // default; the secret is only needed if the game was switched to a confidential client.
     'nikniq' => [
         'url' => env('NIKNIQ_URL', 'https://nikniq.com'),
         'client_id' => env('NIKNIQ_CLIENT_ID'),
         'client_secret' => env('NIKNIQ_CLIENT_SECRET'),
+        'redirect' => env('NIKNIQ_REDIRECT_URI', rtrim((string) env('APP_URL', ''), '/').'/auth/callback'),
     ],
 
     // Optional TURN relay for online matches (comma-separated urls). Without TURN,

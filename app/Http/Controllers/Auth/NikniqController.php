@@ -8,6 +8,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -92,6 +93,14 @@ class NikniqController extends Controller
         $id = (string) ($player['id'] ?? '');
         $email = Str::lower((string) ($player['email'] ?? ''));
         if ($id === '' || $email === '') {
+            Log::warning('nikniq.com token exchange failed', [
+                'status' => $response->status(),
+                'error' => $response->json('error'),
+                'error_description' => $response->json('error_description'),
+                'redirect_uri' => self::redirectUri(),
+                'sent_secret' => (bool) config('services.nikniq.client_secret'),
+            ]);
+
             return $fail('nikniq.com sign-in failed. Please try again.');
         }
 

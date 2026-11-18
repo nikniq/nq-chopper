@@ -85,8 +85,10 @@ class NikniqController extends Controller
                 'redirect_uri' => self::redirectUri(),
                 'code_verifier' => $verifier,
             ]));
-        } catch (\Throwable) {
-            return $fail('Could not reach nikniq.com. Please try again.');
+        } catch (\Throwable $e) {
+            Log::warning('nikniq.com token request error', ['message' => $e->getMessage()]);
+
+            return $fail('Could not reach nikniq.com ('.Str::limit($e->getMessage(), 120).'). Please try again.');
         }
 
         $player = $response->successful() ? (array) $response->json('player') : [];
@@ -101,7 +103,10 @@ class NikniqController extends Controller
                 'sent_secret' => (bool) config('services.nikniq.client_secret'),
             ]);
 
-            return $fail('nikniq.com sign-in failed. Please try again.');
+            $reason = $response->json('error_description') ?: $response->json('error')
+                ?: 'HTTP '.$response->status().' from '.self::portal().'/api/sso/token';
+
+            return $fail('nikniq.com sign-in failed ('.Str::limit((string) $reason, 160).'). Please try again.');
         }
 
         $user = User::where('nikniq_id', $id)->first() ?? User::where('email', $email)->first();

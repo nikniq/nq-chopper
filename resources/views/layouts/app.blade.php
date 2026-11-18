@@ -12,9 +12,24 @@
 <body class="site">
     <a class="skip-link" href="#main">Skip to content</a>
     @include('partials.nav')
-    <main class="page" id="main" tabindex="-1">
+    <main @class(['page', 'wide' => View::hasSection('wide')]) id="main" tabindex="-1">
         @yield('content')
     </main>
-    <footer class="footer">NQ Chopper &middot; <a href="{{ route('home') }}">Home</a> &middot; <a href="{{ route('game') }}">Play</a> &middot; <a href="https://nikniq.com">Back to nikniq.com</a></footer>
+    <footer class="footer">
+        <div class="footer-inner">
+            <div class="footer-brand">
+                <a class="brand" href="{{ route('home') }}"><img src="{{ asset('icon.svg') }}" alt="" width="24" height="24"> NQ CHOPPER</a>
+                <p>Free helicopter rescue and strategy game. Part of the <a href="https://nikniq.com">nikniq.com</a> games family.</p>
+            </div>
+            <nav class="footer-links" aria-label="Footer">
+                <a href="{{ route('game') }}">Play</a>
+                <a href="{{ route('game', ['daily' => 1]) }}">Daily Challenge</a>
+                <a href="{{ route('leaderboard') }}">Leaderboard</a>
+                <a href="{{ route('home') }}#manual">How to play</a>
+                <a href="https://nikniq.com">More games</a>
+            </nav>
+        </div>
+        <p class="copy">&copy; {{ date('Y') }} NQ Chopper</p>
+    </footer>
 </body>
 </html>

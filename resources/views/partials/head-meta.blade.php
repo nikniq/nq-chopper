@@ -4,7 +4,8 @@
 <meta property="og:description" content="Rescue the hostages, command your troops, destroy the enemy base. Play solo, the Daily Challenge, or 1v1 online.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ url()->current() }}">
-<meta property="og:image" content="{{ asset('icon.svg') }}">
+<meta property="og:image" content="{{ asset('img/screen-4.webp') }}">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="{{ asset('favicon.ico') }}" sizes="any">
 <link rel="icon" href="{{ asset('icon.svg') }}" type="image/svg+xml">
 <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">

@@ -1,81 +1,167 @@
 @extends('layouts.app')
+@section('title', 'NQ Chopper · Free helicopter rescue & strategy game in your browser')
+@section('wide', true)
 
 @section('content')
-<section class="hero">
-    <h1>NQ CHOPPER</h1>
-    <p class="tagline">Fly in, land hot, and bring the hostages home.</p>
-    <p class="blurb">
-        A side-scrolling rescue shooter. Dodge tanks and an enemy gunship, pick up hostages four at a time,
-        and spend the credits you earn on soldiers and tanks that march on the enemy base.
-    </p>
-    <div class="cta">
-        <a href="{{ route('game') }}" class="btn btn-big">Play solo</a>
-        <a href="{{ route('game', ['daily' => 1]) }}" class="btn btn-big btn-daily">Daily Challenge</a>
-        @guest
-            <a href="{{ route('login') }}" class="btn btn-big btn-ghost" title="Log in to play online">Multiplayer</a>
-            <span class="muted" style="width:100%">Register to save your scores and play 1v1 online.</span>
-        @else
-            <a href="{{ route('multiplayer') }}" class="btn btn-big btn-ghost">Multiplayer 1v1</a>
-            <span class="muted" style="width:100%">Your best: <strong>{{ number_format($personalBest) }}</strong></span>
-        @endguest
+<section class="hero2">
+    <div class="hero-copy">
+        <p class="eyebrow">Free to play · No download · Desktop, phone &amp; tablet</p>
+        <h1><span class="sr-only">NQ CHOPPER: </span>Fly in. Land hot.<br><span class="hl">Win the war.</span></h1>
+        <p class="lede">
+            A side-scrolling helicopter action game that grows into a real-time strategy battle.
+            Rescue hostages under fire, build an army, fortify bunkers and lead the push on the enemy base.
+        </p>
+        <div class="cta">
+            <a href="{{ route('game') }}" class="btn btn-big btn-play">&#9654; Play free now</a>
+            <a href="{{ route('game', ['daily' => 1]) }}" class="btn btn-big btn-ghost">Daily Challenge</a>
+        </div>
+        <p class="hero-note">
+            @auth
+                Welcome back, <strong>{{ auth()->user()->name }}</strong>.
+                @if ($personalBest) Your best: <strong>{{ number_format($personalBest) }}</strong>. @endif
+                <a href="{{ route('multiplayer') }}">Play 1v1 or co-op online &rarr;</a>
+            @else
+                Play instantly as a guest. <a href="{{ route('register') }}">Create a free account</a> to save scores, earn achievements and play online.
+            @endauth
+        </p>
+    </div>
+    <a class="hero-shot" href="{{ route('game') }}" aria-label="Play NQ Chopper now">
+        <img src="{{ asset('img/screen-4.webp') }}" alt="NQ Chopper gameplay: a rescue helicopter over a volcanic battlefield with tanks, a hostage house and the home base" width="1000" height="609" fetchpriority="high">
+        <span class="play-badge" aria-hidden="true">&#9654;</span>
+    </a>
+</section>
+
+@if ($totals['runs'] >= 50)
+<section class="proof" aria-label="Game statistics">
+    <div><strong>{{ number_format($totals['pilots']) }}</strong><span>pilots enlisted</span></div>
+    <div><strong>{{ number_format($totals['runs']) }}</strong><span>missions flown</span></div>
+    <div><strong>{{ number_format($totals['rescued']) }}</strong><span>hostages rescued</span></div>
+    <div><strong>{{ $totals['topWave'] }}</strong><span>highest wave reached</span></div>
+</section>
+@endif
+
+<section class="section">
+    <header class="section-head">
+        <p class="eyebrow">Why pilots keep coming back</p>
+        <h2>Arcade action up front. Real strategy underneath.</h2>
+    </header>
+    <div class="features">
+        <div class="feature"><span class="ico" aria-hidden="true">🚁</span><h3>Daring rescues</h3><p>Land beside the huts, load up to four hostages and race them home through tank fire, flak and an enemy gunship.</p></div>
+        <div class="feature"><span class="ico" aria-hidden="true">🪖</span><h3>Build your army</h3><p>Spend what you earn on soldiers and tanks. Hold them back, then release them to march on the enemy together.</p></div>
+        <div class="feature"><span class="ico" aria-hidden="true">🏰</span><h3>Hold the ground</h3><p>Capture houses and upgrade them to bunkers, AA sites, fortresses and citadels that pay income and fire mortars.</p></div>
+        <div class="feature"><span class="ico" aria-hidden="true">🚀</span><h3>Upgrade your chopper</h3><p>Guns, armour, engine, bomb bay, flares, homing missiles and auto-repair. Every run you get stronger.</p></div>
+        <div class="feature"><span class="ico" aria-hidden="true">🗓️</span><h3>A new challenge every day</h3><p>Everyone flies the same world each day. One shot at the board, resetting at midnight UTC.</p></div>
+        <div class="feature"><span class="ico" aria-hidden="true">🤝</span><h3>Play with friends</h3><p>Send a link and fly 1v1 or co-op online. Two bases, two armies, one winner.</p></div>
     </div>
 </section>
 
-<section class="features">
-    <div class="feature"><h3>Rescue</h3><p>Land near the huts and hostages run aboard. Four seats, then back to base.</p></div>
-    <div class="feature"><h3>Fight</h3><p>Guns for the enemy chopper, bombs for the tanks. Base repairs and rearms you.</p></div>
-    <div class="feature"><h3>Command</h3><p>Buy soldiers and tanks with credits. They march across the field and destroy the enemy base.</p></div>
-    <div class="feature"><h3>Survive</h3><p>Every third wave brings a gunship. Destroyed enemies drop hull, bombs and credits. You fly with two spare choppers and earn another for each gunship wave cleared.</p></div>
-    <div class="feature"><h3>Duel</h3><p>Challenge a friend to 1v1 online. Same map, two bases, armies marching at each other.</p></div>
+<section class="section">
+    <header class="section-head">
+        <p class="eyebrow">From rescue run to ground war</p>
+        <h2>Every wave raises the stakes</h2>
+    </header>
+    <div class="steps">
+        <figure class="step">
+            <img src="{{ asset('img/screen-1.webp') }}" alt="Wave 1: the chopper leaves base over a jungle valley" width="1000" height="609" loading="lazy">
+            <figcaption><span class="num">1</span><strong>Rescue.</strong> Learn to fly, dodge tanks and bring the hostages home.</figcaption>
+        </figure>
+        <figure class="step">
+            <img src="{{ asset('img/screen-4.webp') }}" alt="Wave 4: heavy armour on a volcanic battlefield" width="1000" height="609" loading="lazy">
+            <figcaption><span class="num">2</span><strong>Fight.</strong> Heavy armour, anti-air guns and homing missiles. Bombs, flares and airstrikes answer back.</figcaption>
+        </figure>
+        <figure class="step">
+            <img src="{{ asset('img/screen-7.webp') }}" alt="Wave 7: command phase in an arctic sunset" width="1000" height="609" loading="lazy">
+            <figcaption><span class="num">3</span><strong>Command.</strong> From wave 7 it's a ground war: only destroying the enemy base takes the sector.</figcaption>
+        </figure>
+    </div>
 </section>
 
-<section class="leaderboard">
-    <h2>Daily Challenge &middot; {{ $today }} <a class="more" href="{{ route('leaderboard', ['board' => 'daily']) }}">Archive &rarr;</a></h2>
-    <p class="muted">Everyone gets the same world today. One board per day, resets at midnight UTC.
-        @auth @if ($dailyBest) Your best today: <strong>{{ number_format($dailyBest) }}</strong>. @endif @endauth</p>
-    @if ($dailyLeaders->isEmpty())
-        <p class="muted">Nobody has flown today's challenge yet. <a href="{{ route('game', ['daily' => 1]) }}">Be first.</a></p>
-    @else
-        <table>
-            <thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Wave</th><th>Rescued</th></tr></thead>
-            <tbody>
-            @foreach ($dailyLeaders as $i => $row)
-                <tr @class(['me' => auth()->check() && $row['user_id'] === auth()->id()])>
-                    <td>{{ $i + 1 }}</td><td><a href="{{ route('profile', $row['user_id']) }}">{{ $row['name'] }}</a></td><td>{{ number_format($row['score']) }}</td><td>{{ $row['wave'] }}</td><td>{{ $row['rescued'] }}</td>
-                </tr>
-            @endforeach
-            </tbody>
-        </table>
-    @endif
+<section class="section">
+    <header class="section-head">
+        <p class="eyebrow">Choose your mission</p>
+        <h2>Three ways to play</h2>
+    </header>
+    <div class="modes-grid">
+        <a class="mode-card" href="{{ route('game') }}">
+            <h3>Solo campaign</h3>
+            <p>Endless waves across jungle, desert, volcanic and arctic worlds. How far can you go?</p>
+            <span class="go">Play solo &rarr;</span>
+        </a>
+        <a class="mode-card featured" href="{{ route('game', ['daily' => 1]) }}">
+            <span class="tag">Today</span>
+            <h3>Daily Challenge</h3>
+            <p>The same seeded world for every pilot, every day. Climb the daily board and keep your streak.</p>
+            <span class="go">Fly today's challenge &rarr;</span>
+        </a>
+        <a class="mode-card" href="{{ auth()->check() ? route('multiplayer') : route('login') }}">
+            <h3>Online 1v1 &amp; co-op</h3>
+            <p>Invite a friend with a link. Duel base against base, or team up against the computer.</p>
+            <span class="go">{{ auth()->check() ? 'Start a match' : 'Log in to play online' }} &rarr;</span>
+        </a>
+    </div>
 </section>
 
-<section class="leaderboard">
-    <h2>All-time leaderboard <a class="more" href="{{ route('leaderboard') }}">Full boards: monthly, weekly, daily archive &rarr;</a></h2>
-    @if ($leaders->isEmpty())
-        <p class="muted">No scores yet. Be the first pilot on the board.</p>
-    @else
-        <table>
-            <thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Wave</th><th>Rescued</th></tr></thead>
-            <tbody>
-            @foreach ($leaders as $i => $row)
-                <tr @class(['me' => auth()->check() && $row['user_id'] === auth()->id()])>
-                    <td>{{ $i + 1 }}</td>
-                    <td><a href="{{ route('profile', $row['user_id']) }}">{{ $row['name'] }}</a></td>
-                    <td>{{ number_format($row['score']) }}</td>
-                    <td>{{ $row['wave'] }}</td>
-                    <td>{{ $row['rescued'] }}</td>
-                </tr>
-            @endforeach
-            </tbody>
-        </table>
-    @endif
-    @guest
-        <p class="muted"><a href="{{ route('login') }}">Log in</a> or <a href="{{ route('register') }}">register</a> and your games are saved here automatically.</p>
-    @endguest
+<section class="section boards">
+    <div class="leaderboard">
+        <h2>Daily Challenge &middot; {{ $today }} <a class="more" href="{{ route('leaderboard', ['board' => 'daily']) }}">Archive &rarr;</a></h2>
+        <p class="muted">Everyone gets the same world today. Resets at midnight UTC.
+            @auth @if ($dailyBest) Your best today: <strong>{{ number_format($dailyBest) }}</strong>. @endif @endauth</p>
+        @if ($dailyLeaders->isEmpty())
+            <p class="muted">Nobody has flown today's challenge yet. <a href="{{ route('game', ['daily' => 1]) }}">Be first.</a></p>
+        @else
+            <table>
+                <thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Wave</th></tr></thead>
+                <tbody>
+                @foreach ($dailyLeaders as $i => $row)
+                    <tr @class(['me' => auth()->check() && $row['user_id'] === auth()->id()])>
+                        <td>{{ $i + 1 }}</td><td><a href="{{ route('profile', $row['user_id']) }}">{{ $row['name'] }}</a></td><td>{{ number_format($row['score']) }}</td><td>{{ $row['wave'] }}</td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
+        @endif
+    </div>
+    <div class="leaderboard">
+        <h2>All-time leaderboard <a class="more" href="{{ route('leaderboard') }}">All boards &rarr;</a></h2>
+        <p class="muted">The best solo campaigns ever flown.</p>
+        @if ($leaders->isEmpty())
+            <p class="muted">No scores yet. Be the first pilot on the board.</p>
+        @else
+            <table>
+                <thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Wave</th></tr></thead>
+                <tbody>
+                @foreach ($leaders as $i => $row)
+                    <tr @class(['me' => auth()->check() && $row['user_id'] === auth()->id()])>
+                        <td>{{ $i + 1 }}</td><td><a href="{{ route('profile', $row['user_id']) }}">{{ $row['name'] }}</a></td><td>{{ number_format($row['score']) }}</td><td>{{ $row['wave'] }}</td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
+        @endif
+    </div>
 </section>
 
-<section class="controls-help">
-    <h2>Controls</h2>
+<section class="section faq">
+    <header class="section-head">
+        <p class="eyebrow">Questions</p>
+        <h2>Before you take off</h2>
+    </header>
+    <details><summary>Is NQ Chopper really free?</summary><p>Yes. The whole game is free to play in your browser. There is nothing to buy and nothing to install.</p></details>
+    <details><summary>What do I need to play?</summary><p>Any modern browser on a computer, phone or tablet. Play with keyboard, mouse or touch. On phones, add it to your home screen for full-screen play.</p></details>
+    <details><summary>Do I need an account?</summary><p>No. Guests can play right away. A free account saves your scores to the leaderboards, tracks your stats and achievements, and unlocks online multiplayer. You can sign in with Google or your nikniq.com account.</p></details>
+    <details><summary>How does the Daily Challenge work?</summary><p>Every pilot flies the same seeded world for the day, so the board is a fair contest. It resets at midnight UTC.</p></details>
+</section>
+
+<section class="final-cta">
+    <h2>Your chopper is fuelled and waiting.</h2>
+    <p>One click and you're in the air. No download, no sign-up needed.</p>
+    <a href="{{ route('game') }}" class="btn btn-big btn-play">&#9654; Play free now</a>
+    @guest <p class="muted small">Want your scores saved? <a href="{{ route('register') }}">Create a free account</a> &middot; <a href="{{ route('login') }}">Log in</a></p> @endguest
+</section>
+
+<section class="section manual" id="manual">
+    <details>
+        <summary><h2>Field manual: controls &amp; rules</h2></summary>
     <ul>
         <li><kbd>Arrows</kbd> / <kbd>WASD</kbd> fly &middot; <kbd>Space</kbd> shoot &middot; <kbd>B</kbd> bomb &middot; hold <kbd>G</kbd> for the jet booster (meter recharges after a pause) &middot; <kbd>V</kbd> fires a homing air-to-air missile (four carried, rearm at base)</li>
         <li>Every wave raises the threat level: tougher armour, harder-hitting shells, a richer enemy war chest and a gunship every third wave.</li>
@@ -94,5 +180,6 @@
         <li>With a mouse: hold the left button and the chopper flies toward the pointer, then hovers where you let go. Click to shoot (or to upgrade a bunker you hold), hold the right button for continuous fire, and scroll down or middle-click to bomb.</li>
         <li>On touch screens: drag to fly, tap to shoot, hold to bomb, and use the on-screen buttons.</li>
     </ul>
+    </details>
 </section>
 @endsection

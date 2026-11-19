@@ -2116,7 +2116,7 @@
     // =====================================================================
     const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire', KeyG: 'boost' };
     const BUYKEYS = { Digit1: 'soldier', Numpad1: 'soldier', Digit2: 'tank', Numpad2: 'tank', Digit3: 'gun', Numpad3: 'gun', Digit4: 'armor', Numpad4: 'armor',
-        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair', KeyF: 'flares', KeyV: 'aam', KeyM: 'missiles' };
+        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair', KeyF: 'flares', KeyV: 'aam', KeyN: 'missiles' };
     const inPlay = () => screen === 'playing';
     document.addEventListener('keydown', e => {
         Sound.unlock();

@@ -62,7 +62,7 @@
     let lastAnnounced = '';
     function announce(text) { if (announcer && text !== lastAnnounced) { lastAnnounced = text; announcer.textContent = text; } }
     const shopButtons = [
-        [document.getElementById('buySoldier'), 'soldier'], [document.getElementById('buyTank'), 'tank'],
+        [document.getElementById('buySoldier'), 'soldier'], [document.getElementById('buyTank'), 'tank'], [document.getElementById('buyRpg'), 'rpg'], [document.getElementById('buyDrone'), 'drone'],
         [document.getElementById('buyGun'), 'gun'], [document.getElementById('buyArmor'), 'armor'], [document.getElementById('buyEngine'), 'engine'], [document.getElementById('buyBay'), 'bay'], [document.getElementById('buyRepair'), 'repair'], [document.getElementById('buyFlares'), 'flares'], [document.getElementById('buyMissiles'), 'missiles'],
         [document.getElementById('buyStrike'), 'strike'], [document.getElementById('rallyBtn'), 'rally'], [document.getElementById('troopsBtn'), 'troops']
     ];
@@ -928,6 +928,60 @@
         else if (screen === 'playing' && sim.mode === 'solo' && sim.status === 'waveclear') announce(`Wave ${sim.wave} clear. Get ready for wave ${sim.wave + 1}.`);
         else if (screen === 'playing' && sim.mode === 'solo' && sim.statusTimer === 0 && sim.frame < 20) announce(`Wave ${sim.wave}, ${biome().name.toLowerCase()} terrain. Rescue the hostages.`);
     }
+    // ---------------------------------------------------------------------
+    // Troop tech tree: a visual panel over the battlefield (works in fullscreen and on touch)
+    // ---------------------------------------------------------------------
+    const TECH_ICONS = { training: '🎖️', rockets: '🚀', drones: '🛸' };
+    const UNIT_ICONS = { rpg: '🚀', drone: '🛸' };
+    const techEl = (() => {
+        if (!document.createElement || !canvasWrapper.appendChild) return null;
+        const el = document.createElement('div'); el.id = 'techTree'; el.hidden = true;
+        el.setAttribute && el.setAttribute('role', 'dialog');
+        el.setAttribute && el.setAttribute('aria-label', 'Troop tech tree');
+        let html = '<div class="tt-head"><strong>TROOP TECH TREE</strong><span class="tt-cash"></span><button type="button" class="tt-close" aria-label="Close">✕</button></div><div class="tt-row">';
+        Sim.TECH_TREE.forEach((t, i) => {
+            const def = UPGRADES[t.id];
+            if (i) html += '<div class="tt-link" aria-hidden="true"><span></span></div>';
+            html += '<button type="button" class="tt-node" data-tech="' + t.id + '"><span class="tt-icon">' + TECH_ICONS[t.id] + '</span><span class="tt-name">' + def.name + '</span>'
+                + '<span class="tt-pips">' + def.costs.map(() => '<i></i>').join('') + '</span><span class="tt-desc">' + t.desc + '</span>'
+                + (t.unlocks ? '<span class="tt-unlock">Unlocks ' + UNIT_ICONS[t.unlocks] + ' ' + UNITS[t.unlocks].name + ' $' + UNITS[t.unlocks].cost + '</span>' : '<span class="tt-unlock">Boosts soldiers, tanks and all tech units</span>')
+                + '<span class="tt-state"></span></button>';
+        });
+        html += '</div><div class="tt-foot">Research left to right · Upgrades last the whole game · Press T to close</div>';
+        el.innerHTML = html;
+        canvasWrapper.appendChild(el);
+        return el;
+    })();
+    let techOpen = false;
+    function setTechOpen(open) {
+        techOpen = !!open && !!techEl;
+        if (!techEl) return;
+        techEl.hidden = !techOpen;
+        const b = document.getElementById('techBtn'); if (b && b.setAttribute) b.setAttribute('aria-expanded', techOpen ? 'true' : 'false');
+        if (techOpen) updateTechTree(local(), screen === 'playing');
+        else if (canvas.focus) try { canvas.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+    }
+    function updateTechTree(p, playing) {
+        if (!techEl || !techOpen || !techEl.querySelectorAll) return;
+        const cash = techEl.querySelector('.tt-cash'); if (cash) cash.textContent = '$' + (p ? p.credits : 0);
+        techEl.querySelectorAll('.tt-node').forEach(n => {
+            const id = n.dataset.tech, def = UPGRADES[id], lvl = p ? p.upgrades[id] || 0 : 0, max = def.costs.length;
+            const cost = p ? Sim.upgradeCost(p, id) : def.costs[0], locked = def.requires && !(p && p.upgrades[def.requires]);
+            n.querySelectorAll('.tt-pips i').forEach((pip, k) => pip.className = k < lvl ? 'on' : '');
+            const state = lvl >= max ? 'done' : locked ? 'locked' : p && p.credits >= cost ? 'ready' : 'poor';
+            n.className = 'tt-node ' + state;
+            n.disabled = !playing || state !== 'ready';
+            n.querySelector('.tt-state').textContent = state === 'done' ? '✓ RESEARCHED' : state === 'locked' ? '🔒 Needs ' + UPGRADES[def.requires].name : (lvl ? 'Level ' + (lvl + 1) + ' · ' : 'Research · ') + '$' + cost;
+        });
+        techEl.querySelectorAll('.tt-link').forEach((l, i) => { const prev = Sim.TECH_TREE[i].id; l.classList.toggle('on', !!(p && p.upgrades[prev])); });
+    }
+    if (techEl) {
+        techEl.addEventListener('click', e => {
+            const t = e.target.closest ? e.target.closest('.tt-node') : null;
+            if (t && !t.disabled && inPlay()) { queueBuy(t.dataset.tech); buzz(20); }
+            if (e.target.closest && e.target.closest('.tt-close')) setTechOpen(false);
+        });
+    }
     function updateDomScore() {
         const p = local();
         if (!p || screen === 'title' || screen === 'lobby') {
@@ -955,10 +1009,13 @@
             }
         }
         const playing = screen === 'playing' && p && p.alive;
+        updateTechTree(p, playing);
         shopButtons.forEach(([btn, type]) => {
             if (!btn) return;
             if (UNITS[type]) {
-                btn.disabled = !playing || p.credits < UNITS[type].cost || sim.units.filter(u => u.team === p.team).length >= Sim.allyCap(sim);
+                const locked = UNITS[type].tech && !(p && p.upgrades[UNITS[type].tech]);
+                btn.hidden = !!locked;
+                btn.disabled = locked || !playing || p.credits < UNITS[type].cost || sim.units.filter(u => u.team === p.team).length >= Sim.allyCap(sim);
             } else if (type === 'strike') {
                 const cd = p ? p.strikeCooldown : 0;
                 btn.disabled = !playing || cd > 0 || p.credits < Sim.AIRSTRIKE.cost;
@@ -1366,6 +1423,23 @@
         const n = parseInt(h, 16), ch = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(Math.max(0, Math.min(255, f < 0 ? v * (1 + f) : v + (255 - v) * f))));
         return 'rgb(' + ch.join(',') + ')';
     }
+    // Quad-rotor drone: spinning rotors, camera ball, team stripe, missile pods when armed
+    function drawDrone(u, c) {
+        ctx.translate(cx(u), u.y + u.height / 2);
+        ctx.rotate((u.moving ? 0.12 : 0) * u.dir);
+        ctx.strokeStyle = '#333'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(-10, -2); ctx.lineTo(10, -2); ctx.stroke();
+        ctx.fillStyle = '#3c4148'; rrect(-6, -4, 12, 6, 2.5); ctx.fill();
+        ctx.fillStyle = c.unit; ctx.fillRect(-5, -3.5, 10, 1.5);
+        ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(u.dir * 2.5, 3, 2.2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#f33'; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(frame / 5); ctx.fillRect(u.dir * 3 - 0.5, 2.5, 1, 1); ctx.globalAlpha = 1;
+        if (u.armed) { ctx.fillStyle = '#ddd'; ctx.fillRect(-7, 2, 4, 1.8); ctx.fillRect(3, 2, 4, 1.8); ctx.fillStyle = '#f44'; ctx.fillRect(-3.5, 2, 0.8, 1.8); ctx.fillRect(6.5, 2, 0.8, 1.8); }
+        [-10, 10].forEach(rx => {
+            ctx.fillStyle = 'rgba(200,210,220,0.35)'; ctx.beginPath(); ctx.ellipse(rx, -4, 6.5, 1.3, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = 'rgba(30,30,30,0.8)'; ctx.lineWidth = 1; const a = frame * 0.9 + rx; ctx.beginPath(); ctx.moveTo(rx - Math.cos(a) * 6, -4); ctx.lineTo(rx + Math.cos(a) * 6, -4); ctx.stroke();
+            ctx.fillStyle = '#222'; ctx.fillRect(rx - 1, -5, 2, 3);
+        });
+        if (!u.moving && u.fireTimer > UNITS.drone.fireRate - 4) { ctx.fillStyle = '#ff6'; ctx.fillRect(u.dir * 2.5 - 1.5, 5, 3, 3); }
+    }
     function drawUnits() {
         sim.units.forEach(u => {
             if (!isVisible(u.x)) return;
@@ -1394,10 +1468,12 @@
                 ctx.fillStyle = '#222'; [5, 15, 25].forEach(wx => { ctx.beginPath(); ctx.arc(wx, 15, 3, 0, Math.PI * 2); ctx.fill(); });
                 if (u.health < u.maxHealth) { const pc = clamp(u.health / u.maxHealth, 0, 1); ctx.fillStyle = '#0008'; ctx.fillRect(0, -6, 30, 3); ctx.fillStyle = '#fc6'; ctx.fillRect(0, -6, 30 * pc, 3); }
                 if (frame % 8 === 0) emit({ x: u.x + 31, y: GROUND_Y - 4, vx: 0.3, vy: -0.3, life: 40, maxLife: 40, color: '#666', size: 2, gravity: -0.003, grow: 0.05 });
-            } else if (u.type === 'soldier') {
+            } else if (u.type === 'drone') {
+                drawDrone(u, c);
+            } else if (u.type === 'soldier' || u.type === 'rpg') {
                 const look = soldierLook(u);
                 const walk = u.moving ? u.anim * 0.4 + look.phase : 0;
-                const firing = !u.moving && u.fireTimer > UNITS.soldier.fireRate - 6;
+                const firing = !u.moving && u.fireTimer > UNITS[u.type].fireRate - 6;
                 const aiming = !u.moving;
                 const bob = u.moving ? -Math.abs(Math.sin(walk)) * 1.3 : 0;
                 const crouch = aiming && look.kneel ? 3 : 0;
@@ -1437,6 +1513,18 @@
                     ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(-3, -26.6, 1, 1); ctx.fillRect(0, -27.4, 1, 1); ctx.fillRect(2, -26, 1, 1);
                     ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(-2.5, -23); ctx.lineTo(1, -19.6); ctx.stroke();
                 }
+                if (u.type === 'rpg') {
+                    // Launcher tube on the shoulder, with a warhead loaded until it fires
+                    ctx.save(); ctx.translate(-6 + (firing ? -2 : 0), -21); ctx.rotate(aiming ? 0 : -0.15);
+                    ctx.fillStyle = '#3b4a2a'; rrect(0, -2, 18, 4, 1.5); ctx.fill();
+                    ctx.fillStyle = '#222'; ctx.fillRect(5, 2, 1.6, 3); ctx.fillRect(10, 2, 1.6, 3);
+                    if (u.fireTimer < UNITS.rpg.fireRate - 25) { ctx.fillStyle = '#6a6a50'; ctx.beginPath(); ctx.moveTo(18, -2.6); ctx.lineTo(23, 0); ctx.lineTo(18, 2.6); ctx.closePath(); ctx.fill(); }
+                    if (firing) { ctx.fillStyle = 'rgba(255,220,140,0.8)'; ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(-8, 0); ctx.lineTo(0, 3); ctx.closePath(); ctx.fill(); }
+                    ctx.restore();
+                    ctx.strokeStyle = look.cloth; ctx.lineWidth = 2.3; ctx.beginPath(); ctx.moveTo(0.5, -18); ctx.lineTo(3, -16); ctx.lineTo(5, -20); ctx.stroke();
+                    if (firing && !look.casing) { look.casing = 1; for (let k = 0; k < 4; k++) emit({ x: cx(u) - u.dir * 10, y: GROUND_Y - 21, vx: -u.dir * rand(0.5, 1.5), vy: rand(-0.6, 0.2), life: 30, maxLife: 30, color: '#bbb', size: 3, gravity: -0.01, grow: 0.15 }); }
+                    if (!firing) look.casing = 0;
+                } else {
                 // Rifle: shouldered and level when stopped, slung at port arms on the march, kicks on each shot
                 const kick = firing ? -1.6 : 0;
                 ctx.save();
@@ -1455,6 +1543,7 @@
                 else { ctx.beginPath(); ctx.moveTo(0.5, -18); ctx.lineTo(2.5, -14); ctx.lineTo(4.5, -16.5); ctx.stroke(); ctx.fillStyle = look.skin; ctx.fillRect(4, -17.3, 1.8, 1.8); }
                 if (firing && frame % 3 === 0 && !look.casing) { look.casing = 1; emit({ x: cx(u) - u.dir * 1, y: GROUND_Y - 16, vx: -u.dir * rand(0.6, 1.2), vy: -rand(1, 1.6), life: 26, maxLife: 26, color: '#d9b048', size: 1.2, gravity: 0.12 }); }
                 if (!firing) look.casing = 0;
+                }
             } else {
                 ctx.translate(u.x, u.y);
                 const flip = u.dir < 0;
@@ -1747,6 +1836,15 @@
             ctx.fillStyle = b.team === AI ? '#f88' : '#ffe'; ctx.fillRect(b.x, b.y, b.width, b.height);
         });
         sim.shells.forEach(b => {
+            if (b.kind === 'rpg') {
+                if (!isVisible(b.x)) return;
+                ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
+                ctx.fillStyle = '#5a6a3a'; rrect(-6, -1.8, 9, 3.6, 1.5); ctx.fill(); ctx.fillStyle = '#7a7a5a'; ctx.beginPath(); ctx.moveTo(3, -2.6); ctx.lineTo(8, 0); ctx.lineTo(3, 2.6); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = '#ffb030'; ctx.fillRect(-9, -1.2, 3, 2.4);
+                ctx.restore();
+                emit({ x: b.x - b.vx, y: b.y - b.vy, vx: rand(-0.2, 0.2), vy: rand(-0.3, 0), life: 22, maxLife: 22, color: '#bbb', size: 2.5, gravity: -0.01, grow: 0.14 });
+                return;
+            }
             if (b.kind === 'rocket' || b.kind === 'missile' || b.kind === 'aam' || b.kind === 'agm') {
                 if (!isVisible(b.x)) return;
                 ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
@@ -2235,7 +2333,7 @@
     // =====================================================================
     const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire', KeyG: 'boost' };
     const BUYKEYS = { Digit1: 'soldier', Numpad1: 'soldier', Digit2: 'tank', Numpad2: 'tank', Digit3: 'gun', Numpad3: 'gun', Digit4: 'armor', Numpad4: 'armor',
-        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair', KeyF: 'flares', KeyV: 'aam', KeyN: 'missiles', KeyC: 'barrage' };
+        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair', KeyF: 'flares', KeyV: 'aam', KeyN: 'missiles', KeyC: 'barrage', KeyJ: 'rpg', KeyK: 'drone' };
     const inPlay = () => screen === 'playing';
     document.addEventListener('keydown', e => {
         Sound.unlock();
@@ -2249,6 +2347,7 @@
         if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
         if (e.code === 'KeyM') toggleMute();
         if (e.code === 'KeyX' && !e.repeat) toggleFullscreen();
+        if (e.code === 'KeyT') setTechOpen(!techOpen);
         if (e.code === 'KeyR' && mode === 'solo' && (screen === 'gameover' || screen === 'paused')) startSolo();
     });
     document.addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) input[k] = false; });
@@ -2348,6 +2447,8 @@
         zone.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
         zone.addEventListener('contextmenu', e => e.preventDefault());
     })();
+    const techBtn = document.getElementById('techBtn');
+    if (techBtn) techBtn.addEventListener('click', () => { if (isTouch) closeShop(); setTechOpen(!techOpen); if (techBtn.blur) techBtn.blur(); });
     shopButtons.forEach(([btn, type]) => {
         if (!btn) return;
         btn.addEventListener('click', () => {
@@ -2490,6 +2591,11 @@
                 sim.players[0].credits = 1000; input.right = false;
                 if (hash.indexOf('maxed') > 0) { const q = sim.players[0]; q.upgrades = { gun: 3, armor: 3, engine: 3, bay: 3, repair: 3 }; q.maxBombs = q.bombs = 11; q.health = 60; input.up = false; setTimeout(() => { input.up = true; input.right = true; }, 200); setTimeout(() => { input.right = false; input.up = false; q.y = 200; q.vy = 0; }, 900); }
                 setTimeout(() => queueBuy('tank'), 300); setTimeout(() => queueBuy('soldier'), 600); setTimeout(() => queueBuy('soldier'), 900);
+                if (hash.indexOf('tech') > 0) { // tech tree units: rocket teams and drones
+                    const q = sim.players[0]; q.credits = 5000; Object.assign(q.upgrades, { training: 1, rockets: 1, drones: 2 });
+                    ['rpg', 'drone', 'rpg', 'drone'].forEach((c, i) => setTimeout(() => queueBuy(c), 350 + i * 150));
+                    if (hash.indexOf('tree') > 0) setTimeout(() => { q.upgrades.drones = 1; q.credits = 700; setTechOpen(true); if (hash.indexOf('closed') > 0) setTimeout(() => setTechOpen(false), 300); }, 1200);
+                }
                 if (hash.indexOf('troops') > 0) { // a squad facing an enemy squad, for checking unit art
                     [1200, 1500, 1800, 2100].forEach(t => setTimeout(() => queueBuy('soldier'), t));
                     setTimeout(() => { sim.units.filter(u => u.team === 0).forEach((u, i) => sim.units.push(Object.assign({}, u, { team: AI, x: u.x + 170 + i * 9, dir: -1, ai: true }))); }, 2600);

@@ -53,6 +53,23 @@ assert.ok(solo.fetches.some(f => f.url === '/scores' && typeof f.body.score === 
 solo.key('KeyR'); solo.frames(1); assert.strictEqual(solo.nq.screen, 'playing', 'restart works');
 console.log('solo client ok');
 
+// ---- Troop tech: rocket teams and drones render and fight through the client ----
+{
+    const c = makeClient({ scoreUrl: '/scores', csrf: 'x', match: null });
+    c.key('Space'); c.frames(2);
+    const q = c.nq.sim.players[0]; q.credits = 9999;
+    ['KeyT'].forEach(k => c.key(k)); c.frames(1); c.key('KeyT'); // panel toggles
+    Object.assign(q.upgrades, { training: 1, rockets: 1 });
+    c.key('KeyJ'); c.frames(2);
+    c.nq.sim.players[0].upgrades.drones = 2;
+    c.key('KeyK'); c.frames(2);
+    const types = c.nq.sim.units.filter(u => u.team === 0).map(u => u.type);
+    assert.ok(types.includes('rpg') && types.includes('drone'), 'tech units bought by key: ' + types);
+    const t0 = Date.now(); c.frames(1500);
+    assert.ok(Date.now() - t0 < 20000, 'renders tech units without stalling');
+    console.log('tech units client ok', Date.now() - t0, 'ms');
+}
+
 // ---- Two clients in lockstep over an in-memory channel ----
 function fakeNetPair() {
     const links = [];

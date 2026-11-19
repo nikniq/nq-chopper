@@ -31,7 +31,7 @@
     @endif
     <div id="score">Score: 0 | Rescued: 0</div>
     <div id="controls">
-        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>G</kbd> Boost &nbsp;·&nbsp; <kbd>V</kbd> Air missile &nbsp;·&nbsp; <kbd>C</kbd> Barrage &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>-<kbd>4</kbd> Buy &nbsp;·&nbsp; <kbd>5</kbd> Airstrike &nbsp;·&nbsp; <kbd>6</kbd> Hold/advance &nbsp;·&nbsp; <kbd>7</kbd> Load/drop troops &nbsp;·&nbsp; <kbd>8</kbd>/<kbd>9</kbd>/<kbd>0</kbd> Engine, bay, repair &nbsp;·&nbsp; <kbd>F</kbd> Flares &nbsp;·&nbsp; <kbd>N</kbd> Missiles &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>X</kbd> Fullscreen &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
+        <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>G</kbd> Boost &nbsp;·&nbsp; <kbd>V</kbd> Air missile &nbsp;·&nbsp; <kbd>C</kbd> Barrage &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>-<kbd>4</kbd> Buy &nbsp;·&nbsp; <kbd>5</kbd> Airstrike &nbsp;·&nbsp; <kbd>6</kbd> Hold/advance &nbsp;·&nbsp; <kbd>7</kbd> Load/drop troops &nbsp;·&nbsp; <kbd>8</kbd>/<kbd>9</kbd>/<kbd>0</kbd> Engine, bay, repair &nbsp;·&nbsp; <kbd>F</kbd> Flares &nbsp;·&nbsp; <kbd>N</kbd> Missiles &nbsp;·&nbsp; <kbd>T</kbd> Tech tree &nbsp;·&nbsp; <kbd>J</kbd>/<kbd>K</kbd> Rocket team, drone &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>X</kbd> Fullscreen &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>
         <span id="touchHelp" style="display:none">Left thumb steers (let go to hover) &nbsp;·&nbsp; Right thumb: Fire, Bomb, Boost &nbsp;·&nbsp; Shop for troops</span>
         <button id="muteBtn" type="button" aria-pressed="false">Sound: On</button><button id="fullscreenBtn" type="button">Fullscreen</button>
     </div>
@@ -39,6 +39,9 @@
         <span id="shopLabel">Credits <strong id="credits">$0</strong></span>
         <button id="buySoldier" class="shop-btn" type="button" disabled>Soldier <span class="price">$50</span></button>
         <button id="buyTank" class="shop-btn" type="button" disabled>Tank <span class="price">$200</span></button>
+        <button id="buyRpg" class="shop-btn tech-unit" type="button" disabled hidden>Rocket team <span class="price">$90</span></button>
+        <button id="buyDrone" class="shop-btn tech-unit" type="button" disabled hidden>Drone <span class="price">$150</span></button>
+        <button id="techBtn" class="shop-btn tech" type="button" aria-expanded="false" aria-controls="techTree">Tech tree <span class="price">T</span></button>
         <button id="buyGun" class="shop-btn upgrade" type="button" disabled>Guns<span class="lvl"></span> <span class="price">$150</span></button>
         <button id="buyArmor" class="shop-btn upgrade" type="button" disabled>Armor<span class="lvl"></span> <span class="price">$150</span></button>
         <button id="buyEngine" class="shop-btn upgrade" type="button" disabled>Engine<span class="lvl"></span> <span class="price">$200</span></button>

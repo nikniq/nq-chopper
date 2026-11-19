@@ -58,7 +58,10 @@
     const LOAD_RANGE = 90;       // how close a landed chopper must be to load soldiers
     const UNITS = {
         soldier: { name: 'SOLDIER', cost: 50, width: 8, height: 20, speed: 1.1, health: 24, range: 130, fireRate: 45, dmg: 8 },
-        tank:    { name: 'TANK',    cost: 200, width: 26, height: 22, speed: 0.8, health: 120, range: 210, fireRate: 95, dmg: 35 }
+        tank:    { name: 'TANK',    cost: 200, width: 26, height: 22, speed: 0.8, health: 120, range: 210, fireRate: 95, dmg: 35 },
+        // Unlocked through the troop tech tree
+        rpg:     { name: 'ROCKET TEAM', cost: 90, width: 8, height: 20, speed: 0.9, health: 28, range: 230, fireRate: 120, dmg: 48, tech: 'rockets' },
+        drone:   { name: 'DRONE', cost: 150, width: 16, height: 8, speed: 1.6, health: 45, range: 190, fireRate: 36, dmg: 9, tech: 'drones', alt: 120 }
     };
     const UPGRADES = {
         gun:   { name: 'GUNS',  costs: [150, 250, 400], cooldown: [9, 7, 5, 4], dmg: [35, 42, 50, 60] },
@@ -67,14 +70,23 @@
         flares: { name: 'FLARES', costs: [150, 250, 350], bonus: 2 },          // auto-decoy homing missiles
         engine: { name: 'ENGINE', costs: [200, 350, 500], bonus: 0.4 },       // top speed
         bay: { name: 'BOMB BAY', costs: [200, 350, 500], bonus: 2 },          // bomb capacity
-        repair: { name: 'AUTO-REPAIR', costs: [250, 400, 600], every: [0, 120, 60, 30] } // hull per N frames
+        repair: { name: 'AUTO-REPAIR', costs: [250, 400, 600], every: [0, 120, 60, 30] }, // hull per N frames
+        // Troop tech tree: TRAINING -> ROCKET TEAMS -> DRONE CORPS
+        training: { name: 'TRAINING', costs: [150, 300], bonus: 0.25 },                 // +25% troop health and damage per level
+        rockets: { name: 'ROCKET TEAMS', costs: [250], requires: 'training' },          // unlocks rocket-launcher infantry
+        drones: { name: 'DRONE CORPS', costs: [400, 500], requires: 'rockets' }          // unlocks drones; level 2 arms them with missiles
     };
+    const TECH_TREE = [
+        { id: 'training', unlocks: null, desc: '+25% troop health and damage per level' },
+        { id: 'rockets', unlocks: 'rpg', desc: 'Rocket teams: anti-tank, can hit aircraft' },
+        { id: 'drones', unlocks: 'drone', desc: 'Armed drones; level 2 adds missiles' }
+    ];
     const AI = -1; // team id of the computer opponent in solo mode
     const BOOST = { max: 100, drain: 1.1, regen: 0.3, regenDelay: 45, speedMul: 2.1 };
     // Threat multiplier: waves get tougher on a curve, not just by adding a tank
     const threat = s => 1 + Math.max(0, s.wave - 1) * 0.18 + Math.max(0, s.wave - 5) * 0.07;
     // Only accept known shop codes (inputs come from the network in online play)
-    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops', 'engine', 'bay', 'repair', 'flares', 'aam', 'missiles', 'barrage'].concat(FORT_CODES);
+    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops', 'engine', 'bay', 'repair', 'flares', 'aam', 'missiles', 'barrage', 'training', 'rockets', 'drones', 'rpg', 'drone'].concat(FORT_CODES);
     const has = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 
     // ---------------------------------------------------------------------
@@ -117,7 +129,7 @@
         return { id, team: id, side, name: name || ('P' + (id + 1)), x: 60, y: 200, width: 60, height: 24, vx: 0, vy: 0, dir: side,
             speed: 3.4, carrying: 0, maxHealth: 100, health: 100, bombs: MAX_BOMBS, maxBombs: MAX_BOMBS, invuln: 0, landed: false, fireCooldown: 0, tilt: 0, spin: 0,
             alive: true, respawn: 0, deaths: 0, score: 0, credits: 0, rescued: 0, lost: 0,
-            aam: AAM.max, aamCooldown: 0, barrageCooldown: 0, flares: 0, upgrades: { gun: 0, armor: 0, engine: 0, bay: 0, repair: 0, flares: 0, missiles: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0, boost: BOOST.max, boosting: false, boostIdle: 0,
+            aam: AAM.max, aamCooldown: 0, barrageCooldown: 0, flares: 0, upgrades: { gun: 0, armor: 0, engine: 0, bay: 0, repair: 0, flares: 0, missiles: 0, training: 0, rockets: 0, drones: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0, boost: BOOST.max, boosting: false, boostIdle: 0,
             // Per-run combat ledger for the debrief (integers only; gameplay never reads it)
             stats: { tanks: 0, aa: 0, soldiers: 0, helis: 0, bosses: 0, fullLoads: 0, perfectWaves: 0, maxCombo: 0, strikes: 0, troopsDropped: 0, unitsBought: 0, balloons: 0, dmgTaken: 0 } };
     }
@@ -322,9 +334,20 @@
         return s.units.filter(u => u.team === team).length + s.paras.filter(k => k.team === team).length
             + s.players.filter(q => q.team === team).reduce((a, q) => a + q.troops, 0);
     }
+    const trained = p => 1 + ((p && p.upgrades.training) || 0) * UPGRADES.training.bonus;
+    function makeTech(s, p, type, x, dir) {
+        const def = UNITS[type], k = trained(p) * veteran(s), hp = Math.round(def.health * k);
+        const y = type === 'drone' ? GROUND_Y - def.alt : GROUND_Y - def.height;
+        return { team: p.team, type, x, y, baseY: y, width: def.width, height: def.height, vx: 0, dir, vet: k, speed: def.speed * rand(s, 0.9, 1.1),
+            health: hp, maxHealth: hp, range: def.range, fireTimer: rand(s, 10, def.fireRate), angle: 0, anim: 0, moving: true, ai: false,
+            shots: 0, armed: type === 'drone' && p.upgrades.drones >= 2 };
+    }
     function buyUnit(s, p, type) {
         const def = has(UNITS, type) ? UNITS[type] : null;
         if (!def || !p.alive) return false;
+        if (def.tech && !p.upgrades[def.tech]) {
+            text(s, cx(p), p.y - 30, 'RESEARCH ' + UPGRADES[def.tech].name + ' FIRST', '#f66'); snd(s, 'denied', cx(p), p.team); return false;
+        }
         const mine = fielded(s, p.team);
         if (p.credits < def.cost || mine >= allyCap(s)) {
             text(s, cx(p), p.y - 30, p.credits < def.cost ? 'NEED $' + def.cost : 'TROOP LIMIT', '#f66');
@@ -334,7 +357,12 @@
         p.credits -= def.cost; p.stats.unitsBought++;
         const b = ownBase(s, p.team), dir = marchDir(s, p.team);
         const x = dir === 1 ? b.x + b.width + 42 + rand(s, -8, 8) : b.x - 42 - def.width + rand(s, -8, 8);
-        s.units.push(type === 'tank' ? Object.assign(makeTank(s, p.team, x, 0), { dir, angle: dir === 1 ? 0 : Math.PI }) : makeSoldier(s, p.team, x, dir));
+        let unit;
+        if (type === 'tank') unit = Object.assign(makeTank(s, p.team, x, 0), { dir, angle: dir === 1 ? 0 : Math.PI });
+        else if (def.tech) unit = makeTech(s, p, type, x, dir);
+        else unit = makeSoldier(s, p.team, x, dir);
+        if (type === 'soldier' || type === 'tank') { const k = trained(p); unit.health = unit.maxHealth = Math.round(unit.maxHealth * k); unit.vet = (unit.vet || 1) * k; }
+        s.units.push(unit);
         parts(s, x, GROUND_Y - 4, 6, { speed: 1, colors: ['#9c9', '#cfc'], size: 3, life: 25, up: 0.6 });
         text(s, cx(p), p.y - 30, def.name + ' DEPLOYED  -$' + def.cost, '#8f8');
         snd(s, 'deploy', cx(p), p.team);
@@ -427,6 +455,7 @@
         if (!def || !p.alive) return false;
         const cost = upgradeCost(p, type), x = cx(p), y = p.y - 30;
         if (cost === null) { text(s, x, y, def.name + ' MAXED', '#f66'); snd(s, 'denied', cx(p), p.team); return false; }
+        if (def.requires && !p.upgrades[def.requires]) { text(s, x, y, 'NEEDS ' + UPGRADES[def.requires].name, '#f66'); snd(s, 'denied', cx(p), p.team); return false; }
         if (p.credits < cost) { text(s, x, y, 'NEED $' + cost, '#f66'); snd(s, 'denied', cx(p), p.team); return false; }
         p.credits -= cost;
         p.upgrades[type]++;
@@ -435,6 +464,7 @@
         if (type === 'flares') p.flares = p.upgrades.flares * def.bonus;
         if (type === 'missiles') p.aam += def.bonus;
         if (type === 'bay') { p.maxBombs += def.bonus; p.bombs += def.bonus; }
+        if (type === 'drones' && p.upgrades.drones >= 2) s.units.forEach(u => { if (u.team === p.team && u.type === 'drone') u.armed = true; });
         parts(s, x, cy(p), 14, { speed: 2.5, colors: ['#8f8', '#fff', '#ff0'], size: 3, life: 30 });
         text(s, x, y, def.name + ' LEVEL ' + p.upgrades[type] + '  -$' + cost, '#8f8', true);
         snd(s, 'dropoff', cx(p), p.team);
@@ -708,12 +738,20 @@
     function findTarget(s, u) {
         const ux = cx(u);
         let best = null, bestD = Infinity;
+        const flier = u.type === 'drone';
         s.units.forEach(o => {
             if (!hostile(s, o.team, u.team)) return;
-            const d = Math.abs(cx(o) - ux);
-            if (d < u.range && d < bestD) { bestD = d; best = { kind: 'unit', x: cx(o), y: cy(o), obj: o }; }
+            if (o.type === 'drone' && u.type !== 'tank' && u.type !== 'aa' && u.type !== 'rpg') return;
+            if (u.type === 'aa' && o.type !== 'drone') return;
+            const d = flier ? dist(cx(o) - ux, cy(o) - cy(u)) : Math.abs(cx(o) - ux);
+            // Rocket teams go for armour first
+            const w = u.type === 'rpg' && (o.type === 'tank' || o.type === 'aa' || o.type === 'truck') ? d * 0.5 : d;
+            if (d < u.range && w < bestD) { bestD = w; best = { kind: o.type === 'drone' ? 'heli' : 'unit', x: cx(o), y: cy(o), obj: o }; }
         });
-        if (best && u.type !== 'aa') return best;
+        if (u.type === 'rpg' && !best) {
+            choppers(s).forEach(c => { if (!hostile(s, c.team, u.team) || c.alive === false) return; const d = dist(cx(c) - ux, cy(c) - u.y); if (d < u.range && d < bestD) { bestD = d; best = { kind: 'heli', x: cx(c), y: cy(c), obj: c }; } });
+        }
+        if (best) return best;
         const eb = enemyBase(s, u.team);
         if (eb && !u.ai) {
             const d = marchDir(s, u.team) === 1 ? eb.x - ux : ux - (eb.x + eb.width);
@@ -747,6 +785,24 @@
     }
     function fireAt(s, u, target) {
         const def = UNITS[u.type], ux = cx(u);
+        if (u.type === 'rpg') {
+            const oy = u.y + 5, dx = target.x - ux, dy = target.y - oy, m = dist(dx, dy) || 1, sp = 5;
+            s.shells.push({ team: u.team, x: ux + dx / m * 8, y: oy + dy / m * 8, vx: dx / m * sp, vy: dy / m * sp, width: 8, height: 5, dmg: Math.round(def.dmg * (u.vet || 1)), life: 70, kind: 'rpg' });
+            snd(s, 'bomb', ux);
+            return;
+        }
+        if (u.type === 'drone') {
+            u.shots++;
+            if (u.armed && u.shots % 4 === 0 && target.kind !== 'base') {
+                s.shells.push({ team: u.team, x: ux, y: u.y + u.height, vx: u.dir * 2, vy: 1, width: 9, height: 9, dmg: 60, life: 120, kind: target.kind === 'heli' ? 'aam' : 'agm', lock: target.obj });
+                snd(s, 'bomb', ux);
+                return;
+            }
+            const oy = u.y + u.height, dx = target.x - ux, dy = target.y - oy, m = dist(dx, dy) || 1;
+            s.shells.push({ team: u.team, x: ux, y: oy, vx: dx / m * 7, vy: dy / m * 7, width: 4, height: 4, dmg: Math.round(def.dmg * (u.vet || 1)), life: 50, kind: 'rifle' });
+            snd(s, 'rifle', ux);
+            return;
+        }
         if (u.type === 'soldier') {
             s.shells.push({ team: u.team, x: ux + u.dir * 6, y: u.y + 7, vx: u.dir * 6, vy: 0, width: 5, height: 2, dmg: Math.round(def.dmg * (u.vet || 1)), life: 40, kind: 'rifle' });
             snd(s, 'rifle', ux);
@@ -774,6 +830,7 @@
             u.anim++;
             const ux = cx(u);
             if (u.type === 'soldier' && tryEnterHut(s, i)) continue;
+            if (u.type === 'drone') u.y = u.baseY + Math.round(Math.sin(u.anim * 0.05) * 6);
             if (u.type === 'truck') {
                 const h = frontBunker(s);
                 u.x -= u.speed; u.moving = true;
@@ -1357,6 +1414,7 @@
             if (!gone && b.hut !== undefined) { const h = s.huts[b.hut]; if (h && h.garrison && hostile(s, h.garrison.team, b.team) && Math.abs(b.x - hutDoor(h)) < h.w / 2 + 4 && b.y > GROUND_Y - h.h - 8) { damageHut(s, h, b.dmg, owner); gone = true; } }
             if (!gone && b.kind !== 'heli' && b.kind !== 'aa' && b.kind !== 'rocket' && b.kind !== 'missile' && b.kind !== 'aam') { const eb = enemyBase(s, b.team); if (eb && overlap(eb, box)) { damageBase(s, eb, b.dmg, b.x, b.y, owner); gone = true; } }
             if (gone) {
+                if (b.kind === 'rpg') parts(s, b.x, Math.min(b.y, GROUND_Y), 10, { speed: 2, colors: ['#ff0', '#f80', '#555'], size: 3, life: 22 });
                 if (b.kind === 'shell' && b.y < GROUND_Y + 1) parts(s, b.x, Math.min(b.y, GROUND_Y), 5, { speed: 1.5, colors: ['#ff0', '#f80'], size: 3, life: 15 });
                 s.shells.splice(i, 1);
             }
@@ -1459,7 +1517,7 @@
         const STATUS = ['playing', 'dying', 'waveclear', 'over'], HSTATE = ['waiting', 'running', 'aboard', 'saved', 'dead'], TYPES = ['soldier', 'tank', 'aa'];
         mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.convoyTimer); mix(s.supplyTimer); s.huts.forEach(h => mix(h.mortarTimer || 0)); mix(s.hostageTimer);
         const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0); mix(a.mode); mix(a.modeTimer);
-        s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.upgrades.engine); mix(p.upgrades.bay); mix(p.upgrades.repair); mix(p.upgrades.missiles || 0); mix(p.flares); mix(p.aam); mix(p.aamCooldown); mix(p.barrageCooldown || 0); mix(p.maxBombs); mix(p.speed); mix(p.lost); });
+        s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.upgrades.engine); mix(p.upgrades.bay); mix(p.upgrades.repair); mix(p.upgrades.missiles || 0); mix(p.upgrades.training || 0); mix(p.upgrades.rockets || 0); mix(p.upgrades.drones || 0); mix(p.flares); mix(p.aam); mix(p.aamCooldown); mix(p.barrageCooldown || 0); mix(p.maxBombs); mix(p.speed); mix(p.lost); });
         s.hostages.forEach(o => { mix(o.x); mix(HSTATE.indexOf(o.state)); mix(o.carrier); mix(o.blocked); mix(o.bleed); mix(o.vip ? 1 : 0); });
         s.units.forEach(u => { mix(u.y); mix(u.team); mix(TYPES.indexOf(u.type)); });
         s.bombs.forEach(b => { mix(b.x); mix(b.y); });
@@ -1467,5 +1525,5 @@
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, BARRAGE, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, aamMax, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, TECH_TREE, PICKUPS, BOSS_EVERY, HUT_HP, AAM, BARRAGE, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, aamMax, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
 });

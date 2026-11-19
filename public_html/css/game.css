@@ -132,3 +132,34 @@ body.touch[data-screen="gameover"] #pauseMenu .pm-solo { display: none; }
 
 /* Shared top bar on the game page: not sticky, so it scrolls away and never covers the canvas */
 body > .topbar { position: relative; }
+
+/* ---------- Troop tech tree ---------- */
+.shop-btn.tech { background: #6a3fb0; } .shop-btn.tech:hover:not(:disabled) { background: #7d52c6; }
+.shop-btn.tech-unit { background: #2f6a6a; } .shop-btn.tech-unit:hover:not(:disabled) { background: #3c8686; }
+#techTree { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(94%, 760px); z-index: 8; background: rgba(10,14,22,0.94); border: 1px solid #ffffff30; border-radius: 14px; padding: 12px 14px; box-shadow: 0 20px 50px #000a; color: #fff; font-family: inherit; }
+#techTree[hidden] { display: none; }
+.tt-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; letter-spacing: 1.5px; }
+.tt-head strong { color: #ffd23f; }
+.tt-cash { color: #8f8; font-weight: 700; margin-left: auto; }
+.tt-close { background: #ffffff14; border: 1px solid #ffffff30; color: #fff; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; }
+.tt-row { display: flex; align-items: stretch; }
+.tt-link { flex: 0 0 26px; display: flex; align-items: center; }
+.tt-link span { display: block; width: 100%; height: 4px; background: #ffffff22; border-radius: 2px; position: relative; }
+.tt-link span::after { content: ""; position: absolute; right: -2px; top: -4px; border: 6px solid transparent; border-left-color: #ffffff22; border-right: 0; }
+.tt-link.on span { background: #3fbf6a; } .tt-link.on span::after { border-left-color: #3fbf6a; }
+.tt-node { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding: 10px 8px; border-radius: 12px; border: 2px solid #ffffff22; background: #151b26; color: #fff; font: inherit; cursor: pointer; transition: transform .1s, border-color .1s; }
+.tt-node.ready { border-color: #ffd23f; box-shadow: 0 0 16px #ffd23f44; }
+.tt-node.ready:hover { transform: translateY(-2px); }
+.tt-node.done { border-color: #3fbf6a; background: #14261c; }
+.tt-node.locked { opacity: 0.55; cursor: not-allowed; }
+.tt-node.poor { cursor: not-allowed; }
+.tt-node:disabled { cursor: default; }
+.tt-icon { font-size: 28px; line-height: 1; }
+.tt-name { font-weight: 800; letter-spacing: 1px; font-size: 0.9rem; }
+.tt-pips { display: flex; gap: 4px; } .tt-pips i { width: 14px; height: 5px; border-radius: 3px; background: #ffffff25; } .tt-pips i.on { background: #3fbf6a; }
+.tt-desc { font-size: 0.75rem; color: #c8cfdc; }
+.tt-unlock { font-size: 0.72rem; color: #8fd3ff; }
+.tt-state { margin-top: auto; font-size: 0.78rem; font-weight: 700; color: #ffd23f; }
+.tt-node.done .tt-state { color: #3fbf6a; } .tt-node.locked .tt-state { color: #f99; }
+.tt-foot { margin-top: 8px; font-size: 0.72rem; color: #8a93a6; text-align: center; }
+@media (max-width: 560px), (max-height: 420px) { .tt-desc { display: none; } .tt-icon { font-size: 20px; } .tt-node { padding: 6px 4px; } #techTree { padding: 8px; } .tt-link { flex-basis: 12px; } }

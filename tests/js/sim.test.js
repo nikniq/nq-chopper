@@ -800,3 +800,24 @@ console.log('missile upgrades ok');
     assert.ok(new Set(fired.map(b => b.lock)).size === 2, 'spreads across targets');
     console.log('missile barrage ok');
 }
+
+// Troop tech tree: locked until researched in order; rocket teams and drones deploy and fight
+{
+    const s = Sim.createGame({ mode: 'solo', seed: 11 });
+    const p = s.players[0]; p.credits = 5000;
+    const buy = code => Sim.step(s, [Object.assign({}, Sim.EMPTY, { buy: code })]);
+    const n0 = s.units.length;
+    buy('rpg'); assert.strictEqual(s.units.length, n0, 'rpg locked before research');
+    buy('rockets'); assert.strictEqual(p.upgrades.rockets, 0, 'rockets need training');
+    buy('training'); buy('rockets'); buy('drones');
+    assert.deepStrictEqual([p.upgrades.training, p.upgrades.rockets, p.upgrades.drones], [1, 1, 1]);
+    buy('rpg'); buy('drone');
+    const rpg = s.units.find(u => u.type === 'rpg'), drone = s.units.find(u => u.type === 'drone');
+    assert.ok(rpg && drone, 'tech units deploy');
+    assert.ok(drone.y < Sim.GROUND_Y - 80, 'drone flies');
+    assert.ok(rpg.maxHealth > Sim.UNITS.rpg.health, 'training boosts health');
+    buy('drones'); assert.ok(drone.armed, 'drone corps 2 arms drones');
+    for (let i = 0; i < 1500; i++) Sim.step(s, [Sim.EMPTY]);
+    assert.ok(Number.isFinite(Sim.hash(s)));
+    console.log('troop tech tree ok');
+}

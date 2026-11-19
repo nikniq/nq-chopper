@@ -47,6 +47,7 @@
     const FIELD_HOSPITAL = { range: 90, every: 30, heal: 2 };
     const BUNKER_TROOPS = [0, 1200, 900, 700, 540]; // frames between free soldiers from a held bunker (level 1, level 2 with AA) // house, bunker, bunker with AA gun; a bomb does 60
     const AAM = { max: 4, dmg: 150, speed: 6.5, range: 700, cooldown: 30, life: 150 }; // air-to-air missiles
+    const BARRAGE = { min: 2, cooldown: 480, range: 760 }; // fire every missile at once, each locked on a different target
     const WOUND_FRAMES = 3600;
     const COAX = { range: 140, rate: 25, dmg: 6 };         // AI tank coaxial MG vs low/landed choppers in front
     const HOSTAGE_ESCAPE = 2700;                          // frames blocked by an enemy-held hut before hostages flee on foot
@@ -73,7 +74,7 @@
     // Threat multiplier: waves get tougher on a curve, not just by adding a tank
     const threat = s => 1 + Math.max(0, s.wave - 1) * 0.18 + Math.max(0, s.wave - 5) * 0.07;
     // Only accept known shop codes (inputs come from the network in online play)
-    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops', 'engine', 'bay', 'repair', 'flares', 'aam', 'missiles'].concat(FORT_CODES);
+    const BUY_CODES = ['soldier', 'tank', 'gun', 'armor', 'strike', 'rally', 'troops', 'engine', 'bay', 'repair', 'flares', 'aam', 'missiles', 'barrage'].concat(FORT_CODES);
     const has = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 
     // ---------------------------------------------------------------------
@@ -116,7 +117,7 @@
         return { id, team: id, side, name: name || ('P' + (id + 1)), x: 60, y: 200, width: 60, height: 24, vx: 0, vy: 0, dir: side,
             speed: 3.4, carrying: 0, maxHealth: 100, health: 100, bombs: MAX_BOMBS, maxBombs: MAX_BOMBS, invuln: 0, landed: false, fireCooldown: 0, tilt: 0, spin: 0,
             alive: true, respawn: 0, deaths: 0, score: 0, credits: 0, rescued: 0, lost: 0,
-            aam: AAM.max, aamCooldown: 0, flares: 0, upgrades: { gun: 0, armor: 0, engine: 0, bay: 0, repair: 0, flares: 0, missiles: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0, boost: BOOST.max, boosting: false, boostIdle: 0,
+            aam: AAM.max, aamCooldown: 0, barrageCooldown: 0, flares: 0, upgrades: { gun: 0, armor: 0, engine: 0, bay: 0, repair: 0, flares: 0, missiles: 0 }, combo: 0, comboTimer: 0, rally: null, strikeCooldown: 0, troops: 0, boost: BOOST.max, boosting: false, boostIdle: 0,
             // Per-run combat ledger for the debrief (integers only; gameplay never reads it)
             stats: { tanks: 0, aa: 0, soldiers: 0, helis: 0, bosses: 0, fullLoads: 0, perfectWaves: 0, maxCombo: 0, strikes: 0, troopsDropped: 0, unitsBought: 0, balloons: 0, dmgTaken: 0 } };
     }
@@ -473,6 +474,27 @@
         s.shells.push({ team: p.team, owner: p.id, x: x + p.dir * 20, y: p.y + p.height + 3, vx: p.dir * 3 + p.vx, vy: 0.5, width: 9, height: 9, dmg: AAM.dmg, life: AAM.life, kind: g ? 'agm' : 'aam' });
         snd(s, 'bomb', x, p.team);
     }
+    // Barrage: every missile in the rack leaves at once in a fan, spread across the nearest targets
+    function liveTarget(s, c) { return c && (s.units.includes(c) || (choppers(s).includes(c) && c.alive !== false)); }
+    function fireBarrage(s, p) {
+        const x = cx(p), y = p.y - 30;
+        if (p.barrageCooldown > 0) { text(s, x, y, 'BARRAGE RELOADING ' + Math.ceil(p.barrageCooldown / 60) + 's', '#f96'); snd(s, 'denied', x, p.team); return; }
+        if (p.aam < BARRAGE.min) { text(s, x, y, 'BARRAGE NEEDS ' + BARRAGE.min + ' MISSILES', '#f66'); snd(s, 'denied', x, p.team); return; }
+        const targets = [];
+        choppers(s).forEach(c => { if (hostile(s, c.team, p.team) && c.alive !== false) { const d = dist(cx(c) - x, cy(c) - cy(p)); if (d <= BARRAGE.range) targets.push({ c, d, air: 1 }); } });
+        s.units.forEach(u => { if (hostile(s, u.team, p.team)) { const d = dist(cx(u) - x, cy(u) - cy(p)); if (d <= BARRAGE.range) targets.push({ c: u, d, air: 0 }); } });
+        if (!targets.length) { text(s, x, y, 'NO TARGETS', '#f66'); snd(s, 'denied', x, p.team); return; }
+        targets.sort((a, b) => b.air - a.air || a.d - b.d);
+        const n = p.aam;
+        for (let i = 0; i < n; i++) {
+            const t = targets[i % targets.length], f = n > 1 ? i / (n - 1) : 0.5;
+            s.shells.push({ team: p.team, owner: p.id, x: x + p.dir * (14 + (i % 2) * 8), y: p.y + p.height + 3, vx: p.dir * (2 + f * 2) + p.vx, vy: -2.6 + f * 3.4,
+                width: 9, height: 9, dmg: AAM.dmg, life: AAM.life + 30, kind: t.air ? 'aam' : 'agm', lock: t.c });
+        }
+        p.aam = 0; p.aamCooldown = AAM.cooldown; p.barrageCooldown = BARRAGE.cooldown;
+        text(s, x, y, 'BARRAGE x' + n + '!', '#fd4');
+        snd(s, 'bomb', x, p.team); snd(s, 'bomb', x, p.team);
+    }
     function dropBomb(s, p) {
         if (p.bombs <= 0 || p.landed) return;
         s.bombs.push({ team: p.team, x: cx(p), y: p.y + p.height + 4, vx: p.vx * 0.8, vy: 1 });
@@ -565,6 +587,7 @@
         p.tilt += ((p.vx / p.speed) * (p.boosting ? 0.14 : 0.2) - p.tilt) * 0.1;
         if (p.upgrades.repair && p.health < p.maxHealth && s.frame % UPGRADES.repair.every[p.upgrades.repair] === 0) p.health++;
         if (p.aamCooldown > 0) p.aamCooldown--;
+        if (p.barrageCooldown > 0) p.barrageCooldown--;
         if (p.invuln > 0) p.invuln--;
         if (p.fireCooldown > 0) p.fireCooldown--;
         if (p.comboTimer > 0 && --p.comboTimer === 0) p.combo = 0;
@@ -579,6 +602,7 @@
             else if (inp.buy === 'rally') toggleRally(s, p);
             else if (inp.buy === 'troops') loadOrDrop(s, p);
             else if (inp.buy === 'aam') fireAam(s, p);
+            else if (inp.buy === 'barrage') fireBarrage(s, p);
             else if (FORT_CODES.includes(inp.buy)) fortify(s, p, +inp.buy.slice(4));
         }
         if (p.health < p.maxHealth * 0.4 && s.frame % 5 === 0) parts(s, cx(p) + rand(s, -6, 6), p.y + 6, 1, { speed: 0.3, colors: ['#444'], size: 5, life: 40, up: 0.8 });
@@ -1299,12 +1323,13 @@
         // Shells: tank/soldier/AI-heli fire
         for (let i = s.shells.length - 1; i >= 0; i--) {
             const b = s.shells[i], owner = b.owner !== undefined && s.players[b.owner] ? s.players[b.owner] : playerByTeam(s, b.team);
+            if (b.lock && !liveTarget(s, b.lock)) b.lock = null;
             if (b.kind === 'aam') {
-                const t = nearestAir(s, b.team, b.x, b.y);
+                const t = b.lock ? { c: b.lock, d: dist(cx(b.lock) - b.x, cy(b.lock) - b.y) } : nearestAir(s, b.team, b.x, b.y);
                 if (t) { b.vx += ((cx(t.c) - b.x) / (t.d || 1) * AAM.speed - b.vx) * 0.12; b.vy += ((cy(t.c) - b.y) / (t.d || 1) * AAM.speed - b.vy) * 0.12; }
             }
             if (b.kind === 'agm') {
-                const t = nearestGround(s, b.team, b.x, b.y);
+                const t = b.lock ? { c: b.lock, d: dist(cx(b.lock) - b.x, cy(b.lock) - b.y) } : nearestGround(s, b.team, b.x, b.y);
                 if (t) { b.vx += ((cx(t.c) - b.x) / (t.d || 1) * AAM.speed - b.vx) * 0.12; b.vy += ((cy(t.c) - b.y) / (t.d || 1) * AAM.speed - b.vy) * 0.12; }
             }
             if (b.kind === 'missile') {
@@ -1434,7 +1459,7 @@
         const STATUS = ['playing', 'dying', 'waveclear', 'over'], HSTATE = ['waiting', 'running', 'aboard', 'saved', 'dead'], TYPES = ['soldier', 'tank', 'aa'];
         mix(s.wave); mix(STATUS.indexOf(s.status)); mix(s.statusTimer); mix(s.waveRescued); mix(s.waveLost); mix(s.aiThink); mix(s.convoyTimer); mix(s.supplyTimer); s.huts.forEach(h => mix(h.mortarTimer || 0)); mix(s.hostageTimer);
         const a = s.ai; mix(a.x); mix(a.y); mix(a.health); mix(a.alive ? 1 : 0); mix(a.respawn); mix(a.boss ? 1 : 0); mix(a.mode); mix(a.modeTimer);
-        s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.upgrades.engine); mix(p.upgrades.bay); mix(p.upgrades.repair); mix(p.upgrades.missiles || 0); mix(p.flares); mix(p.aam); mix(p.aamCooldown); mix(p.maxBombs); mix(p.speed); mix(p.lost); });
+        s.players.forEach(p => { mix(Object.keys(p.stats).reduce((a, k) => a + p.stats[k], 0)); mix(p.alive ? 1 : 0); mix(p.bombs); mix(p.respawn); mix(p.vx); mix(p.vy); mix(p.combo); mix(p.upgrades.gun); mix(p.upgrades.armor); mix(p.upgrades.engine); mix(p.upgrades.bay); mix(p.upgrades.repair); mix(p.upgrades.missiles || 0); mix(p.flares); mix(p.aam); mix(p.aamCooldown); mix(p.barrageCooldown || 0); mix(p.maxBombs); mix(p.speed); mix(p.lost); });
         s.hostages.forEach(o => { mix(o.x); mix(HSTATE.indexOf(o.state)); mix(o.carrier); mix(o.blocked); mix(o.bleed); mix(o.vip ? 1 : 0); });
         s.units.forEach(u => { mix(u.y); mix(u.team); mix(TYPES.indexOf(u.type)); });
         s.bombs.forEach(b => { mix(b.x); mix(b.y); });
@@ -1442,5 +1467,5 @@
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, aamMax, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, PICKUPS, BOSS_EVERY, HUT_HP, AAM, BARRAGE, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, aamMax, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
 });

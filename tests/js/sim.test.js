@@ -783,3 +783,20 @@ console.log('supply drops ok');
     assert.ok(g.shells.some(b => b.kind === 'agm'), 'missile locked on a ground target');
 }
 console.log('missile upgrades ok');
+
+// Barrage: every missile leaves at once, each locked on a target, then a cooldown
+{
+    const s = Sim.createGame({ mode: 'solo', seed: 7 });
+    const p = s.players[0];
+    p.x = 600; p.y = 200;
+    s.units.push({ type: 'soldier', team: Sim.AI, x: 700, y: Sim.GROUND_Y - 12, width: 8, height: 12, hp: 20, maxHp: 20, vx: 0, cooldown: 0 });
+    s.units.push({ type: 'soldier', team: Sim.AI, x: 760, y: Sim.GROUND_Y - 12, width: 8, height: 12, hp: 20, maxHp: 20, vx: 0, cooldown: 0 });
+    const n = p.aam, before = s.shells.length;
+    Sim.step(s, [Object.assign({}, Sim.EMPTY, { buy: 'barrage' })]);
+    const fired = s.shells.slice(before).filter(b => b.lock);
+    assert.strictEqual(fired.length, n, 'barrage fires every missile');
+    assert.strictEqual(p.aam, 0);
+    assert.ok(p.barrageCooldown > 0);
+    assert.ok(new Set(fired.map(b => b.lock)).size === 2, 'spreads across targets');
+    console.log('missile barrage ok');
+}

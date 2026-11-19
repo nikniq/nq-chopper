@@ -1934,7 +1934,10 @@
             ctx.fillText(`COMMAND PHASE · ARMY ${mine} vs ${theirs} · ENEMY BASE ${Math.max(0, Math.round(100 * eb.health / eb.maxHealth))}%`, GAME_WIDTH / 2, 66 + rowShift + (Sound.muted ? 14 : 0));
         }
         // Air missiles only need a line once some are spent
-        if (p.aam < Sim.aamMax(p)) { ctx.fillStyle = p.aam ? '#9cf' : '#f66'; ctx.fillText('MISSILES ' + p.aam + '/' + Sim.aamMax(p), GAME_WIDTH / 2, 80 + rowShift); }
+        if (p.aam < Sim.aamMax(p) || p.barrageCooldown > 0) {
+            const bc = p.barrageCooldown > 0 ? ' · BARRAGE ' + Math.ceil(p.barrageCooldown / 60) + 's' : (p.aam >= Sim.BARRAGE.min ? ' · C BARRAGE READY' : '');
+            ctx.fillStyle = p.aam ? '#9cf' : '#f66'; ctx.fillText('MISSILES ' + p.aam + '/' + Sim.aamMax(p) + bc, GAME_WIDTH / 2, 80 + rowShift);
+        }
         if (Sound.muted) { ctx.fillStyle = '#ccc'; ctx.fillText('MUTED', GAME_WIDTH / 2, 66 + rowShift); }
         ctx.restore();
         if (comboText(p)) { ctx.fillStyle = '#ff0'; ctx.font = 'bold 16px Arial'; ctx.fillText(comboText(p), GAME_WIDTH / 2, 100); }
@@ -2116,7 +2119,7 @@
     // =====================================================================
     const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire', KeyG: 'boost' };
     const BUYKEYS = { Digit1: 'soldier', Numpad1: 'soldier', Digit2: 'tank', Numpad2: 'tank', Digit3: 'gun', Numpad3: 'gun', Digit4: 'armor', Numpad4: 'armor',
-        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair', KeyF: 'flares', KeyV: 'aam', KeyN: 'missiles' };
+        Digit5: 'strike', Numpad5: 'strike', Digit6: 'rally', Numpad6: 'rally', Digit7: 'troops', Numpad7: 'troops', Digit8: 'engine', Numpad8: 'engine', Digit9: 'bay', Numpad9: 'bay', Digit0: 'repair', Numpad0: 'repair', KeyF: 'flares', KeyV: 'aam', KeyN: 'missiles', KeyC: 'barrage' };
     const inPlay = () => screen === 'playing';
     document.addEventListener('keydown', e => {
         Sound.unlock();
@@ -2168,6 +2171,7 @@
     bindControl(document.getElementById('btnBomb'), () => { if (inPlay()) { queueBomb(); buzz(15); } press('btnBomb', true); }, () => press('btnBomb', false));
     bindControl(document.getElementById('btnBoost'), () => { input.boost = true; press('btnBoost', true); }, () => { input.boost = false; press('btnBoost', false); });
     bindControl(document.getElementById('btnAam'), () => { if (inPlay()) { queueBuy('aam'); buzz(15); } }, () => {});
+    bindControl(document.getElementById('btnBarrage'), () => { if (inPlay()) { queueBuy('barrage'); buzz([20, 30, 20]); } }, () => {});
     bindControl(document.getElementById('btnTroops'), () => { if (inPlay()) queueBuy('troops'); }, () => {});
     const setAutoAttr = () => { const b = document.getElementById('btnAuto'); if (b && b.setAttribute) b.setAttribute('aria-pressed', autoFire ? 'true' : 'false'); };
     setAutoAttr();

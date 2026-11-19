@@ -101,40 +101,6 @@ h2 .more { font-size: 0.8rem; font-weight: 400; margin-left: 10px; }
 :root { --bg0: #0d1118; --panel: #151b26; --line: #ffffff14; --gold: #ffd23f; --play: #22a35a; --play-hover: #2bbf6b; }
 body.site { background: radial-gradient(1200px 600px at 70% -10%, #1f3a6b55, transparent 60%), linear-gradient(#0d1118, #131925 60%, #0d1118); font-family: Inter, 'Segoe UI', system-ui, -apple-system, Arial, sans-serif; }
 .btn-play { background: var(--play); font-weight: 700; } .btn-play:hover { background: var(--play-hover); }
-/* Top bar */
-.topbar { position: sticky; top: 0; z-index: 50; background: #0d1118d9; backdrop-filter: saturate(1.4) blur(10px); -webkit-backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line); }
-.topbar .nav { max-width: 1180px; margin: 0 auto; padding: 10px 20px; background: none; border: 0; flex-wrap: nowrap; gap: 20px; }
-.nav .brand { display: flex; align-items: center; gap: 10px; color: var(--gold); text-shadow: none; font-size: 1.05rem; letter-spacing: 2.5px; white-space: nowrap; }
-.nav .brand img { border-radius: 8px; }
-.nav-menu { display: flex; align-items: center; justify-content: space-between; flex: 1; gap: 20px; }
-.topbar .nav-links { gap: 4px; flex-wrap: nowrap; }
-.topbar .nav-links a { color: #d6dcea; padding: 8px 12px; border-radius: 8px; font-weight: 500; font-size: 0.95rem; white-space: nowrap; }
-.topbar .nav-links a:hover, .topbar .nav-links a.active { color: #fff; background: #ffffff10; }
-.topbar .parent-site { margin-left: 0; font-size: 0.85rem; }
-.nav-actions { display: flex; align-items: center; gap: 8px; }
-.nav-login { color: #d6dcea; text-decoration: none; padding: 8px 10px; font-weight: 500; }
-.nav-login:hover { color: #fff; }
-.nav-actions .btn-play { padding: 9px 18px; border-radius: 999px; }
-.account { position: relative; }
-.account summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 5px 10px 5px 5px; border-radius: 999px; border: 1px solid var(--line); }
-.account summary::-webkit-details-marker { display: none; }
-.account summary img, .account .avatar { width: 26px; height: 26px; border-radius: 50%; }
-.account .avatar { display: grid; place-items: center; background: #2f6fd6; font-weight: 700; font-size: 0.8rem; }
-.account .pilot { color: #fff; font-weight: 600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-menu { position: absolute; right: 0; top: calc(100% + 8px); min-width: 200px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px; box-shadow: 0 16px 40px #0008; display: flex; flex-direction: column; }
-.account-menu a, .account-menu button.link { color: #e6ebf5; text-decoration: none; padding: 9px 12px; border-radius: 8px; text-align: left; width: 100%; }
-.account-menu a:hover, .account-menu button.link:hover { background: #ffffff10; }
-.nav-toggle, .nav-burger { display: none; }
-@media (max-width: 900px) {
-  .topbar .nav { flex-wrap: wrap; }
-  .nav-burger { display: flex; flex-direction: column; gap: 5px; margin-left: auto; padding: 10px; cursor: pointer; }
-  .nav-burger span { width: 22px; height: 2px; background: #fff; border-radius: 2px; }
-  .nav-menu { display: none; flex-basis: 100%; flex-direction: column; align-items: stretch; gap: 10px; padding: 6px 0 10px; }
-  .nav-toggle:checked ~ .nav-menu { display: flex; }
-  .topbar .nav-links { flex-direction: column; align-items: stretch; flex-wrap: wrap; }
-  .nav-actions { flex-wrap: wrap; }
-  .account-menu { position: static; margin-top: 6px; box-shadow: none; }
-}
 /* Page width */
 .page.wide { max-width: 1180px; padding-top: 8px; }
 .eyebrow { text-transform: uppercase; letter-spacing: 2px; font-size: 0.78rem; font-weight: 700; color: #7fb2ff; margin: 0 0 10px; }

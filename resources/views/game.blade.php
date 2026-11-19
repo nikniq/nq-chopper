@@ -5,16 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{{ config('app.name', 'NQ Chopper') }}</title>
     <link rel="stylesheet" href="{{ asset('css/game.css') }}?v={{ filemtime(public_path('css/game.css')) }}">
+    <link rel="stylesheet" href="{{ asset('css/nav.css') }}?v={{ filemtime(public_path('css/nav.css')) }}">
     @include('partials.head-meta')
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @include('partials.analytics')
 </head>
 <body>
     <a class="skip-link" href="#gameCanvas">Skip to game</a>
+    @include('partials.nav')
+    @if (!empty($match) || !empty($daily) || !auth()->check())
     <div id="topbar">
-        <a href="https://nikniq.com" title="Back to nikniq.com">&larr; nikniq.com</a>
-        <a href="{{ route('home') }}">Home</a>
-        <a href="{{ route('leaderboard') }}">Leaderboard</a>
         @if (!empty($match))
             <span>Online match <strong>{{ $match['code'] }}</strong> &middot; <a href="{{ route('multiplayer') }}">Lobby</a>
                 @if ($match['role'] === 'host' && empty($match['opponent']))
@@ -24,13 +24,11 @@
         @elseif (!empty($daily))
             <span>Daily Challenge <strong>{{ $daily['day'] }}</strong> &middot; <a href="{{ route('game') }}">Free play</a></span>
         @endif
-        @auth
-            <span>Pilot <strong>{{ auth()->user()->name }}</strong> &middot; scores are saved</span>
-            <form method="POST" action="{{ route('logout') }}" style="display:inline">@csrf<button type="submit" class="linkbtn">Log out</button></form>
-        @else
-            <span><a href="{{ route('login') }}">Log in</a> or <a href="{{ route('register') }}">register</a> to save your scores</span>
-        @endauth
+        @guest
+            <span><a href="{{ route('login') }}">Log in</a> or <a href="{{ route('register') }}">sign up</a> to save your scores</span>
+        @endguest
     </div>
+    @endif
     <div id="score">Score: 0 | Rescued: 0</div>
     <div id="controls">
         <span id="keyHelp"><kbd>Arrows</kbd>/<kbd>WASD</kbd> Fly &nbsp;·&nbsp; <kbd>Space</kbd> Shoot &nbsp;·&nbsp; <kbd>G</kbd> Boost &nbsp;·&nbsp; <kbd>V</kbd> Air missile &nbsp;·&nbsp; <kbd>B</kbd> Bomb &nbsp;·&nbsp; <kbd>1</kbd>-<kbd>4</kbd> Buy &nbsp;·&nbsp; <kbd>5</kbd> Airstrike &nbsp;·&nbsp; <kbd>6</kbd> Hold/advance &nbsp;·&nbsp; <kbd>7</kbd> Load/drop troops &nbsp;·&nbsp; <kbd>8</kbd>/<kbd>9</kbd>/<kbd>0</kbd> Engine, bay, repair &nbsp;·&nbsp; <kbd>F</kbd> Flares &nbsp;·&nbsp; <kbd>N</kbd> Missiles &nbsp;·&nbsp; <kbd>P</kbd> Pause &nbsp;·&nbsp; <kbd>M</kbd> Mute &nbsp;·&nbsp; <kbd>X</kbd> Fullscreen &nbsp;·&nbsp; <kbd>R</kbd> Restart</span>

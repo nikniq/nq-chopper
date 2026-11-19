@@ -35,7 +35,7 @@
                     <a href="{{ route('login') }}" class="nav-login">Log in</a>
                     <a href="{{ route('register') }}" class="nav-login">Sign up</a>
                 @endauth
-                <a href="{{ route('game') }}" class="btn btn-play">Play free</a>
+                @unless (request()->routeIs('game') && !request()->boolean('daily'))<a href="{{ route('game') }}" class="btn btn-play">Play free</a>@endunless
             </div>
         </div>
     </nav>

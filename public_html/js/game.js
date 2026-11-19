@@ -391,6 +391,9 @@
     for (let i = 0; i < 4; i++) farMountains.push({ x: i * 120 + rand(-30, 30), h: rand(90, 170), w: rand(160, 260) });
     for (let i = 0; i < 6; i++) mountains.push({ x: i * 80 + rand(-20, 20), h: rand(50, 120), w: rand(90, 160) });
     for (let i = 0; i < 5; i++) hills.push({ x: i * 100 + rand(-20, 20), h: rand(18, 42), w: rand(90, 160) });
+    // Ridge jitter so peaks read as rock, not triangles: shoulder points on each flank
+    farMountains.concat(mountains).forEach(m => { m.ridge = [rand(0.18, 0.32), rand(0.55, 0.75), rand(0.15, 0.3), rand(0.5, 0.72)].map((v, i) => i % 2 ? v : v); m.notch = rand(0.04, 0.1); });
+    hills.forEach(h => { h.bumps = Array.from({ length: Math.floor(h.w / 9) }, () => rand(2, 5)); });
     const trees = [], grass = [], rocks = [];
     for (let x = 160; x < WORLD_WIDTH - 160; x += rand(60, 140)) if (Math.random() < 0.7) trees.push({ x, h: rand(26, 46), palm: Math.random() < 0.5, lean: rand(-0.15, 0.15) });
     for (let x = 0; x < WORLD_WIDTH; x += rand(14, 30)) grass.push({ x, h: rand(3, 7), ph: rand(0, 6) });
@@ -1060,15 +1063,38 @@
             });
         }
     }
-    function drawLayer(items, factor, color, baseY) {
+    // Mountains: jagged ridgeline, sunlit left face and shadowed right face. Hills: rounded with a treeline.
+    function drawLayer(items, factor, color, baseY, kind) {
         const off = (cameraX * factor) % mountainPeriod;
-        ctx.fillStyle = color;
+        const bm = biome(), treeline = kind === 'hills' && !lowDetail && bm.key === 'jungle';
         for (let k = -1; k <= Math.ceil(GAME_WIDTH / mountainPeriod) + 1; k++) {
             const sx = k * mountainPeriod - off;
             items.forEach(m => {
-                ctx.beginPath();
-                ctx.moveTo(sx + m.x - m.w / 2, baseY); ctx.lineTo(sx + m.x, baseY - m.h); ctx.lineTo(sx + m.x + m.w / 2, baseY);
-                ctx.closePath(); ctx.fill();
+                const x0 = sx + m.x - m.w / 2, x1 = sx + m.x + m.w / 2, px = sx + m.x, py = baseY - m.h;
+                if (x1 < -10 || x0 > GAME_WIDTH + 10) return;
+                if (kind === 'hills') {
+                    ctx.fillStyle = color;
+                    ctx.beginPath(); ctx.moveTo(x0, baseY); ctx.bezierCurveTo(x0 + m.w * 0.2, py, x1 - m.w * 0.2, py, x1, baseY); ctx.closePath(); ctx.fill();
+                    if (treeline && m.bumps) {
+                        ctx.fillStyle = shadeHex(color, -0.18);
+                        m.bumps.forEach((r, i) => { const t = (i + 0.5) / m.bumps.length, bx = x0 + m.w * t, by = baseY - m.h * 0.75 * Math.sin(Math.PI * t) * (1 - Math.abs(t - 0.5) * 0.3); ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2); ctx.fill(); });
+                    }
+                    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+                    ctx.beginPath(); ctx.moveTo(x0 + m.w * 0.15, baseY - m.h * 0.35); ctx.bezierCurveTo(x0 + m.w * 0.3, py + 3, px, py + 2, px + m.w * 0.1, py + 4); ctx.lineTo(px, baseY - m.h * 0.5); ctx.closePath(); ctx.fill();
+                    return;
+                }
+                const r = m.ridge || [0.25, 0.65, 0.22, 0.6], n = m.notch || 0.06;
+                const lx = px - m.w / 2 * r[0] * 2, ly = baseY - m.h * r[1], rx = px + m.w / 2 * r[2] * 2, ry = baseY - m.h * r[3];
+                ctx.fillStyle = color;
+                ctx.beginPath(); ctx.moveTo(x0, baseY); ctx.lineTo(lx, ly); ctx.lineTo(lx + (px - lx) * 0.45, ly - m.h * n); ctx.lineTo(px, py);
+                ctx.lineTo(px + (rx - px) * 0.5, ry - m.h * (r[3] - r[1] > 0 ? n : n * 2) + m.h * 0.08); ctx.lineTo(rx, ry); ctx.lineTo(x1, baseY); ctx.closePath(); ctx.fill();
+                // Shadow face: from the peak down a crooked valley line to the base
+                ctx.fillStyle = 'rgba(0,0,30,0.16)';
+                ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + (rx - px) * 0.5, ry - m.h * n * 2 + m.h * 0.08); ctx.lineTo(rx, ry); ctx.lineTo(x1, baseY);
+                ctx.lineTo(px + m.w * 0.06, baseY); ctx.lineTo(px + m.w * 0.02, baseY - m.h * 0.45); ctx.closePath(); ctx.fill();
+                // Sunlit rim on the left ridge
+                ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1.2;
+                ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + (px - lx) * 0.45, ly - m.h * n); ctx.lineTo(px, py); ctx.stroke();
             });
         }
     }
@@ -1096,12 +1122,23 @@
         } else if (kind === 'palm') {
             ctx.strokeStyle = '#7a5a30'; ctx.lineWidth = 4; ctx.lineCap = 'round';
             ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(6, -t.h * 0.6, 2, -t.h); ctx.stroke();
-            ctx.strokeStyle = '#2f8a3f'; ctx.lineWidth = 3;
-            for (let i = 0; i < 6; i++) { const a = -Math.PI / 2 + (i - 2.5) * 0.55 + Math.sin(frame / 50 + i) * 0.05; ctx.beginPath(); ctx.moveTo(2, -t.h); ctx.quadraticCurveTo(2 + Math.cos(a) * 16, -t.h + Math.sin(a) * 16 - 4, 2 + Math.cos(a) * 24, -t.h + Math.sin(a) * 24 + 8); ctx.stroke(); }
+            ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1;
+            for (let k = 1; k < 6; k++) { const yy = -t.h * k / 6, xx = 6 * Math.sin(Math.PI * k / 6) * 0.9; ctx.beginPath(); ctx.moveTo(xx - 2, yy); ctx.lineTo(xx + 2, yy - 1); ctx.stroke(); }
+            for (let i = 0; i < 7; i++) {
+                const a = -Math.PI / 2 + (i - 3) * 0.5 + Math.sin(frame / 50 + i) * 0.05, ex = 2 + Math.cos(a) * 24, ey = -t.h + Math.sin(a) * 24 + 8;
+                const mx = 2 + Math.cos(a) * 16, my = -t.h + Math.sin(a) * 16 - 4;
+                ctx.strokeStyle = i % 2 ? '#2f8a3f' : '#3fa84f'; ctx.lineWidth = 2.6;
+                ctx.beginPath(); ctx.moveTo(2, -t.h); ctx.quadraticCurveTo(mx, my, ex, ey); ctx.stroke();
+                if (!lowDetail) { ctx.lineWidth = 1.2; ctx.beginPath(); for (let q = 0.35; q < 1; q += 0.16) { const qx = (1 - q) * (1 - q) * 2 + 2 * (1 - q) * q * mx + q * q * ex, qy = (1 - q) * (1 - q) * -t.h + 2 * (1 - q) * q * my + q * q * ey; ctx.moveTo(qx, qy); ctx.lineTo(qx + 2, qy + 4); } ctx.stroke(); }
+            }
+            ctx.fillStyle = '#6a4a20'; ctx.beginPath(); ctx.arc(0, -t.h + 2, 2, 0, Math.PI * 2); ctx.arc(4, -t.h + 2.5, 2, 0, Math.PI * 2); ctx.fill();
         } else {
             ctx.fillStyle = '#5a3a1a'; ctx.fillRect(-2, -t.h * 0.5, 4, t.h * 0.5);
-            ctx.fillStyle = '#2d7a35'; ctx.beginPath(); ctx.arc(0, -t.h * 0.62, t.h * 0.34, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#3a9a44'; ctx.beginPath(); ctx.arc(-t.h * 0.18, -t.h * 0.56, t.h * 0.24, 0, Math.PI * 2); ctx.arc(t.h * 0.16, -t.h * 0.7, t.h * 0.22, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0.5, -t.h * 0.5, 1.5, t.h * 0.5);
+            ctx.strokeStyle = '#5a3a1a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(0, -t.h * 0.4); ctx.lineTo(t.h * 0.15, -t.h * 0.58); ctx.stroke();
+            ctx.fillStyle = '#226a2c'; ctx.beginPath(); ctx.arc(0, -t.h * 0.62, t.h * 0.34, 0, Math.PI * 2); ctx.arc(t.h * 0.2, -t.h * 0.52, t.h * 0.22, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#3a9a44'; ctx.beginPath(); ctx.arc(-t.h * 0.12, -t.h * 0.66, t.h * 0.25, 0, Math.PI * 2); ctx.arc(t.h * 0.1, -t.h * 0.78, t.h * 0.19, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(200,255,160,0.28)'; ctx.beginPath(); ctx.arc(-t.h * 0.17, -t.h * 0.74, t.h * 0.11, 0, Math.PI * 2); ctx.arc(t.h * 0.04, -t.h * 0.86, t.h * 0.08, 0, Math.PI * 2); ctx.fill();
         }
         ctx.restore();
     }
@@ -1113,7 +1150,15 @@
         ctx.fillStyle = cached('soil' + bm.key, () => { const g = ctx.createLinearGradient(0, GROUND_Y + 8, 0, GAME_HEIGHT); g.addColorStop(0, bm.soil[0]); g.addColorStop(1, bm.soil[1]); return g; });
         ctx.fillRect(left, GROUND_Y + 8, GAME_WIDTH + 80, GAME_HEIGHT - GROUND_Y);
         ctx.fillStyle = bm.grass[0]; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 8);
+        // Ragged turf lip hanging over the soil, plus a shadow under it
+        ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(left, GROUND_Y + 8, GAME_WIDTH + 80, 3);
+        ctx.fillStyle = bm.grass[0];
+        ctx.beginPath(); ctx.moveTo(startX, GROUND_Y + 7);
+        for (let x = startX; x < right; x += 10) { const d = 2 + ((x * 37) % 23) / 23 * 3.5; ctx.lineTo(x + 5, GROUND_Y + 7 + d); ctx.lineTo(x + 10, GROUND_Y + 7); }
+        ctx.lineTo(right, GROUND_Y + 6); ctx.lineTo(startX, GROUND_Y + 6); ctx.closePath(); ctx.fill();
         ctx.fillStyle = bm.grass[1]; ctx.fillRect(left, GROUND_Y, GAME_WIDTH + 80, 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.1)'; for (let x = startX; x < right; x += 40) ctx.fillRect(x + ((x * 13) % 29), GROUND_Y + 3, 9, 1);
+        if (!lowDetail) { ctx.fillStyle = 'rgba(0,0,0,0.18)'; for (let x = startX; x < right; x += 40) { const o = (x * 53) % 40; ctx.beginPath(); ctx.ellipse(x + o, GROUND_Y + 24 + (x * 7) % 9, 2.5, 1.5, 0, 0, Math.PI * 2); ctx.fill(); } }
         ctx.fillStyle = bm.strata;
         for (let x = startX; x < right; x += 40) { ctx.fillRect(x + ((x / 40) % 2) * 12, GROUND_Y + 12, 16, 3); ctx.fillRect(x + 6, GROUND_Y + 17, 8, 2); }
         if (bm.key === 'volcanic') { ctx.fillStyle = 'rgba(255,110,40,' + (0.5 + 0.3 * Math.sin(frame / 20)) + ')'; for (let x = startX; x < right; x += 80) ctx.fillRect(x + 30, GROUND_Y + 10, 20, 1.5); }
@@ -2141,13 +2186,16 @@
         ctx.beginPath(); ctx.rect(0, 0, GAME_WIDTH, GAME_HEIGHT); ctx.clip();
         drawSky();
         const bm = biome();
-        drawLayer(farMountains, 0.12, bm.far, GROUND_Y - 10);
-        drawLayer(mountains, 0.25, bm.mtn, GROUND_Y);
+        drawLayer(farMountains, 0.12, bm.far, GROUND_Y - 10, 'far');
+        // Distant haze between the far range and the near range for depth
+        ctx.fillStyle = cached('hazefar' + bm.key, () => { const h = ctx.createLinearGradient(0, GROUND_Y - 90, 0, GROUND_Y); h.addColorStop(0, 'rgba(255,255,255,0)'); h.addColorStop(1, bm.haze); return h; });
+        ctx.fillRect(0, GROUND_Y - 90, GAME_WIDTH, 90);
+        drawLayer(mountains, 0.25, bm.mtn, GROUND_Y, 'mtn');
         if (bm.key === 'arctic' || bm.key === 'volcanic') drawCaps(mountains, 0.25, bm.key === 'arctic' ? '#ffffff' : '#ff6a2a');
         // Haze band between layers
         ctx.fillStyle = cached('haze' + bm.key, () => { const h = ctx.createLinearGradient(0, GROUND_Y - 120, 0, GROUND_Y); h.addColorStop(0, 'rgba(255,255,255,0)'); h.addColorStop(1, bm.haze); return h; });
         ctx.fillRect(0, GROUND_Y - 120, GAME_WIDTH, 120);
-        drawLayer(hills, 0.5, bm.hills, GROUND_Y);
+        drawLayer(hills, 0.5, bm.hills, GROUND_Y, 'hills');
         if (sim) {
             const sx = shake > 0 ? (Math.random() - 0.5) * shake : 0, sy = shake > 0 ? (Math.random() - 0.5) * shake : 0;
             ctx.save();

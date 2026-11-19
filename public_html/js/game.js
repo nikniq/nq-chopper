@@ -1301,6 +1301,26 @@
             ctx.restore();
         });
     }
+    // Per-soldier variety (skin, kit, headgear, stance), stable for the soldier's life; client-only
+    const looks = new WeakMap();
+    const SKINS = ['#ffd9b3', '#f1c193', '#d9a06b', '#b07a4a', '#8a5a34'];
+    function soldierLook(u) {
+        let l = looks.get(u);
+        if (!l) {
+            const r = Math.random, c = colorsOf(u.team);
+            l = { skin: SKINS[Math.floor(r() * SKINS.length)], phase: r() * 6.28, kneel: r() < 0.45, beret: r() < 0.15,
+                cloth: c.cloth, clothDark: shadeHex(c.cloth, -0.25), pants: shadeHex(c.cloth, -0.15), pantsDark: shadeHex(c.cloth, -0.35),
+                helmet: c.unitDark, gear: r() < 0.5 ? '#4f4a32' : '#3e4430' };
+            looks.set(u, l);
+        }
+        return l;
+    }
+    function shadeHex(hex, f) {
+        const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex || ''); if (!m) return hex;
+        let h = m[1]; if (h.length === 3) h = h.split('').map(x => x + x).join('');
+        const n = parseInt(h, 16), ch = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(Math.max(0, Math.min(255, f < 0 ? v * (1 + f) : v + (255 - v) * f))));
+        return 'rgb(' + ch.join(',') + ')';
+    }
     function drawUnits() {
         sim.units.forEach(u => {
             if (!isVisible(u.x)) return;
@@ -1330,26 +1350,66 @@
                 if (u.health < u.maxHealth) { const pc = clamp(u.health / u.maxHealth, 0, 1); ctx.fillStyle = '#0008'; ctx.fillRect(0, -6, 30, 3); ctx.fillStyle = '#fc6'; ctx.fillRect(0, -6, 30 * pc, 3); }
                 if (frame % 8 === 0) emit({ x: u.x + 31, y: GROUND_Y - 4, vx: 0.3, vy: -0.3, life: 40, maxLife: 40, color: '#666', size: 2, gravity: -0.003, grow: 0.05 });
             } else if (u.type === 'soldier') {
-                const bob = u.moving ? Math.abs(Math.sin(u.anim * 0.4)) * -1.2 : 0;
+                const look = soldierLook(u);
+                const walk = u.moving ? u.anim * 0.4 + look.phase : 0;
+                const firing = !u.moving && u.fireTimer > UNITS.soldier.fireRate - 6;
+                const aiming = !u.moving;
+                const bob = u.moving ? -Math.abs(Math.sin(walk)) * 1.3 : 0;
+                const crouch = aiming && look.kneel ? 3 : 0;
                 ctx.translate(cx(u), GROUND_Y + bob);
                 if (u.dir < 0) ctx.scale(-1, 1);
-                const swing = u.moving ? Math.sin(u.anim * 0.4) * 4 : 0;
-                // Legs with boots
-                ctx.strokeStyle = c.unitDark; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
-                ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(-2 + swing, -1); ctx.moveTo(0, -9); ctx.lineTo(2 - swing, -1); ctx.stroke();
-                ctx.fillStyle = '#222'; ctx.fillRect(-4 + swing, -2, 4, 2); ctx.fillRect(0 - swing, -2, 4, 2);
-                // Torso, belt, backpack
-                ctx.fillStyle = c.cloth; ctx.fillRect(-3.5, -19, 7, 11);
-                ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(1, -19, 2.5, 11);
-                ctx.fillStyle = '#5a4a2a'; ctx.fillRect(-3.5, -11, 7, 1.5);
-                ctx.fillStyle = c.unitDark; ctx.fillRect(-6.5, -17, 3, 7);
-                // Head and helmet
-                ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, -22, 3.5, 0, Math.PI * 2); ctx.fill();
-                ctx.fillStyle = c.unitDark; ctx.beginPath(); ctx.arc(0, -23, 4.2, Math.PI, 0); ctx.fill(); ctx.fillRect(-4.2, -23.5, 8.4, 1.5);
-                // Rifle held in both hands
-                ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-3, -14); ctx.lineTo(9, -16.5); ctx.stroke();
-                ctx.strokeStyle = '#ffd9b3'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(1, -17); ctx.lineTo(3, -15.5); ctx.moveTo(-1, -16); ctx.lineTo(6, -16); ctx.stroke();
-                if (!u.moving && u.fireTimer > UNITS.soldier.fireRate - 4) { ctx.fillStyle = '#ff6'; ctx.fillRect(9, -18.5, 5, 4); }
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                // Legs: thigh + shin with a bending knee; kneeling shooters drop one knee
+                const leg = (ph, back) => {
+                    ctx.strokeStyle = back ? look.pantsDark : look.pants; ctx.lineWidth = 2.6;
+                    let kx, ky, fx, fy;
+                    if (crouch && back) { kx = -3; ky = -2.5; fx = -7; fy = -1; }
+                    else if (crouch) { kx = 3.5; ky = -6; fx = 3.5; fy = -1; }
+                    else { const sw = Math.sin(ph) * 4.2, lift = Math.max(0, Math.cos(ph)) * 1.8; kx = sw * 0.6 + 1; ky = -5 - lift * 0.5; fx = sw; fy = -1 - lift; }
+                    const hy = -10 + crouch;
+                    ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(kx, ky); ctx.lineTo(fx, fy); ctx.stroke();
+                    ctx.fillStyle = '#1d1d1d'; ctx.fillRect(fx - 1.5, fy - 0.8, 4, 2);
+                };
+                leg(walk + Math.PI, true); leg(walk, false);
+                ctx.translate(0, crouch);
+                // Far arm swings behind the body when marching
+                if (u.moving) { const as = Math.sin(walk) * 3.5; ctx.strokeStyle = look.clothDark; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.moveTo(0, -17); ctx.lineTo(-as * 0.4, -13); ctx.lineTo(-as, -10.5); ctx.stroke(); }
+                // Backpack with bedroll
+                ctx.fillStyle = look.gear; rrect(-7, -19, 4, 8, 1.2); ctx.fill();
+                ctx.fillStyle = '#7a6a48'; rrect(-7.5, -20.5, 5, 2.2, 1); ctx.fill();
+                // Torso: jacket with shading, webbing and belt
+                ctx.fillStyle = look.cloth; rrect(-3.8, -19.5, 7.6, 10.5, 1.8); ctx.fill();
+                ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(1.2, -19, 2.5, 10);
+                ctx.strokeStyle = look.gear; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-3, -19); ctx.lineTo(2.5, -11); ctx.stroke();
+                ctx.fillStyle = '#4a3a20'; ctx.fillRect(-3.8, -11, 7.6, 1.6); ctx.fillStyle = '#c9a54a'; ctx.fillRect(-0.6, -11, 1.4, 1.6);
+                ctx.fillStyle = c.unit; ctx.fillRect(-3.8, -18, 2, 2.5); // team shoulder patch
+                // Head, helmet with net or beret, chin strap
+                ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(0.6, -22.5, 3.4, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#1a1a1a'; ctx.fillRect(2.2, -23.4, 1.1, 1.1);
+                if (look.beret) { ctx.fillStyle = look.helmet; ctx.beginPath(); ctx.ellipse(0, -25.2, 4.2, 1.9, -0.15, 0, Math.PI * 2); ctx.fill(); }
+                else {
+                    ctx.fillStyle = look.helmet; ctx.beginPath(); ctx.arc(0, -23.6, 4.4, Math.PI, 0); ctx.fill(); ctx.fillRect(-4.9, -24, 9.6, 1.6);
+                    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(-3, -26.6, 1, 1); ctx.fillRect(0, -27.4, 1, 1); ctx.fillRect(2, -26, 1, 1);
+                    ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(-2.5, -23); ctx.lineTo(1, -19.6); ctx.stroke();
+                }
+                // Rifle: shouldered and level when stopped, slung at port arms on the march, kicks on each shot
+                const kick = firing ? -1.6 : 0;
+                ctx.save();
+                if (aiming) ctx.translate(kick, -17.5); else { ctx.translate(-1, -14.5); ctx.rotate(-0.55 + Math.sin(walk) * 0.05); }
+                ctx.fillStyle = '#5a3d22'; ctx.fillRect(-4, -0.6, 4, 2.4);            // stock
+                ctx.fillStyle = '#2a2a2a'; ctx.fillRect(0, -1, 7, 2); ctx.fillRect(7, -0.5, 5.5, 1.1); // receiver + barrel
+                ctx.fillRect(3, 1, 1.4, 2.6);                                          // magazine
+                if (firing) {
+                    ctx.fillStyle = '#fff6b0'; ctx.beginPath(); ctx.moveTo(12.5, 0); ctx.lineTo(18, -2.2); ctx.lineTo(16.5, 0); ctx.lineTo(18, 2.2); ctx.closePath(); ctx.fill();
+                    ctx.fillStyle = 'rgba(255,200,80,0.35)'; ctx.beginPath(); ctx.arc(14, 0, 3.6, 0, Math.PI * 2); ctx.fill();
+                }
+                ctx.restore();
+                // Near arm: hands on the rifle
+                ctx.strokeStyle = look.cloth; ctx.lineWidth = 2.3;
+                if (aiming) { ctx.beginPath(); ctx.moveTo(0.5, -18); ctx.lineTo(2.5 + kick, -15); ctx.lineTo(6 + kick, -17); ctx.stroke(); ctx.fillStyle = look.skin; ctx.fillRect(5.5 + kick, -17.8, 1.8, 1.8); }
+                else { ctx.beginPath(); ctx.moveTo(0.5, -18); ctx.lineTo(2.5, -14); ctx.lineTo(4.5, -16.5); ctx.stroke(); ctx.fillStyle = look.skin; ctx.fillRect(4, -17.3, 1.8, 1.8); }
+                if (firing && frame % 3 === 0 && !look.casing) { look.casing = 1; emit({ x: cx(u) - u.dir * 1, y: GROUND_Y - 16, vx: -u.dir * rand(0.6, 1.2), vy: -rand(1, 1.6), life: 26, maxLife: 26, color: '#d9b048', size: 1.2, gravity: 0.12 }); }
+                if (!firing) look.casing = 0;
             } else {
                 ctx.translate(u.x, u.y);
                 const flip = u.dir < 0;
@@ -1371,10 +1431,18 @@
                 ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(10, 1.5, 7, 1.2);
                 ctx.fillStyle = '#222'; ctx.fillRect(12, -1, 5, 2);
                 const ang = flip ? Math.PI - u.angle : u.angle;
+                const shot = u.fireTimer !== undefined && UNITS.tank && u.fireTimer > UNITS.tank.fireRate - 5;
+                const rec = shot ? -2.5 : 0;
                 ctx.save(); ctx.translate(14, 4); ctx.rotate(ang);
-                ctx.fillStyle = '#777'; ctx.fillRect(0, -1.6, 15, 3.2); ctx.fillStyle = '#444'; ctx.fillRect(12, -2.2, 3.5, 4.4);
+                ctx.fillStyle = '#777'; ctx.fillRect(rec, -1.6, 15, 3.2); ctx.fillStyle = '#444'; ctx.fillRect(12 + rec, -2.2, 3.5, 4.4);
+                if (shot) { ctx.fillStyle = '#fff1a0'; ctx.beginPath(); ctx.moveTo(15.5 + rec, -3.5); ctx.lineTo(23, 0); ctx.lineTo(15.5 + rec, 3.5); ctx.closePath(); ctx.fill(); ctx.fillStyle = 'rgba(255,190,80,0.4)'; ctx.beginPath(); ctx.arc(17, 0, 5, 0, Math.PI * 2); ctx.fill(); }
                 ctx.restore();
+                // Whip antenna with a team pennant that flutters
+                ctx.strokeStyle = '#222'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(8, 2); ctx.lineTo(6, -9); ctx.stroke();
+                ctx.fillStyle = c.unit; ctx.beginPath(); ctx.moveTo(6, -9); ctx.lineTo(1 + Math.sin(frame / 5 + u.x) * 1.2, -8); ctx.lineTo(6, -6.5); ctx.closePath(); ctx.fill();
                 if (!u.ai) { ctx.fillStyle = '#fff'; ctx.fillRect(3, 9, 3, 2.5); }
+                if (u.moving && frame % 6 === 0) emit({ x: flip ? u.x + u.width + 1 : u.x - 1, y: u.y + 9, vx: (flip ? 0.4 : -0.4), vy: -0.35, life: 34, maxLife: 34, color: '#555', size: 2, gravity: -0.004, grow: 0.08 });
+                if (u.moving && frame % 4 === 0) emit({ x: cx(u) + rand(-12, 12), y: GROUND_Y - 1, vx: rand(-0.3, 0.3), vy: -0.2, life: 20, maxLife: 20, color: '#8a7a55', size: 1.6, gravity: 0.01, grow: 0.05 });
                 if (u.heavy) { ctx.fillStyle = '#777'; for (let i = 0; i < 4; i++) ctx.fillRect(3 + i * 6, 8.5, 4, 3); ctx.fillStyle = '#ffb000'; ctx.fillRect(13, -3, 3, 2); }
             }
             ctx.restore();
@@ -2374,6 +2442,10 @@
                 sim.players[0].credits = 1000; input.right = false;
                 if (hash.indexOf('maxed') > 0) { const q = sim.players[0]; q.upgrades = { gun: 3, armor: 3, engine: 3, bay: 3, repair: 3 }; q.maxBombs = q.bombs = 11; q.health = 60; input.up = false; setTimeout(() => { input.up = true; input.right = true; }, 200); setTimeout(() => { input.right = false; input.up = false; q.y = 200; q.vy = 0; }, 900); }
                 setTimeout(() => queueBuy('tank'), 300); setTimeout(() => queueBuy('soldier'), 600); setTimeout(() => queueBuy('soldier'), 900);
+                if (hash.indexOf('troops') > 0) { // a squad facing an enemy squad, for checking unit art
+                    [1200, 1500, 1800, 2100].forEach(t => setTimeout(() => queueBuy('soldier'), t));
+                    setTimeout(() => { sim.units.filter(u => u.team === 0).forEach((u, i) => sim.units.push(Object.assign({}, u, { team: AI, x: u.x + 170 + i * 9, dir: -1, ai: true }))); }, 2600);
+                }
             }
         }
     } else {

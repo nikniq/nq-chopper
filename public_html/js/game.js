@@ -157,7 +157,9 @@
         }
         let cssW, cssH;
         if (isFullscreen()) {
-            cssW = window.innerWidth - (isTouch ? padX : 0); cssH = window.innerHeight - (isTouch ? padTop + padBottom : 0);
+            // Desktop fullscreen carries the shop bar under the canvas
+            const shopH = !isTouch && shopEl && shopEl.parentNode === playArea ? (shopEl.offsetHeight || 0) + 6 : 0;
+            cssW = window.innerWidth - (isTouch ? padX : 0); cssH = window.innerHeight - (isTouch ? padTop + padBottom : 0) - shopH;
             canvasWrapper.style.width = cssW + 'px'; canvasWrapper.style.height = cssH + 'px';
         } else {
             // Measure the page chrome above the canvas rather than guessing its height
@@ -190,7 +192,21 @@
     }
     window.addEventListener('resize', fitCanvas);
     window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 200));
-    ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, fitCanvas));
+    // On desktop the shop sits outside the play area: carry it in while fullscreen so buying still works
+    const shopHome = shopEl && shopEl.nextSibling;
+    function onFullscreenChange() {
+        const fs = isFullscreen();
+        if (!isTouch && shopEl && playArea.appendChild) {
+            if (fs && shopEl.parentNode !== playArea) playArea.appendChild(shopEl);
+            else if (!fs && shopEl.parentNode === playArea && shopHome && shopHome.parentNode) shopHome.parentNode.insertBefore(shopEl, shopHome);
+        }
+        if (document.body && document.body.classList) document.body.classList.toggle('is-fullscreen', fs);
+        if (!isTouch) fullscreenBtn.textContent = fs ? 'Exit fullscreen' : 'Fullscreen';
+        if (fullscreenBtn.setAttribute) { fullscreenBtn.setAttribute('aria-pressed', fs ? 'true' : 'false'); fullscreenBtn.setAttribute('title', (fs ? 'Exit fullscreen' : 'Fullscreen') + (isTouch ? '' : ' (X)')); }
+        lastFitKey = ''; fitCanvas();
+        if (canvas.focus) try { canvas.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+    }
+    ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, onFullscreenChange));
     // Fullscreen the whole play area (canvas + touch controls + shop drawer), then lock landscape on phones.
     // Note: `screen` is shadowed by the game-state variable below, so use window.screen explicitly.
     function goFullscreen() {
@@ -203,7 +219,18 @@
             if (r && r.then) r.then(lock).catch(() => {}); else lock();
         } catch (e) { /* ignore */ }
     }
-    fullscreenBtn.addEventListener('click', goFullscreen);
+    function exitFullscreen() {
+        try { const ex = document.exitFullscreen || document.webkitExitFullscreen; if (isFullscreen() && ex) { const r = ex.call(document); if (r && r.catch) r.catch(() => {}); } } catch (e) { /* ignore */ }
+    }
+    // Toggle, and remember the choice so the next run starts fullscreen too (desktop)
+    function toggleFullscreen() {
+        if (!canFS) return;
+        if (isFullscreen()) { exitFullscreen(); lsSet('nqFS', '0'); }
+        else { goFullscreen(); lsSet('nqFS', '1'); }
+    }
+    if (canFS) fullscreenBtn.addEventListener('click', toggleFullscreen);
+    else if (!isTouch) fullscreenBtn.style.display = 'none';
+    if (fullscreenBtn.setAttribute && !isTouch) fullscreenBtn.setAttribute('title', 'Fullscreen (X)');
 
     // ---------------------------------------------------------------------
     // Sound (synthesised, no assets)
@@ -625,12 +652,12 @@
         closeShop(); resetTouch(); clearInput();
         sim = Sim.createGame({ mode: 'solo', seed: 1 }); sim.fx = [];
         screen = 'title'; screenTimer = 0; particles = []; floatTexts = []; rings = []; craters = [];
-        try { const ex = document.exitFullscreen || document.webkitExitFullscreen; if (isFullscreen() && ex) { const r = ex.call(document); if (r && r.catch) r.catch(() => {}); } } catch (e) { /* ignore */ }
+        exitFullscreen();
         try { const o = window.screen && window.screen.orientation; if (o && o.unlock) o.unlock(); } catch (e) { /* ignore */ }
         needsRender = true;
     }
     function primaryAction() {
-        if (isTouch && (screen === 'title' || screen === 'lobby')) goFullscreen();
+        if ((screen === 'title' || screen === 'lobby') && (isTouch || lsGet('nqFS', '0') === '1')) goFullscreen();
         if (mode === 'solo') {
             if (screen === 'title') startSolo();
             else if (screen === 'gameover') { if (screenTimer > 30) startSolo(); }
@@ -2102,6 +2129,7 @@
         if (BUYKEYS[e.code] && inPlay()) queueBuy(BUYKEYS[e.code]);
         if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
         if (e.code === 'KeyM') toggleMute();
+        if (e.code === 'KeyX' && !e.repeat) toggleFullscreen();
         if (e.code === 'KeyR' && mode === 'solo' && (screen === 'gameover' || screen === 'paused')) startSolo();
     });
     document.addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) input[k] = false; });

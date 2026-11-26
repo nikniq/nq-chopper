@@ -96,5 +96,6 @@
     <script src="{{ asset('js/sim.js') }}?v={{ filemtime(public_path('js/sim.js')) }}"></script>
     <script src="{{ asset('js/net.js') }}?v={{ filemtime(public_path('js/net.js')) }}"></script>
     <script src="{{ asset('js/game.js') }}?v={{ filemtime(public_path('js/game.js')) }}"></script>
+    @include('partials.footer')
 </body>
 </html>

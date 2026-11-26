@@ -44,4 +44,14 @@
   .nav-actions { flex-wrap: wrap; }
   .account-menu { position: static; margin-top: 6px; box-shadow: none; }
 }
-@media (max-width: 600px) { .topbar .parent-site { display: none; } }
+/* Footer, shared by site pages and the game page */
+.footer { text-align: left; padding: 32px 20px 18px; border-top: 1px solid #ffffff14; background: #0a0d13; color: #aab; font-size: 0.85rem; font-family: Inter, 'Segoe UI', system-ui, -apple-system, Arial, sans-serif; line-height: 1.5; }
+.footer-inner { max-width: 1180px; margin: 0 auto; display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.footer .brand { display: inline-flex; align-items: center; gap: 8px; color: #ffd23f; font-weight: 800; letter-spacing: 2px; text-decoration: none; }
+.footer-brand p { margin: 8px 0 0; max-width: 360px; }
+.footer a { color: #9cf; }
+.footer-links { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+.footer-links a { color: #d6dcea; text-decoration: none; } .footer-links a:hover { color: #fff; }
+.footer .back-nikniq { display: inline-block; margin-top: 10px; padding: 6px 12px; border: 1px solid #ffffff30; border-radius: 999px; color: #fff; text-decoration: none; font-weight: 600; }
+.footer .back-nikniq:hover { background: #ffffff12; }
+.footer .copy { max-width: 1180px; margin: 18px auto 0; color: #778; }

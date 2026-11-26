@@ -12,7 +12,7 @@
                 <a href="{{ route('leaderboard') }}" @class(['active' => request()->routeIs('leaderboard')])>Leaderboard</a>
                 <a href="{{ auth()->check() ? route('multiplayer') : route('login') }}" @class(['active' => request()->routeIs('multiplayer')])>Multiplayer</a>
                 <a href="{{ route('home') }}#manual">How to play</a>
-                <a class="parent-site" href="https://nikniq.com" title="More games on nikniq.com">nikniq.com</a>
+                <a class="parent-site" href="https://nikniq.com" title="Back to nikniq.com: more games">&larr; nikniq.com</a>
             </div>
             <div class="nav-actions">
                 @auth

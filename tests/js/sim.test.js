@@ -831,3 +831,19 @@ console.log('missile upgrades ok');
     assert.ok(t.includes('rpg') && t.includes('drone'), 'enemy fields tech units: ' + [...new Set(t)]);
     console.log('enemy tech units ok');
 }
+
+// Battlefield promotions: kills rank a unit up and toughen it
+{
+    const s = Sim.createGame({ mode: 'solo', seed: 3 });
+    const p = s.players[0]; p.credits = 9999;
+    Sim.step(s, [Object.assign({}, Sim.EMPTY, { buy: 'tank' })]);
+    const t = s.units.find(u => u.team === 0 && u.type === 'tank');
+    let ranked = false;
+    for (let i = 0; i < 6000 && !ranked; i++) {
+        if (i % 200 === 0) { const e = s.units.find(u => u.ai && u.type === 'soldier'); if (!e) s.units.push({ type: 'soldier', team: Sim.AI, x: t.x + 120, y: Sim.GROUND_Y - 20, width: 8, height: 20, health: 10, maxHealth: 10, vx: 0, dir: -1, speed: 0, range: 0, fireTimer: 1e9, angle: 0, anim: 0, moving: false, ai: true }); }
+        Sim.step(s, [Sim.EMPTY]);
+        ranked = s.units.includes(t) && t.rank >= 1;
+    }
+    assert.ok(ranked, 'tank earned a promotion (kills ' + t.kills + ')');
+    console.log('promotions ok');
+}

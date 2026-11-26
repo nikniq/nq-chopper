@@ -76,6 +76,7 @@
         rockets: { name: 'ROCKET TEAMS', costs: [250], requires: 'training' },          // unlocks rocket-launcher infantry
         drones: { name: 'DRONE CORPS', costs: [400, 500], requires: 'rockets' }          // unlocks drones; level 2 arms them with missiles
     };
+    const PROMOTE = { at: [2, 5, 10], boost: 1.2, names: ['CORPORAL', 'SERGEANT', 'HERO'] };
     const ENEMY_TECH = { rpg: 5, drone: 8 }; // waves the enemy starts fielding each tech unit
     const TECH_TREE = [
         { id: 'training', unlocks: null, desc: '+25% troop health and damage per level' },
@@ -785,6 +786,11 @@
         return null;
     }
     function fireAt(s, u, target) {
+        const n0 = s.shells.length;
+        fireShot(s, u, target);
+        if (!u.ai) for (let k = n0; k < s.shells.length; k++) s.shells[k].src = u;
+    }
+    function fireShot(s, u, target) {
         const def = UNITS[u.type], ux = cx(u);
         if (u.type === 'rpg') {
             const oy = u.y + 5, dx = target.x - ux, dy = target.y - oy, m = dist(dx, dy) || 1, sp = 5;
@@ -1150,6 +1156,17 @@
         parts(s, cx(u), u.y + 8, 3, { speed: 1.5, colors: ['#ff0', '#fff'], size: 2, life: 15 });
         if (u.health <= 0) killUnit(s, i, why, killer);
     }
+    // Battlefield promotions: player troops that score kills rank up (tougher, harder-hitting, healed)
+    function promote(s, u) {
+        u.kills = (u.kills || 0) + 1;
+        const rank = PROMOTE.at.filter(k => u.kills >= k).length;
+        if (rank > (u.rank || 0)) {
+            u.rank = rank; u.vet = (u.vet || 1) * PROMOTE.boost;
+            u.maxHealth = Math.round(u.maxHealth * PROMOTE.boost); u.health = u.maxHealth;
+            text(s, cx(u), u.y - 16, PROMOTE.names[rank - 1] + '!', '#ffd23f');
+            parts(s, cx(u), u.y, 10, { speed: 1.5, colors: ['#ffd23f', '#fff'], size: 2, life: 30, up: 1 });
+        }
+    }
     function playerByTeam(s, team) { return s.players[team] || null; }
     function dropPickup(s, x, y, type) {
         s.pickups.push({ type, x, y: Math.min(y, GROUND_Y - 14), vy: -1.5, life: 900, bob: 0 });
@@ -1422,7 +1439,11 @@
             }
             if (!gone && b.kind !== 'aam') for (let j = s.units.length - 1; j >= 0; j--) {
                 const u = s.units[j];
-                if (hostile(s, u.team, b.team) && overlap(u, box)) { damageUnit(s, j, b.dmg, owner ? { player: owner, direct: false } : null); gone = true; break; }
+                if (hostile(s, u.team, b.team) && overlap(u, box)) {
+                    damageUnit(s, j, b.dmg, owner ? { player: owner, direct: false } : null); gone = true;
+                    if (b.src && !s.units.includes(u) && s.units.includes(b.src)) promote(s, b.src);
+                    break;
+                }
             }
             if (!gone && b.hut !== undefined) { const h = s.huts[b.hut]; if (h && h.garrison && hostile(s, h.garrison.team, b.team) && Math.abs(b.x - hutDoor(h)) < h.w / 2 + 4 && b.y > GROUND_Y - h.h - 8) { damageHut(s, h, b.dmg, owner); gone = true; } }
             if (!gone && b.kind !== 'heli' && b.kind !== 'aa' && b.kind !== 'rocket' && b.kind !== 'missile' && b.kind !== 'aam') { const eb = enemyBase(s, b.team); if (eb && overlap(eb, box)) { damageBase(s, eb, b.dmg, b.x, b.y, owner); gone = true; } }
@@ -1538,5 +1559,5 @@
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, TECH_TREE, ENEMY_TECH, PICKUPS, BOSS_EVERY, HUT_HP, AAM, BARRAGE, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, aamMax, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
+    return { PROMOTE, createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, TECH_TREE, ENEMY_TECH, PICKUPS, BOSS_EVERY, HUT_HP, AAM, BARRAGE, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, aamMax, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
 });

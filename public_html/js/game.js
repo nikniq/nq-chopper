@@ -1590,6 +1590,14 @@
                 ctx.fillStyle = '#0008'; ctx.fillRect(x - 1, y - 1, w + 2, 5);
                 ctx.fillStyle = `hsl(${pct * 110},80%,50%)`; ctx.fillRect(x, y, Math.round(w * pct), 3);
             }
+            // Rank chevrons for promoted troops (gold star for heroes)
+            if (u.rank) {
+                const rx = cx(u), ry = u.y - (u.health < u.maxHealth ? 14 : 8);
+                ctx.save(); ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 1.6; ctx.lineJoin = 'miter';
+                if (u.rank >= 3) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 1.8 : 4.2; ctx.lineTo(rx + Math.cos(a) * r, ry - 3 + Math.sin(a) * r); } ctx.closePath(); ctx.fill(); }
+                else for (let k = 0; k < u.rank; k++) { const y = ry - k * 3; ctx.beginPath(); ctx.moveTo(rx - 3.5, y - 2); ctx.lineTo(rx, y); ctx.lineTo(rx + 3.5, y - 2); ctx.stroke(); }
+                ctx.restore();
+            }
             // White flash for a few frames after a hit, so chipping armour reads clearly
             const hf = hitAt.get(u);
             if (hf !== undefined && frame - hf < 4) { ctx.save(); ctx.globalAlpha = 0.65; ctx.fillStyle = '#fff'; ctx.fillRect(u.x, u.y, u.width, u.height); ctx.restore(); }

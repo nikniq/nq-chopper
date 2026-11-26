@@ -194,11 +194,15 @@
     window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 200));
     // On desktop the shop sits outside the play area: carry it in while fullscreen so buying still works
     const shopHome = shopEl && shopEl.nextSibling;
+    let fsBtnHome = null, fsBtnParent = null;
     function onFullscreenChange() {
         const fs = isFullscreen();
         if (!isTouch && shopEl && playArea.appendChild) {
             if (fs && shopEl.parentNode !== playArea) playArea.appendChild(shopEl);
             else if (!fs && shopEl.parentNode === playArea && shopHome && shopHome.parentNode) shopHome.parentNode.insertBefore(shopEl, shopHome);
+            // Carry the fullscreen button too, so there is a visible way out besides Esc / X
+            if (fs && fullscreenBtn.parentNode !== shopEl) { fsBtnHome = fullscreenBtn.nextSibling; fsBtnParent = fullscreenBtn.parentNode; shopEl.appendChild(fullscreenBtn); fullscreenBtn.classList.add('shop-btn'); }
+            else if (!fs && fsBtnParent && fullscreenBtn.parentNode === shopEl) { fsBtnParent.insertBefore(fullscreenBtn, fsBtnHome); fullscreenBtn.classList.remove('shop-btn'); }
         }
         if (document.body && document.body.classList) document.body.classList.toggle('is-fullscreen', fs);
         if (!isTouch) fullscreenBtn.textContent = fs ? 'Exit fullscreen' : 'Fullscreen';
@@ -2026,9 +2030,10 @@
         2: 'ENEMY INFANTRY · VIP AND WOUNDED HOSTAGES',
         3: 'ANTI-AIR GUNS · ENEMY SUPPLY TRUCKS',
         4: 'HEAVY TANKS · ENEMY BUNKERS',
-        5: 'HOMING MISSILE LAUNCHERS - FLARES HELP',
+        5: 'HOMING MISSILE LAUNCHERS - FLARES HELP · ENEMY ROCKET TEAMS',
         6: 'ENEMY AA BUNKERS · BIGGER GARRISONS',
-        7: 'COMMAND PHASE: DESTROY THE ENEMY BASE TO TAKE THE SECTOR · BIGGER ARMIES · BUNKERS PAY'
+        7: 'COMMAND PHASE: DESTROY THE ENEMY BASE TO TAKE THE SECTOR · BIGGER ARMIES · BUNKERS PAY',
+        8: 'ENEMY DRONES - SHOOT THEM DOWN OR BRING ROCKET TEAMS'
     };
     let hudFade = 1;
     function drawHUD() {

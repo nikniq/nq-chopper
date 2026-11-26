@@ -76,6 +76,7 @@
         rockets: { name: 'ROCKET TEAMS', costs: [250], requires: 'training' },          // unlocks rocket-launcher infantry
         drones: { name: 'DRONE CORPS', costs: [400, 500], requires: 'rockets' }          // unlocks drones; level 2 arms them with missiles
     };
+    const ENEMY_TECH = { rpg: 5, drone: 8 }; // waves the enemy starts fielding each tech unit
     const TECH_TREE = [
         { id: 'training', unlocks: null, desc: '+25% troop health and damage per level' },
         { id: 'rockets', unlocks: 'rpg', desc: 'Rocket teams: anti-tank, can hit aircraft' },
@@ -923,6 +924,18 @@
         const soldiers = s.units.filter(u => u.ai && u.type === 'soldier').length
             + s.huts.reduce((n, h) => n + (h.garrison && h.garrison.team === AI ? h.garrison.count : 0), 0);
         const tankCap = commandPhase(s) ? 8 + (s.wave - COMMAND_WAVE) * 2 : Math.round((3 + s.wave * 2) * Math.min(1.6, threat(s))), soldierCap = s.wave >= 2 ? Math.min(commandPhase(s) ? 16 : 8, 1 + s.wave) : 0;
+        // The enemy researches too: rocket teams from wave 5, drones from wave 8
+        const rpgs = s.units.filter(u => u.ai && u.type === 'rpg').length, drones = s.units.filter(u => u.ai && u.type === 'drone').length;
+        const techPick = s.wave >= ENEMY_TECH.drone && drones < Math.min(4, s.wave - ENEMY_TECH.drone + 1) && rnd(s) < 0.25 ? 'drone'
+            : s.wave >= ENEMY_TECH.rpg && rpgs < Math.min(4, s.wave - ENEMY_TECH.rpg + 1) && rnd(s) < 0.3 ? 'rpg' : null;
+        if (techPick && s.aiCredits >= UNITS[techPick].cost) {
+            s.aiCredits -= UNITS[techPick].cost; s.aiSpent += UNITS[techPick].cost;
+            const u = makeTech(s, { team: AI, upgrades: {} }, techPick, eb.x - 24, -1);
+            u.ai = true; u.vet = Math.sqrt(threat(s)); u.health = u.maxHealth = Math.round(UNITS[techPick].health * u.vet);
+            s.units.push(u);
+            text(s, eb.x - 20, GROUND_Y - (techPick === 'drone' ? 150 : 50), techPick === 'drone' ? 'ENEMY DRONE' : 'ENEMY ROCKET TEAM', '#f66');
+            return;
+        }
         const wantSoldier = soldierCap > soldiers && (tanks >= tankCap || rnd(s) < 0.35);
         if (wantSoldier && s.aiCredits >= UNITS.soldier.cost) {
             s.aiCredits -= UNITS.soldier.cost; s.aiSpent += UNITS.soldier.cost;
@@ -1363,7 +1376,7 @@
                 if (hostile(s, u.team, b.team) && overlap(u, b)) {
                     // Armour: the machine gun drops infantry outright but only chips tanks; bombs are the anti-tank tool
                     const gunDmg = UPGRADES.gun.dmg[owner ? owner.upgrades.gun : 0];
-                    const dmg = u.type === 'aa' ? 12 : u.type === 'soldier' ? 999 : u.ai && u.type === 'tank' ? Math.round(gunDmg * 0.45) : 20;
+                    const dmg = u.type === 'aa' ? 12 : u.type === 'soldier' || u.type === 'rpg' ? 999 : u.ai && u.type === 'tank' ? Math.round(gunDmg * 0.45) : 20;
                     damageUnit(s, j, dmg, owner ? { player: owner, direct: true, pts: u.type === 'aa' ? 200 : 100 } : null); hit = true; break;
                 }
             }
@@ -1525,5 +1538,5 @@
         return h >>> 0;
     }
 
-    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, TECH_TREE, PICKUPS, BOSS_EVERY, HUT_HP, AAM, BARRAGE, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, aamMax, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
+    return { createGame, step, hash, threat, upgradeCost, UNITS, UPGRADES, TECH_TREE, ENEMY_TECH, PICKUPS, BOSS_EVERY, HUT_HP, AAM, BARRAGE, WOUND_FRAMES, AIRSTRIKE, AA, BOOST, COAX, HOSTAGE_ESCAPE, BASE_SAFE, BUY_CODES, aamMax, SUPPLY, CONVOY, MORTAR, FIELD_HOSPITAL, FORT, FORT_CODES, MAX_TROOPS, LOAD_RANGE, WORLD_WIDTH, GROUND_Y, MAX_CARRY, MAX_BOMBS, MAX_ALLIES, GARRISON_CAP, COMMAND_WAVE, TERRITORY, allyCap, commandPhase, AI, EMPTY };
 });

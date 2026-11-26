@@ -821,3 +821,13 @@ console.log('missile upgrades ok');
     assert.ok(Number.isFinite(Sim.hash(s)));
     console.log('troop tech tree ok');
 }
+
+// Enemy tech: rocket teams and drones appear on later waves
+{
+    const s = Sim.createGame({ mode: 'solo', seed: 5 });
+    s.wave = 9; s.aiCredits = 1e6;
+    for (let i = 0; i < 4000; i++) { s.aiCredits = 1e6; Sim.step(s, [Sim.EMPTY]); if (s.status !== 'playing') break; }
+    const t = s.units.filter(u => u.ai).map(u => u.type);
+    assert.ok(t.includes('rpg') && t.includes('drone'), 'enemy fields tech units: ' + [...new Set(t)]);
+    console.log('enemy tech units ok');
+}
